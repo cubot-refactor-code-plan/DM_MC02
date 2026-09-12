@@ -322,3 +322,38 @@ __attribute__((section(".dma_buffer"))) 使用这一个缀修饰
 `// IWYU pragma: keep`
 
 可以规避 `Included header XXX.h is not used directly (fixes available)` 这个错误
+
+## 技术细节
+### Algorithm 算法
+### Bsp 驱动
+### Device 设备
+#### DM_Motor 达妙电机驱动
+##### 使用接口
++ **初始化** 
+  - 先声明`DmMotor<电机型号> 电机名称(can_item, esc_id, master_id, mode);`
+  - 然后调用`.init()`
++ **数据只读接口**
+  - `.data()` 获取电机的运动学数据，以弧度值为单位
+  - `.feedback()` 达妙电机的原始反馈数据
+  - `.online().isOnline()` 电机在线情况检查
+  - `.lvbo_data()` 观测器获得的运动学数据，以弧度值为单位。默认无观测器配置
+  - `.drive_state()` 查询电机错误码
+  - `.enable_state()` 查询电机使能状态
+  - `.status()` 查询最近一次的电机状态
++ **功能接口**
+  - `.set_mit_target(position, velocity, kp, kd, torque)` 设置MIT模式下的控制目标
+  - `.set_position_velocity_target(position, velocity_limit)` 设置位置-速度模式下的控制目标
+  - `.set_velocity_target(velocity)` 设置速度模式下的控制目标
+  - `.set_position_torque_target(position, velocity_limit, current_limit_ratio)` 设置力位混控模式下的控制目标
+  - `.enable()` 使能电机
+  - `.disable()` 失能电机
+  - `.clear_error()` 清除电机错误位
+  - `.save_current_position_as_zero()` 以当前位置保存为位置零点
+##### 技术原理
+电机对象持有[电机发送管理对象](#motor_tx_manager)`_tx_endpoint`
+##### 实现细节
+### Module 模块
+### Protocol 协议
+### Service 服务
+#### motor_tx_manager
+#### online_check
