@@ -266,61 +266,12 @@ private:
   DmPendingAction           _pending_action; ///< 独立于启停状态的一次性特殊指令
   Status                    _status;         ///< 最近一次公开操作结果
   CanTxMsg                  _control_msg;    ///< 已完整编码的周期控制帧缓存
-  MotorTxManager::Endpoint  _tx_endpoint;    ///< 统一周期发送端点
   float                     _last_velocity;  ///< 上一次最终机构输出轴速度，单位：rad/s
-  bool                      _target_ready;   ///< 是否已经缓存当前模式的有效目标
-  bool                      _feedback_ready; ///< 是否已经接收过有效反馈
   bool                      _initialized;    ///< 是否已完成 init() 注册
 
   DmMotor *_next;        ///< 同型号反馈分发链表后继节点
   static DmMotor *_head; ///< 同型号反馈分发链表头
   static DmMotor *_tail; ///< 同型号反馈分发链表尾
-
-  /** @brief 计算当前模式的控制帧标准标识符。 */
-  uint32_t control_std_id(void) const;
-
-  /** @brief 发送当前状态机要求的一帧特殊指令或周期控制数据。 */
-  Status send_update(void);
-
-  /** @brief MotorTxManager 的发送回调。 */
-  static Status tx_callback(void *context);
-
-  /** @brief 仅在状态机允许时让统一发送管理器调用发送回调。 */
-  static bool tx_ready_callback(const void *context);
-
-  /** @brief 注册或注销同型号反馈分发链表。 */
-  void register_motor(void);
-  void unregister_motor(void);
-
-  /** @brief 在同型号链表中查找并解析匹配反馈。 */
-  static Status dispatch(BspCan &can_item, const CanRxMsg &rx);
-
-  /** @brief 判断同型号链表是否占用指定 CAN 和反馈 ID。 */
-  static bool feedback_in_use(const BspCan &can_item, uint16_t master_id);
-
-  /** @brief 判断同型号链表中是否存在使用指定 CAN 的电机。 */
-  static bool uses_can(const BspCan &can_item);
-
-  template <DmMotorType OTHER_TYPE>
-  friend class DmMotor;
-  friend Status dm_motor_dispatch_rx(BspCan &can_item, const CanRxMsg &rx);
-  friend bool dm_motor_feedback_in_use(const BspCan &can_item, uint16_t master_id);
-  friend bool dm_motor_uses_can(const BspCan &can_item);
 };
-
-/**
- * @brief 将一帧 CAN 数据分发给匹配的达妙电机对象
- */
-Status dm_motor_dispatch_rx(BspCan &can_item, const CanRxMsg &rx);
-
-/**
- * @brief 查询指定 CAN 和反馈 ID 是否已被任意达妙电机占用
- */
-bool dm_motor_feedback_in_use(const BspCan &can_item, uint16_t master_id);
-
-/**
- * @brief 判断指定 CAN 是否注册了达妙电机
- */
-bool dm_motor_uses_can(const BspCan &can_item);
 
 #endif // __DM_MOTOR_HPP__
