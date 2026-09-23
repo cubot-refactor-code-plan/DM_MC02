@@ -20,7 +20,6 @@
 
 #include "bsp_can.hpp"
 #include "motor_definition.hpp"
-#include "motor_tx_manager.hpp"
 #include "online_check.hpp"
 
 #include <stdint.h>

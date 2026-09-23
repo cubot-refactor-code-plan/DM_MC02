@@ -15,7 +15,6 @@
 
 #include "bsp_can.hpp"
 #include "motor_definition.hpp"
-#include "motor_tx_manager.hpp"
 #include "online_check.hpp"
 
 #include <stdint.h>
@@ -57,19 +56,6 @@ enum class DmDriveState : uint8_t
   COMM_LOST         = 0xDU,
   OVERLOAD          = 0xEU,
   UNKNOWN           = 0xFFU,
-};
-
-/**
- * @brief 软件侧的达妙启停发送状态
- */
-enum class DmEnableState : uint8_t
-{
-  DISABLED,
-  ENABLE_PENDING,
-  WAIT_ENABLE_FEEDBACK,
-  ENABLED,
-  DISABLE_PENDING,
-  FAULT,
 };
 
 /**
@@ -182,7 +168,7 @@ public:
   DmDriveState drive_state(void) const;
 
   /** @brief 查询软件侧启停发送状态机。 */
-  DmEnableState enable_state(void) const;
+  Status enable_state(void) const;
 
   /** @brief 查询最近一次公开操作状态。 */
   Status status(void) const;
@@ -262,7 +248,6 @@ private:
   uint16_t                  _master_id;      ///< 电机反馈 ID
   DmControlMode             _mode;           ///< 当前配置的普通固件控制模式
   DmProtocolLimits          _limits;         ///< MIT 编解码映射范围
-  DmEnableState             _enable_state;   ///< 启停状态机
   DmPendingAction           _pending_action; ///< 独立于启停状态的一次性特殊指令
   Status                    _status;         ///< 最近一次公开操作结果
   CanTxMsg                  _control_msg;    ///< 已完整编码的周期控制帧缓存

@@ -16,6 +16,12 @@
 #define __SERVICE_STATUS_HPP__
 
 #include <stdint.h>
+#include "cmsis_os2.h"
+
+extern osEventFlagsId_t sysEvent;
+
+#define SYS_FLAG_INIT_FAIL_BIT (1U << 23)
+#define SYS_FLAG_RUNNING_BIT (1U << 22)
 
 /**
  * @brief 统一状态码
@@ -32,5 +38,12 @@ enum class Status : uint8_t
   NOT_SUPPORTED, ///< 不支持的操作/模式
 };
 
+Status SysFlagInit(void);
+Status SysFlagSet(Status statu);
+void SysCompleteInit(void);
+void SysInitError(void);
+Status SysInitError(Status statu);
+uint32_t SysFlagWait(Status statu, uint32_t timeout);
+void SysFlagWaitRunning(void);
 
 #endif // __SERVICE_STATUS_HPP__

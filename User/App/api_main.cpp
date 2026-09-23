@@ -15,6 +15,10 @@
 /* Protocol */
 #include "protocol_cfg.hpp"
 
+/* Service */
+#include "motor_txBuffers.hpp"
+#include "status.hpp"
+
 /* 任务声明 */
 #include "app_task.hpp"
 #include "app_test.hpp"
@@ -57,6 +61,9 @@ volatile uint32_t can1_bus_off              = 0;
  */
 void all_init()
 {
+  // 初始化错误记录信号量
+  configASSERT(SysFlagInit() == Status::OK);
+
   // 创建信号量
   for (int i = 0; i < 3; i++)
   {
@@ -74,9 +81,9 @@ void all_init()
   /* 初始化协议层 */
   protocol_init();
 
-  /* 系统与电机维护任务（均为 1 kHz，电机接收/发送优先级更高） */
+  /* 系统维护与电机发送任务（均为 1 kHz，电机发送优先级更高） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
-  configASSERT(xTaskCreate(dji_motor_task, "dji_motor", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
+  configASSERT(xTaskCreate(MotorTxTask, "motor_tx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
 
   /* 菜单任务（LCD 菜单 + 按键，事件转发给 menu 模块；优先级最高） */
   configASSERT(xTaskCreate(task_menu, "t_menu", 2048, NULL, tskIDLE_PRIORITY + 6, NULL) == pdPASS);
@@ -121,6 +128,8 @@ void all_init()
                            tskIDLE_PRIORITY + 4,
                            NULL) == pdPASS);
 #endif
+
+  SysCompleteInit();
 
 }
 
