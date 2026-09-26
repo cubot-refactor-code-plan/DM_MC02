@@ -67,22 +67,28 @@ typedef struct ProtocolFrame
  */
 class ProtocolUart
 {
+public:
+  /* ==================== 任务入口访问面（uart_protocol_task_entry 直接读写） ==================== */
+
+  ProtocolFrame _rx_frame;      ///< 接收用结构体
+  BspUart<128> &_uart_instance; ///< 使用的串口驱动实例
+  uint8_t       _header1;       ///< 自定义帧头1
+  uint8_t       _header2;       ///< 自定义帧头2
+  uint8_t       _tail;          ///< 自定义帧尾
+
+  /**
+   * @brief 逻辑分发：根据指令执行具体动作
+   */
+  void protocol_handle_cmd();
+
+
 private:
   /* ==================== 私有成员变量 ==================== */
 
-  protocol_frame_t rx_frame;        ///< 接收用结构体
-  BspUart<64, 8>&  uart_instance;   ///< 使用的串口驱动实例
-  uint8_t          header1;         ///< 自定义帧头1
-  uint8_t          header2;         ///< 自定义帧头2
-  uint8_t          tail;            ///< 自定义帧尾
-  char             task_name[32];   ///< 任务名称
-  uint32_t         stack_size;      ///< 堆栈大小
-  uint32_t         priority;        ///< 任务优先级
-
-  /* ==================== 友元声明 ==================== */
-
-  friend void _uart_protocol_task_entry(void* argument); ///< 友元函数，可访问私有成员
-
+  uint8_t  _instance_name; ///< 实例名称编号
+  char     _task_name[32]; ///< 任务名称
+  uint32_t _stack_size;    ///< 堆栈大小
+  uint32_t _priority;      ///< 任务优先级
 
   /* ==================== 私有成员函数 ==================== */
 
@@ -93,11 +99,6 @@ private:
    * @return uint8_t 校验结果
    */
   uint8_t calculate_checksum(uint8_t* data, uint8_t len);
-
-  /**
-   * @brief 逻辑分发：根据指令执行具体动作
-   */
-  void protocol_handle_cmd();
 
 
 public:

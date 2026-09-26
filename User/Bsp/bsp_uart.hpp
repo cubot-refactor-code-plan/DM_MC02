@@ -5,12 +5,11 @@
  * @version 0.2
  * @date 2026-02-08
  *
- * @todo 1. 目前使用查表法存入回调函数中，可能查询速度会慢，希望后人处理。
- *       2. 接收到的数据,需要在服务层写分发处理
- *       3. 双缓冲区测试过，效果不理想
+ * @todo 接收到的数据需要在应用层 app_message 中做分发处理
  *
  * @copyright Copyright (c) 2026
  *
+ * @details 使用IDLE中断接收，TX Complete中断链式发送，全程DMA。
  *
  * @details 使用示例：（必须要在freertos的任务中运行收发 中断中不行 中断不能阻塞）
            （使用的IDLE中断进行接收 发送也是同理）
@@ -22,22 +21,21 @@
  *
  *   // 全局实例化类 在bsp_cfg.cpp中
  *   __attribute__((section(".dma_buffer")))
- *   BspUart<64,8> bsp_usart6(&huart6, ReceiveMode::SINGLE_BUFFER, true);
+ *   BspUart<128> bsp_uart1({&huart1, true});  // huart句柄 + 是否启用发送
+ *   bsp_uart1.init();                         // 放到bsp_init中初始化串口（需FreeRTOS调度器已启动）
  *
- *   bsp_usart6.init();                           // 需要freertos内核初始化成功之后使用
+ *   bsp_uart1.send(buffer, 8);                // 存入发送流缓冲区，DMA自动发送
+ *   bsp_uart1.printf("val=%d\r\n", 42);       // 格式化输出（非阻塞，DMA发送）
+ *   bsp_uart1.receive(buffer, 8);             // 从接收流缓冲区读数据，读取后对应数据会被推出缓冲区
  *
- * @note extern好之后，在任务中使用
- *
- *    bsp_usart6.receive(buffer,8,osWaitForever); // 从自动中断接收的缓冲区里面接收，无需处理直接拿
- *    bsp_usart6.send(buffer,8);                  // 存入发送缓冲区，然后自动发送
- *
+ * @note 多任务并发写同一串口是安全的（TX 启动由 _tx_lock 串行化）。
  */
 
 #ifndef __BSP_UART_HPP__
 #define __BSP_UART_HPP__
 
 #include "FreeRTOS.h" // IWYU pragma: keep
-#include "task.h"     // IWYU pragma: keep
+#include "semphr.h"   // IWYU pragma: keep (TX 启动锁)
 #include "stream_buffer.h"
 #include "queue.h"
 #include "usart.h" // IWYU pragma: keep
@@ -46,6 +44,10 @@
 /**
  * @brief 接收模式枚举
  *
+ * @tparam BUFFER_SIZE DMA收发缓冲区大小（uint8_t），也是流缓冲区容量
+ *
+ * @note RX：IDLE/TC 事件 → 投递流缓冲区 → 重新武装（HT 事件忽略，全程不碰 TX DMA）
+ *       TX：写入流缓冲区 → 任务侧启动或 TX-Complete 中断续传
  */
 enum class ReceiveMode
 {
@@ -59,107 +61,120 @@ enum class ReceiveMode
 template <size_t BUFFER_SIZE = 256, size_t MSG_SIZE = 8>
 class BspUart
 {
-
-private:
-  UART_HandleTypeDef  *_huart;                                     ///< UART句柄指针，指向底层硬件接口
-  QueueHandle_t        _msg_queue_id         = nullptr;            ///< FreeRTOS消息队列句柄，用于LATEST_ONLY模式
-  StreamBufferHandle_t _rx_stream_buffers[2] = {nullptr, nullptr}; ///< 接收流缓冲区数组，[0]为单缓冲或双缓冲第一个，[1]为双缓冲第二个
-  StreamBufferHandle_t _tx_stream_buffer     = nullptr;            ///< FreeRTOS发送流缓冲区句柄
-  ReceiveMode          _receive_mode;                              ///< 接收模式，指定数据接收策略
-  bool                 _rx_active = false;                         ///< 接收状态标志，指示是否正在接收数据
-  uint8_t              _rx_dma_buffer[BUFFER_SIZE];                ///< DMA接收缓冲区，用于多字节接收
-  uint8_t              _tx_dma_buffer[BUFFER_SIZE];                ///< DMA发送缓冲区，用于多字节发送
-  bool                 _current_buffer = false;                    ///< 当前使用的流缓冲区标识，true表示使用buffer2，false表示buffer1
-  size_t               _buffer_size    = BUFFER_SIZE;              ///< 缓冲区大小，单位字节
-  size_t               _msg_item_size  = MSG_SIZE;                 ///< 消息队列中每个项目的大小
-  bool                 _transmit_enable;                           ///< 是否启用发送
-  uint32_t             _last_received_length = 0;                  ///< 最后一次接收的数据长度
-  int                  _instance_id;                               ///< 实例ID，用于生成唯一资源名称
-  char                 msgq_name[32];                              ///< 实例消息队列的名字，用于调试时看到名字
-
-  // 静态成员：实例注册表，用于通过UART句柄查找对应的bsp_usart实例
-  static constexpr size_t MAX_INSTANCES = 10;        ///< 最大支持的实例数量
-  static BspUart         *_instances[MAX_INSTANCES]; ///< 静态实例指针数组
-  static size_t           _instance_count;           ///< 当前已注册的实例数量
-
-
 public:
-  /**
-   * @brief 构造函数
-   *
-   * @note 初始化串口驱动对象，配置必要的FreeRTOS对象
-   *
-   * @param huart UART句柄指针
-   * @param rx_mode 接收模式
-   * @param transmit_signal 是否启用发送功能
-   * @param instance_id 实例ID，用于生成唯一资源名称
-   */
-  BspUart(UART_HandleTypeDef *huart, ReceiveMode rx_mode, bool transmit_signal, int instance_id = 0);
+  // ---------------- 公有接口 ----------------
+
+  /** @brief 串口配置（可匿名按序传入：{huart, transmit_enable}） */
+  struct Config
+  {
+    /** @brief 按序构造（参数顺序 = 字段顺序） */
+    Config(UART_HandleTypeDef *huart = nullptr, bool transmit_enable = true)
+
+      : huart(huart),
+        transmit_enable(transmit_enable)
+    {
+    }
+
+    UART_HandleTypeDef *huart;           ///< UART 句柄
+    bool                transmit_enable; ///< 是否启用发送
+  };
 
   /**
-   * @brief 初始化函数 初始化串口驱动对象，配置必要的FreeRTOS对象
+   * @brief RX 健康状态（多点一致性校验的结果）
    *
-   * @return true 初始化成功
-   * @return false 初始化失败
+   * @note 把「HAL 软件状态」与「硬件真实使能」三者交叉核对，
+   *       避免出现"HAL 宣称在收、DMA 其实已停"却无人察觉的情况。
    */
-  bool init();
+  enum class RxHealth : uint8_t
+  {
+    OK = 0,       ///< 三者一致地"在收" → 正常
+    STOPPED,      ///< 三者一致地"停" → 未武装/已停止（非故障）
+    INCONSISTENT, ///< 自相矛盾 → RX 已停摆，需重建（配合 _rx_should_run 判故障）
+  };
 
-  // 析构函数 释放所有分配的资源
+  ///< RX 诊断计数（只增不减，正常应恒为 0）
+  struct RxDiag
+  {
+    uint32_t arm_fail_cnt; ///< 武装失败次数（含首次 init 与运行期重装）
+    uint32_t drop_bytes;   ///< 流缓冲区满而丢弃的字节数（静默丢数据）
+    uint32_t error_cnt;    ///< 错误回调/重装失败触发恢复的次数
+  };
+
+  ///< TX 诊断计数（只增不减，正常应恒为 0）
+  struct TxDiag
+  {
+    uint32_t start_fail_cnt;    ///< HAL_UART_Transmit_DMA 启动失败次数（任务与 ISR 合计）
+    uint32_t isr_skip_cnt;      ///< ISR 因通道不空闲而跳过续传的次数
+    uint32_t stall_recover_cnt; ///< 巡检判定断链并成功恢复的次数
+  };
+
+  /** @brief 构造函数（只做赋值，FreeRTOS 资源创建推迟到 init()） */
+  BspUart(const Config &cfg);
+
+  /**
+   * @brief 创建 FreeRTOS 对象并启动 IDLE 接收（须在调度器启动后调用）
+   * @return Status OK=成功，IO_ERROR=资源创建或接收启动失败
+   */
+  Status init();
+
+  ///< 析构函数 释放所有分配的资源
   ~BspUart();
 
   /**
-   * @brief 发送数据 将数据放入发送缓冲区，并启动DMA传输。
-   *
-   * @param data 要发送的数据指针
-   * @param size 数据大小
-   * @param timeout 超时时间（ticks / ms）
-   *
-   * @return int 返回发送的数据字节数，负值表示错误
+   * @brief 发送数据：写入流缓冲区并启动 DMA（DMA 异步，但入队可能阻塞）
+   * @param timeout 单位 ticks（默认 portMAX_DELAY 会一直等到全部入队）
+   * @param written 实际写入的字节数（可为 nullptr）
+   * @return Status OK=全部入队，TIMEOUT=部分入队，BAD_ARG=非法或超长，IO_ERROR=未初始化
    */
-  int send(const uint8_t *data, size_t size, uint32_t timeout = portMAX_DELAY);
+  Status send(const uint8_t *data, size_t size, uint32_t timeout = portMAX_DELAY, size_t *written = nullptr);
+
+  ///< 格式化输出（printf 风格，超长自动截断，用户需要做缓冲区等等处理；须在任务上下文调用）
+  Status printf(const char *fmt, ...);
 
   /**
-   * @brief 接收数据 根据接收模式从相应的缓冲区读取数据
+   * @brief 从接收流缓冲区读取数据
    *
    * @param buffer 接收数据的缓冲区
    * @param size 请求读取的数据大小
-   * @param timeout 超时时间（ticks）
-   * @return int 实际读取的数据字节数，-1表示超时或无数据
+   * @param timeout 超时时间（ms）
+   * @param received 实际读取的字节数（可为 nullptr）
+   * @return Status OK=读到数据，TIMEOUT=超时或无数据，
+   *                BAD_ARG=参数非法，IO_ERROR=缓冲区未创建
    */
-  int receive(uint8_t *buffer, size_t size, uint32_t timeout = portMAX_DELAY);
+  Status receive(uint8_t *buffer, size_t size, uint32_t timeout = portMAX_DELAY, size_t *received = nullptr);
 
   /**
-   * @brief 获取发送缓冲区剩余空间
+   * @brief TX 断链兜底：若有数据待发而通道空闲，则通过这个检查是否存在
    *
-   * @return size_t 剩余空间大小
+   * @return true=本次确实救回一次（原先断链且成功启动）
+   * @note 非阻塞（取锁等待为 0），可安全地在周期任务中调用。
+   *       与 send()/ISR 共用同一套仲裁，不会造成双启动。
    */
-  size_t get_tx_free_space();
+  bool tx_recover();
+
+  // ----------------
+
+  // ISR 入口（仅供回调分发调用）
 
   /**
-   * @brief 获取接收缓冲区可用数据量
-   *
-   * @return size_t 可用数据量
-   */
-  size_t get_rx_available_data();
-
-  /**
-   * @brief DMA传输完成回调函数 由HAL库调用，处理DMA传输完成事件
-   *
-   * @param huart UART句柄
+   * @brief IDLE/TC 接收完成处理（ISR）
+   * @param size 接收到的数据大小
+   * @param pxHigherPriorityTaskWoken 中断处理后可能唤醒的高优先级任务
    */
   void dmaTransferCompleteCallback(UART_HandleTypeDef *huart);
 
   /**
-   * @brief DMA错误回调函数 由HAL库调用，处理DMA错误事件
-   *
-   * @param huart UART句柄
+   * @brief 发送完成/续传处理（ISR上下文，由 TX Complete 中断调用）
+   * @param pxHigherPriorityTaskWoken 需初始化为pdFALSE，若唤醒高优先级任务则置为pdTRUE
    */
   void dma_error_callback(UART_HandleTypeDef *huart);
 
   /**
    * @brief IDLE中断处理函数 处理由IDLE中断检测到的数据包
    *
-   * @param received_length 接收到的数据长度
+   * @note 用【多点一致性校验】代替单点 `RxState == BUSY_RX` 判断：
+   *       只有三处证据一致地表明"RX 仍在运行"时才认定为非阻塞错误、不打断；
+   *       否则认为 RX 已停摆，执行「复位 → 重新武装」。全程只操作 RX。
    */
   void handle_idle_interrupt(uint32_t received_length);
 
@@ -195,35 +210,79 @@ public:
    */
   bool register_instance();
 
-private:
-  // 开始接收数据 启动DMA接收
-  void start_reception();
+  // ---------------- 查询接口 ----------------
 
-  // 清理资源 清理所有分配的资源
-  void cleanup_resources();
+  ///< 发送流缓冲区剩余空间
+  size_t get_tx_free_space();
 
-  // 停止接收数据 停止DMA接收
-  void stop_reception();
-
-  // 开始传输数据 启动DMA发送
-  void start_transmission();
+  ///< 接收流缓冲区可用数据量
+  size_t get_rx_available_data();
 
   /**
-   * @brief 检查是否正在传输
+   * @brief RX 健康查询（多点一致性校验）
    *
-   * @return true 正在传输
-   * @return false 未在传输
+   * @note 核对三处独立证据：RxState==BUSY_RX + USART_CR3.DMAR + DMA_SxCR.EN
+   *       只看 RxState 不够 —— 可识别"HAL 说在收、DMA 其实已停"。
+   *
+   * @note _rx_should_run==true 而返回非 OK → RX 意外停摆（故障）；false → 主动停止
    */
-  bool is_transmitting();
+  RxHealth rx_health() const;
 
-  // 处理DMA错误 记录错误并尝试重新初始化
-  void handle_dma_error();
+  ///< 读取 RX 诊断计数
+  RxDiag rx_diag() const;
 
-  // 获取UART句柄指针（供静态函数使用）
-  UART_HandleTypeDef *get_huart() const
-  {
-    return _huart;
-  }
+  ///< 读取 TX 诊断计数
+  TxDiag tx_diag() const;
+
+  // ----------------
+
+private:
+  // ---------------- 私有实现 ----------------
+
+  // 成员变量
+
+  UART_HandleTypeDef *_huart; ///< UART句柄指针，指向底层硬件接口
+
+  StreamBufferHandle_t _rx_stream_buffer = nullptr; ///< 接收流缓冲区
+  StreamBufferHandle_t _tx_stream_buffer = nullptr; ///< FreeRTOS发送流缓冲区句柄
+
+  ///< TX 启动锁：串行化「判忙 → 取包 → 启转」，多任务并发写同一串口也安全
+  SemaphoreHandle_t _tx_lock = nullptr;
+
+  bool    _rx_should_run = true;       ///< 是否期望 RX 运行（意图；不因单次失败而闩死）
+  bool    _transmit_enable;            ///< 是否启用发送
+  uint8_t _rx_dma_buffer[BUFFER_SIZE]; ///< DMA接收缓冲区，用于多字节接收
+  uint8_t _tx_dma_buffer[BUFFER_SIZE]; ///< DMA发送缓冲区，用于多字节发送
+  char    _printf_buffer[BUFFER_SIZE]; ///< printf 格式化缓冲区（vsnprintf 输出到此处）
+
+  ///< RX 诊断量（volatile：ISR 中更新，任务中读取）
+  volatile uint32_t _rx_arm_fail_cnt = 0; ///< 武装失败次数
+  volatile uint32_t _rx_drop_bytes   = 0; ///< 流缓冲满而丢弃的字节数
+  volatile uint32_t _rx_error_cnt    = 0; ///< 错误回调/重装失败触发恢复的次数
+
+  ///< TX 诊断量（volatile：ISR 中更新，任务中读取）
+  volatile uint32_t _tx_start_fail_cnt = 0; ///< TX 启动失败次数（任务与 ISR 合计）
+  volatile uint32_t _tx_isr_skip_cnt   = 0; ///< ISR 因通道不空闲而跳过续传的次数
+  volatile uint32_t _tx_stall_rec_cnt  = 0; ///< 巡检判定断链并成功恢复的次数
+
+  // 内部实现
+  /**
+   * @brief 武装 DMA 接收（仅 RX，调用前 RxState 必须为 READY）
+   * @note 先清残留的 UART 错误标志（ORE/FE/NE/PE），否则 HAL 会拒绝启动
+   * @return true=成功；false=HAL 拒绝（BUSY/ERROR），已累加 arm_fail_cnt
+   */
+  bool arm_reception();
+
+  ///< 中止 RX 通道并复位接收状态（仅 RX，不触碰 TX DMA）
+  void abort_reception();
+
+  ///< 释放所有已创建的 FreeRTOS 资源
+  void cleanup_resources();
+
+  ///< 主动尝试排空发送流缓冲区（取包 + 启动 DMA）；wait=0 时非阻塞
+  bool start_transmission(TickType_t wait = portMAX_DELAY);
+
+  // ----------------
 };
 
 

@@ -26,3 +26,7 @@ file(GLOB_RECURSE USER_SOURCE
     ../User/*.cpp
 )
 target_sources(User_lib PRIVATE ${USER_SOURCE})
+
+target_include_directories(User_lib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../QSPI_Flash
+)

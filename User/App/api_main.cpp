@@ -6,7 +6,16 @@
 
 /* BSP */
 #include "bsp_cfg.hpp"
-#include <stdint.h>
+
+/* Device */
+#include "device_cfg.hpp"
+
+/* Protocol */
+#include "protocol_cfg.hpp"
+
+/* 任务声明 */
+#include "app_task.hpp"
+#include "app_test.hpp"
 
 
 /**
@@ -22,34 +31,14 @@ void all_init()
   bsp_init();
 
   /* 初始化协议层 */
+  protocol_init();
 
-  /* 初始化设备 */
+  /* 维护任务：sys_task 为 10 ms（Online 计时 + 串口 TX 兜底，优先级 +7）；
+     dji_motor_task 为 1 ms（电机接收/发送，优先级更高 +8） */
+  configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
 
-  /* 初始化信号量 */
-
-  printf("freertos_init_ok\n");
 }
 
-
-/**
- * @brief FreeRTOS任务说明
- *
- * @note 以下均为FreeRTOS的内容定义，使用C调用C++，需要extern "C"声明，让RTOS接管
- *       CubeMX提供了FreeRTOS配置，故而使用它的CMSIS_OS2
- *       CMSIS_OS2封装了一层，导致很多东西和原生的FreeRTOS不一样
- *       CMSIS_OS2的初始句柄不对外声明，如果想用只能单独extern出来用
- *       CMSIS_OS2做了层封装，方便使用。但是原生的FreeRTOS在以后要用的时候，还是要花时间适应
- *       CMSIS_OS2的默认任务只能weak声明，其他的可以使用外部声明
- *       printf要加\n
- *
- * @note 在C++中使用FreeRTOS的Task函数时，
- *       需要将任务函数声明为extern "C"格式，
- *       同时函数参数必须是void *pvParameters。
- */
-
-
-uint64_t defaultCount = 0;
-uint8_t data1[8]{'1','2','3','4','5','6','7','8'};
 
 /**
  * @brief 默认任务，这个原本命名为_start_default_task。但是每次开FreeRTOS这个里面，默认是这个名字
@@ -61,16 +50,9 @@ extern "C" void StartDefaultTask(void *argument)
 {
   (void)argument; // 未使用参数
 
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  printf("Default Task Started\n");
-  vTaskDelay(pdMS_TO_TICKS(1000));
-
   for (;;)
   {
-    // defaultCount++;
-    bsp_can1.send(0x101,data1);
-    bsp_can2.send(0x101,data1);
-    bsp_can3.send(0x101,data1);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    vTaskDelay(1); // 1 tick（等价于 osDelay(1)）
   }
 }

@@ -3,4 +3,60 @@
         "--compile-commands-dir=build/Debug",                     
     ],
     "cortex-debug.variableUseNaturalFormat": true,
+    "cmake.useCMakePresets": "always",
+    "VsCodeTaskButtons.showCounter": false,
+    "VsCodeTaskButtons.tasks": [
+        {
+            "label": "[🔨 编译 F7]",
+            "task": "Build",
+            "tooltip": "编译项目"
+        },
+        {
+            "label": "[🧹 重新编译]",
+            "task": "Clean_Rebuild",
+            "tooltip": "先清理再重新编译"
+        },
+        {
+            "label": "[🗑️ 清理]",
+            "task": "Clean",
+            "tooltip": "仅清理构建产物"
+        },
+        {
+            "label": "[⚡ DAP烧录Linux]",
+            "task": "OpenOCD_flash_linux",
+            "tooltip": "OpenOCD 烧录 (Linux)"
+        },
+        {
+            "label": "[⚡ DAP烧录Win]",
+            "task": "OpenOCD_flash_win",
+            "tooltip": "OpenOCD 烧录 (Windows)"
+        },
+        {
+            "label": "[🔌 JLink烧录Linux]",
+            "task": "JLink_flash_linux",
+            "tooltip": "JLink 烧录 (Linux)"
+        },
+        {
+            "label": "[🔌 JLink烧录Win]",
+            "task": "JLink_flash_win",
+            "tooltip": "JLink 烧录 (Windows)"
+        }
+    ],
+    "stm32cube-ide-clangd.path": "cube",
+    "stm32cube-ide-clangd.arguments": [
+        "starm-clangd",
+        "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gcc*",
+        "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++*"
+    ],
+    "cmake.cmakePath": "cmake",
+    "outlinePlus.regionBoundaryPatternByLanguageId": {
+        "c": {
+            "startRegex": "^\\s*//+\\s*-{16}\\s*(.+?)\\s*-{16}\\s*$",
+            "endRegex": "^\\s*//+\\s*-{16}\\s*$"
+        },
+        "cpp": {
+            "startRegex": "^\\s*//+\\s*-{16}\\s*(.+?)\\s*-{16}\\s*$",
+            "endRegex": "^\\s*//+\\s*-{16}\\s*$"
+        }
+    }
 }
