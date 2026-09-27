@@ -12,8 +12,7 @@ namespace
 class ScopedTaskCritical
 {
 public:
-  ScopedTaskCritical()
-    : _active(xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
+  ScopedTaskCritical() : _active(xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
   {
     if (_active)
     {
@@ -47,11 +46,10 @@ Online *Online::_head = nullptr;
 Online *Online::_tail = nullptr;
 
 
-Online::Online(uint16_t timeout_gap)
-  : _cnt(timeout_gap == 0U ? 1U : timeout_gap),
-    _timeout_gap(timeout_gap == 0U ? 1U : timeout_gap),
-    _statu(Status::TIMEOUT),
-    _next(nullptr)
+Online::Online(uint16_t timeout_gap) : _cnt(timeout_gap == 0U ? 1U : timeout_gap),
+                                       _timeout_gap(timeout_gap == 0U ? 1U : timeout_gap),
+                                       _statu(Status::TIMEOUT),
+                                       _next(nullptr)
 {
   const ScopedTaskCritical lock;
   if (_tail == nullptr)
@@ -112,8 +110,8 @@ Status Online::refresh_task(void)
 Status Online::refresh_isr(void)
 {
   const UBaseType_t interrupt_mask = taskENTER_CRITICAL_FROM_ISR();
-  _cnt   = 0U;
-  _statu = Status::OK;
+  _cnt                             = 0U;
+  _statu                           = Status::OK;
   taskEXIT_CRITICAL_FROM_ISR(interrupt_mask);
   return Status::OK;
 }
@@ -122,7 +120,7 @@ Status Online::refresh_isr(void)
 Status Online::isOnline(void) const
 {
   const ScopedTaskCritical lock;
-  const Status result = _statu;
+  const Status             result = _statu;
   return result;
 }
 
@@ -139,9 +137,9 @@ Status Online::update(void)
   for (Online *item = _head; item != nullptr; item = item->_next)
   {
     const uint32_t sum = static_cast<uint32_t>(item->_cnt) + elapsed_ms;
-    item->_cnt = (sum > static_cast<uint32_t>(UINT16_MAX))
-                   ? static_cast<uint16_t>(UINT16_MAX)
-                   : static_cast<uint16_t>(sum); // 饱和递增，避免回绕后误判在线
+    item->_cnt         = (sum > static_cast<uint32_t>(UINT16_MAX))
+                           ? static_cast<uint16_t>(UINT16_MAX)
+                           : static_cast<uint16_t>(sum); // 饱和递增，避免回绕后误判在线
 
     item->_statu = (item->_cnt >= item->_timeout_gap) ? Status::TIMEOUT : Status::OK;
   }

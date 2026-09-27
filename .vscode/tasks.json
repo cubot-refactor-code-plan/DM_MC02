@@ -1,31 +1,133 @@
 {
     "version": "2.0.0",
     "tasks": [
+        /* ==================== 编译 ==================== */
         {
-            "label": "Win_OpenOCD",
+            "label": "Build",
+            "detail": "增量编译（cmake --build --preset Debug）",
+            "type": "shell",
+            "command": "cmake --build --preset Debug",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                {
+                    "owner": "cpp",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}"
+                    ],
+                    "pattern": {
+                        "regexp": "^(.+?):(\\d+):(\\d+):\\s+(error|warning|note):\\s+(.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "severity": 4,
+                        "message": 5
+                    }
+                }
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            }
+        },
+        {
+            "label": "Clean_Rebuild",
+            "detail": "删除 build/Debug 后重新配置并编译",
+            "type": "shell",
+            "command": "rm -rf build/Debug && cmake --preset Debug && cmake --build --preset Debug",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                {
+                    "owner": "cpp",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}"
+                    ],
+                    "pattern": {
+                        "regexp": "^(.+?):(\\d+):(\\d+):\\s+(error|warning|note):\\s+(.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "severity": 4,
+                        "message": 5
+                    }
+                }
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            }
+        },
+        {
+            "label": "Clean",
+            "detail": "仅删除构建产物 build/Debug",
+            "type": "shell",
+            "command": "rm -rf build/Debug",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            }
+        },
+        /* ==================== 烧录（Linux） ==================== */
+        {
+            "label": "OpenOCD_flash_linux",
+            "detail": "OpenOCD + DAPLink 烧录（Linux）",
             "type": "process",
-            "command": "Flash/OpenOCD_flash.bat",
+            "command": "${workspaceFolder}/Flash/OpenOCD_flash.sh",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
             "group": "build",
             "problemMatcher": []
         },
         {
-            "label": "Win_JLink",
+            "label": "JLink_flash_linux",
+            "detail": "J-Link 烧录（Linux）",
             "type": "process",
-            "command": "Flash/JLink_flash.bat",
+            "command": "${workspaceFolder}/Flash/JLink_flash.sh",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        /* ==================== 烧录（Windows） ==================== */
+        {
+            "label": "OpenOCD_flash_win",
+            "detail": "OpenOCD + DAPLink 烧录（Windows）",
+            "type": "process",
+            "command": "${workspaceFolder}/Flash/OpenOCD_flash.bat",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
             "group": "build",
             "problemMatcher": []
         },
         {
-            "label": "Linux_OpenOCD",
+            "label": "JLink_flash_win",
+            "detail": "J-Link 烧录（Windows）",
             "type": "process",
-            "command": "Flash/OpenOCD_flash.sh",
-            "group": "build",
-            "problemMatcher": []
-        },
-        {
-            "label": "Linux_JLink",
-            "type": "process",
-            "command": "Flash/JLink_flash.sh",
+            "command": "${workspaceFolder}/Flash/JLink_flash.bat",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
             "group": "build",
             "problemMatcher": []
         }

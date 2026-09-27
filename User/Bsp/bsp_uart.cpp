@@ -4,6 +4,17 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+
+///< TX 卡死判定阈值 (ms)：缓冲里有数据、却连续这么久没发出去，就强制重发。
+///< 一帧最长 128×10bit÷115200 = 11ms，30ms 留了近 3 倍余量，不会误伤正常发送。
+#define TX_STALL_TIMEOUT_MS 30U
+
+///< printf() 的入队等待上限 (ms)：发送链卡住时不把调用任务无限挂住
+#define PRINTF_TX_TIMEOUT_MS 10U
+
+///< printf() 的取锁等待上限 (ms)：避免某一个任务长期霸占格式化缓冲
+#define PRINTF_LOCK_TIMEOUT_MS 10U
+
 // ---------------- 模板实例化 ----------------
 
 /**
@@ -112,38 +123,38 @@ extern "C"
    */
   void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
   {
-    // UART5 仅接收，同样需要错误恢复
+    // 8 路都要接：错误只留痕，恢复由任务侧 rx_recover()/tx_recover() 完成
     if (huart == &huart1)
     {
-      bsp_uart1.handle_dma_error();
+      bsp_uart1.on_error_isr();
     }
     else if (huart == &huart3)
     {
-      bsp_uart3.handle_dma_error();
+      bsp_uart3.on_error_isr();
     }
     else if (huart == &huart4)
     {
-      bsp_uart4.handle_dma_error();
+      bsp_uart4.on_error_isr();
     }
     else if (huart == &huart5)
     {
-      bsp_uart5.handle_dma_error();
+      bsp_uart5.on_error_isr();
     }
     else if (huart == &huart7)
     {
-      bsp_uart7.handle_dma_error();
+      bsp_uart7.on_error_isr();
     }
     else if (huart == &huart8)
     {
-      bsp_uart8.handle_dma_error();
+      bsp_uart8.on_error_isr();
     }
     else if (huart == &huart9)
     {
-      bsp_uart9.handle_dma_error();
+      bsp_uart9.on_error_isr();
     }
     else if (huart == &huart10)
     {
-      bsp_uart10.handle_dma_error();
+      bsp_uart10.on_error_isr();
     }
   }
 }
@@ -178,6 +189,16 @@ BspUart<BUFFER_SIZE>::BspUart(const Config &cfg)
 template <size_t BUFFER_SIZE>
 Status BspUart<BUFFER_SIZE>::init()
 {
+  // 句柄非法：后续所有 HAL 调用都不可用，提前拒绝（与 bsp_can::init() 一致）
+  if (_huart == nullptr)
+  {
+    return Status::BAD_ARG;
+  }
+
+  // 可重复调用：先释放上一次残留的软件资源，避免二次 init() 直接覆盖指针造成泄漏
+  // （与 bsp_can::init() 的可重入行为保持一致）
+  cleanup_resources();
+
   // 创建接收流缓冲区
   _rx_stream_buffer = xStreamBufferCreate(BUFFER_SIZE, 1);
   if (_rx_stream_buffer == nullptr)
@@ -209,6 +230,14 @@ Status BspUart<BUFFER_SIZE>::init()
     return Status::IO_ERROR; // 互斥量创建失败
   }
 
+  // printf 锁（保护实例级共享的 _printf_buffer，消除并发 printf 互相覆盖）
+  _printf_lock = xSemaphoreCreateMutex();
+  if (_printf_lock == nullptr)
+  {
+    cleanup_resources();
+    return Status::IO_ERROR; // printf 锁创建失败
+  }
+
   // 启动接收（HAL 内部会清 IDLE 标志并使能 IDLE 中断；失败则释放资源并上报）
   if (!arm_reception())
   {
@@ -224,6 +253,13 @@ Status BspUart<BUFFER_SIZE>::init()
 template <size_t BUFFER_SIZE>
 BspUart<BUFFER_SIZE>::~BspUart()
 {
+  // 句柄非法时无可停的外设，直接释放软件资源
+  if (_huart == nullptr)
+  {
+    cleanup_resources();
+    return;
+  }
+
   _rx_should_run = false;
   HAL_UART_DMAStop(_huart); // 同时中止 RX 与 TX 的 DMA
 
@@ -232,7 +268,7 @@ BspUart<BUFFER_SIZE>::~BspUart()
 
 // 发送数据实现
 template <size_t BUFFER_SIZE>
-Status BspUart<BUFFER_SIZE>::send(const uint8_t *data, size_t size, uint32_t timeout, size_t *written)
+Status BspUart<BUFFER_SIZE>::send(const uint8_t *data, size_t size, uint32_t timeout_ms, size_t *written)
 {
   if (data == nullptr || size == 0)
   {
@@ -250,13 +286,24 @@ Status BspUart<BUFFER_SIZE>::send(const uint8_t *data, size_t size, uint32_t tim
     return Status::IO_ERROR; // 未启用发送或发送缓冲区未初始化
   }
 
+  // 超时统一 ms 语义：portMAX_DELAY 是「一直等」的哨兵，原样下传（tick 语义），
+  // 其余按 ms 换算成 tick，避免调用方在 tick/ms 之间猜。
+  const TickType_t ticks = (timeout_ms == portMAX_DELAY) ? portMAX_DELAY
+                                                         : pdMS_TO_TICKS(timeout_ms);
+
   // 将数据写入发送流缓冲区
-  size_t bytes_written = xStreamBufferSend(_tx_stream_buffer, data, size, timeout);
+  size_t bytes_written = xStreamBufferSend(_tx_stream_buffer, data, size, ticks);
 
   // 如果发送缓冲区中有数据，启动发送
   if (bytes_written > 0)
   {
     (void)start_transmission();
+  }
+
+  // 没全部入队 = 有一部分被丢掉了（调用方通常只看返回码，必须留痕）
+  if (bytes_written < size)
+  {
+    _tx_drop_bytes += static_cast<uint32_t>(size - bytes_written);
   }
 
   if (written != nullptr)
@@ -276,6 +323,18 @@ Status BspUart<BUFFER_SIZE>::printf(const char *fmt, ...)
     return Status::BAD_ARG; // 参数非法
   }
 
+  if (!_transmit_enable || _tx_stream_buffer == nullptr || _printf_lock == nullptr)
+  {
+    return Status::IO_ERROR; // 未启用发送 / 未初始化
+  }
+
+  // _printf_buffer 是实例级共享缓冲：必须整体互斥，
+  // 否则两个任务并发 printf 会在 vsnprintf 写一半时被对方覆盖。
+  if (xSemaphoreTake(_printf_lock, pdMS_TO_TICKS(PRINTF_LOCK_TIMEOUT_MS)) != pdTRUE)
+  {
+    return Status::IO_ERROR;
+  }
+
   va_list args;
   va_start(args, fmt);
   int len = vsnprintf(_printf_buffer, sizeof(_printf_buffer), fmt, args);
@@ -283,6 +342,7 @@ Status BspUart<BUFFER_SIZE>::printf(const char *fmt, ...)
 
   if (len <= 0)
   {
+    xSemaphoreGive(_printf_lock);
     return Status::BAD_ARG; // 格式化失败或空输出
   }
 
@@ -292,7 +352,13 @@ Status BspUart<BUFFER_SIZE>::printf(const char *fmt, ...)
     len = static_cast<int>(sizeof(_printf_buffer)) - 1;
   }
 
-  return send(reinterpret_cast<const uint8_t *>(_printf_buffer), static_cast<size_t>(len));
+  // 注意：send() 内部只用 _tx_lock 启动 DMA，两把锁不反序嵌套，不会死锁。
+  //       这里用有限超时：发送链卡住时不把调用任务无限挂住。
+  const Status st = send(reinterpret_cast<const uint8_t *>(_printf_buffer),
+                         static_cast<size_t>(len),
+                         PRINTF_TX_TIMEOUT_MS);
+  xSemaphoreGive(_printf_lock);
+  return st;
 }
 
 // 接收数据实现
@@ -309,7 +375,10 @@ Status BspUart<BUFFER_SIZE>::receive(uint8_t *buffer, size_t size, uint32_t time
     return Status::IO_ERROR; // 流缓冲区未创建
   }
 
-  size_t bytes_read = xStreamBufferReceive(_rx_stream_buffer, buffer, size, pdMS_TO_TICKS(timeout));
+  // 与 send() 一致：portMAX_DELAY 原样下传（真「一直等」），其余 ms → tick
+  const TickType_t ticks = (timeout == portMAX_DELAY) ? portMAX_DELAY : pdMS_TO_TICKS(timeout);
+
+  size_t bytes_read = xStreamBufferReceive(_rx_stream_buffer, buffer, size, ticks);
   if (received != nullptr)
   {
     *received = bytes_read;
@@ -321,22 +390,89 @@ Status BspUart<BUFFER_SIZE>::receive(uint8_t *buffer, size_t size, uint32_t time
 template <size_t BUFFER_SIZE>
 bool BspUart<BUFFER_SIZE>::tx_recover()
 {
-  // 断链判据：「有数据要发」+「发送通道空闲」= 没人去点火
-  const bool has_pending  = (_tx_stream_buffer != nullptr) && (xStreamBufferBytesAvailable(_tx_stream_buffer) > 0);
-  const bool channel_idle = (_huart->gState == HAL_UART_STATE_READY);
-  const bool is_stalled   = has_pending && channel_idle;
-
-  if (!is_stalled)
+  if (_huart == nullptr || _tx_stream_buffer == nullptr || !_transmit_enable)
   {
-    return false; // 未断链，什么都不做
+    return false; // 未初始化 / 未启用发送
   }
 
+  // 没有待发数据 → 无断链可言
+  if (xStreamBufferBytesAvailable(_tx_stream_buffer) == 0U)
+  {
+    return false;
+  }
+
+  // 判据就一个：有数据要发，却连续 30ms 毫无推进
+  if ((xTaskGetTickCount() - _tx_last_activity_tick) < pdMS_TO_TICKS(TX_STALL_TIMEOUT_MS))
+  {
+    return false; // 仍在正常发送中，别打断
+  }
+
+  // ---- 强制重发 ----
+  // 在途那包可能只发了一部分：用 DMA 剩余计数算出「已发出多少」，只续发剩下的。
+  // DMA 读的就是 _tx_dma_buffer，且期间 gState 非 READY、不会再有人改写它。
+  size_t sent = 0;
+  if (_tx_inflight_len > 0 && _huart->hdmatx != nullptr)
+  {
+    const size_t left_cnt = static_cast<size_t>(__HAL_DMA_GET_COUNTER(_huart->hdmatx));
+    if (left_cnt <= _tx_inflight_len)
+    {
+      sent = _tx_inflight_len - left_cnt; // 已发出的字节数
+    }
+  }
+
+  (void)HAL_UART_AbortTransmit(_huart); // 硬复位 TX 通道（阻塞版 HAL，仅任务上下文可用）
+
+  const size_t rest = _tx_inflight_len - sent;
+  _tx_inflight_len = 0;
+
+  // 在途还剩字节：直接续发（HAL 不会回送，不续发就真丢了）
+  if (rest > 0 && HAL_UART_Transmit_DMA(_huart, _tx_dma_buffer + sent, rest) == HAL_OK)
+  {
+    _tx_inflight_len      = rest;
+    _tx_last_activity_tick = xTaskGetTickCount();
+    _tx_stall_rec_cnt++;
+    return true;
+  }
+
+  // 无在途数据：走常规点火，从流缓冲区取新数据
   if (!start_transmission(0))
   {
-    return false; // 拿不到锁或通道又忙了，下轮再试
+    return false; // 拿不到锁 / 仍无法启动，下轮再试
   }
 
   _tx_stall_rec_cnt++; // 诊断：救回一次
+  return true;
+}
+
+// RX 恢复实现（非阻塞，供周期任务调用）
+template <size_t BUFFER_SIZE>
+bool BspUart<BUFFER_SIZE>::rx_recover()
+{
+  if (_huart == nullptr || _rx_stream_buffer == nullptr || _huart->hdmarx == nullptr)
+  {
+    return false; // 未初始化 / 本路没配 RX DMA
+  }
+
+  // 本驱动没期望收数（主动停止 / 尚未武装）→ 不是故障
+  if (!_rx_should_run)
+  {
+    return false;
+  }
+
+  // 三处证据一致表明 RX 仍在收 → 正常，直接返回（正常时每周期只看一眼）
+  if (rx_health() == RxHealth::OK)
+  {
+    return false;
+  }
+
+  // RX 已停摆（STOPPED 或自相矛盾）：复位接收通道后重新武装，只动 RX、不碰 TX DMA
+  abort_reception();
+  if (!arm_reception())
+  {
+    return false; // 仍失败，下个周期再试（保留「期望收数」意图，不闩死）
+  }
+
+  _rx_error_cnt++; // 诊断：确实重建了一次
   return true;
 }
 
@@ -349,6 +485,11 @@ bool BspUart<BUFFER_SIZE>::tx_recover()
 template <size_t BUFFER_SIZE>
 void BspUart<BUFFER_SIZE>::on_idle_isr(uint16_t size, BaseType_t *pxHigherPriorityTaskWoken)
 {
+  if (_huart == nullptr)
+  {
+    return; // 句柄缺失（理论上不会走到：回调是按 huart 分发的）
+  }
+
   // HAL 在半传输（HT）事件时也会回调本函数：HT 不是帧边界，直接忽略
   if (_huart->RxEventType == HAL_UART_RXEVENT_HT)
   {
@@ -365,19 +506,11 @@ void BspUart<BUFFER_SIZE>::on_idle_isr(uint16_t size, BaseType_t *pxHigherPriori
     _rx_drop_bytes += static_cast<uint32_t>(size - pushed);
   }
 
-  // 重新武装 RX。【动作与判断分开】：先真的去武装，再看结果。
-  // IDLE/TC 事件里 HAL 已停掉 RX DMA 并把 RxState 置回 READY，
-  // 且本函数开头已清过 UART 错误标志，所以正常情况下必然成功。
-  if (arm_reception())
-  {
-    return; // 武装成功，继续收数
-  }
-
-  // 武装失败：只有「本驱动期望收数」时才算异常，需要走一次完整恢复
-  if (_rx_should_run)
-  {
-    handle_dma_error();
-  }
+  // 重新武装 RX。IDLE/TC 事件里 HAL 已停掉 RX DMA 并把 RxState 置回 READY，
+  // 且 arm_reception() 开头已清过错误标志，正常情况下必然成功。
+  // 失败也不在这里重试（arm_reception 内部已累加 arm_fail_cnt）：
+  // 任务侧 rx_recover() 会在 10 ms 内通过 rx_health() 发现停摆并重建。
+  (void)arm_reception();
 }
 
 // 发送完成/续传处理实现（ISR上下文，由 TX Complete 中断调用）
@@ -388,7 +521,7 @@ void BspUart<BUFFER_SIZE>::on_idle_isr(uint16_t size, BaseType_t *pxHigherPriori
 template <size_t BUFFER_SIZE>
 void BspUart<BUFFER_SIZE>::start_transmission_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
 {
-  if (_tx_stream_buffer == nullptr || !_transmit_enable)
+  if (_huart == nullptr || _tx_stream_buffer == nullptr || !_transmit_enable)
   {
     return; // 未启用发送或发送缓冲区未初始化
   }
@@ -407,41 +540,44 @@ void BspUart<BUFFER_SIZE>::start_transmission_from_isr(BaseType_t *pxHigherPrior
   size_t bytes_to_send = xStreamBufferReceiveFromISR(_tx_stream_buffer, _tx_dma_buffer, BUFFER_SIZE, pxHigherPriorityTaskWoken);
   if (bytes_to_send == 0)
   {
+    _tx_inflight_len = 0; // 上一批已发完且无新数据
     return;
   }
 
   if (HAL_UART_Transmit_DMA(_huart, _tx_dma_buffer, bytes_to_send) != HAL_OK)
   {
     // 启动失败：把刚取出的字节塞回流缓冲区，绝不静默丢失。
-    // 链在这里断掉，由巡检任务（见 sys_task）在 10ms 内重新点火。
+    // 链在这里断掉，由巡检任务（sys_task，10 ms）重新点火。
     (void)xStreamBufferSendFromISR(_tx_stream_buffer, _tx_dma_buffer, bytes_to_send, pxHigherPriorityTaskWoken);
+    _tx_inflight_len = 0;
     _tx_start_fail_cnt++;
+  }
+  else
+  {
+    // 记录推进时刻：tx_recover() 用「多久没发出去」区分「正在发」和「卡死」
+    _tx_last_activity_tick = xTaskGetTickCountFromISR();
+    _tx_inflight_len       = bytes_to_send;
   }
 }
 
-// UART 错误恢复实现（供 HAL_UART_ErrorCallback 调用，也被 on_idle_isr 重装失败时调用）
+// UART 错误回调处理实现（ISR 上下文）：只留痕，不做任何恢复动作
+// 原因：HAL 的 Abort 接口内部是阻塞版 HAL_DMA_Abort，ISR 里不能调用，
+//       也不在这里嵌套重试。
+// RX 停摆由任务侧 rx_recover() 通过 rx_health() 发现并重建，
+// TX 出错由任务侧 tx_recover() 复位通道并重新点火。
 template <size_t BUFFER_SIZE>
-void BspUart<BUFFER_SIZE>::handle_dma_error()
+void BspUart<BUFFER_SIZE>::on_error_isr()
 {
-  _rx_error_cnt++; // 诊断：进入恢复流程的次数
-
-  // 本驱动未期望收数 → 无需恢复
-  if (!_rx_should_run)
+  if (_huart == nullptr)
   {
     return;
   }
 
-  // 三证据一致地表明 RX 仍在运行 → 属于非阻塞错误，不打断以免丢弃在途数据
-  const bool rx_still_running = (rx_health() == RxHealth::OK);
-  if (rx_still_running)
+  // HAL 在 DMA 出错时会停掉对应通道，gState 离开 READY → 记一次 TX 侧故障
+  if (_huart->gState != HAL_UART_STATE_READY)
   {
-    return;
+    _tx_error_cnt++;
   }
-
-  // RX 已停摆：复位接收状态后重新武装（仅 RX，不触碰 TX DMA）
-  abort_reception();
-  // 若仍失败：保留「期望收数」意图不闩死，由 rx_health()/rx_diag() 暴露故障，等上层重建
-  (void)arm_reception();
 }
 
 // ----------------
@@ -520,9 +656,11 @@ template <size_t BUFFER_SIZE>
 typename BspUart<BUFFER_SIZE>::TxDiag BspUart<BUFFER_SIZE>::tx_diag() const
 {
   TxDiag diag;
+  diag.drop_bytes        = _tx_drop_bytes;
   diag.start_fail_cnt    = _tx_start_fail_cnt;
   diag.isr_skip_cnt      = _tx_isr_skip_cnt;
   diag.stall_recover_cnt = _tx_stall_rec_cnt;
+  diag.error_cnt         = _tx_error_cnt;
   return diag;
 }
 
@@ -566,6 +704,11 @@ void BspUart<BUFFER_SIZE>::abort_reception()
 template <size_t BUFFER_SIZE>
 bool BspUart<BUFFER_SIZE>::start_transmission(TickType_t wait)
 {
+  if (_huart == nullptr || _tx_stream_buffer == nullptr)
+  {
+    return false; // 句柄/缓冲未就绪
+  }
+
   if (_tx_lock == nullptr)
   {
     return false; // 互斥量未创建
@@ -596,12 +739,19 @@ bool BspUart<BUFFER_SIZE>::start_transmission(TickType_t wait)
         // 启动失败：字节已从流缓冲区取出，必须回滚，否则静默丢数据。
         // 刚取出 n 字节，流缓冲区至少有 n 字节空间，故这次回滚必定成功。
         (void)xStreamBufferSend(_tx_stream_buffer, _tx_dma_buffer, bytes_to_send, 0);
+        _tx_inflight_len = 0; // 未启动 → 无在途数据
         _tx_start_fail_cnt++;
       }
       else
       {
-        started = true;
+        _tx_last_activity_tick = xTaskGetTickCount(); // 记录推进时刻（供 tx_recover 判卡死）
+        _tx_inflight_len       = bytes_to_send;       // 记录在途长度
+        started                = true;
       }
+    }
+    else
+    {
+      _tx_inflight_len = 0; // 流缓冲区已空（旧的在途数据已发完）
     }
   }
 
@@ -632,6 +782,13 @@ void BspUart<BUFFER_SIZE>::cleanup_resources()
   {
     vSemaphoreDelete(_tx_lock);
     _tx_lock = nullptr;
+  }
+
+  // 释放 printf 锁
+  if (_printf_lock != nullptr)
+  {
+    vSemaphoreDelete(_printf_lock);
+    _printf_lock = nullptr;
   }
 }
 

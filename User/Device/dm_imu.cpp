@@ -291,7 +291,6 @@ void DmImu::set_imu_data(const imu_data& data)
   {
     xSemaphoreGive(_data_mutex_handle);
   }
-
 }
 
 
@@ -359,7 +358,6 @@ void DmImu::update_euler(const uint8_t (&data)[8])
   {
     xSemaphoreGive(_data_mutex_handle);
   }
-
 }
 
 
@@ -389,7 +387,6 @@ void DmImu::update_quaternion(const uint8_t (&data)[8])
   {
     xSemaphoreGive(_data_mutex_handle);
   }
-
 }
 
 
@@ -397,7 +394,7 @@ void DmImu::update_quaternion(const uint8_t (&data)[8])
  * @brief CAN消息回调处理
  * @param rx_msg CAN接收消息
  */
-void DmImu::on_can_message(const CanRxMsg_t& rx_msg)
+void DmImu::on_can_message(const CanRxMsg& rx_msg)
 {
   if (rx_msg.data[0] == 0x03)
   {

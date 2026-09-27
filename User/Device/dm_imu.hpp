@@ -254,7 +254,7 @@ public:
    * @brief CAN消息回调处理
    * @param rx_msg CAN接收消息
    */
-  void on_can_message(const CanRxMsg_t& rx_msg);
+  void on_can_message(const CanRxMsg& rx_msg);
 
 
 private:
