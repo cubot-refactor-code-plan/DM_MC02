@@ -69,7 +69,7 @@ extern uint32_t SystemCoreClock;
 #define configUSE_SB_COMPLETED_CALLBACK          ( 0 )
 #define configUSE_MINI_LIST_ITEM                ( 1 )
 #define configMINIMAL_STACK_SIZE                 ((uint16_t)128)
-#define configTOTAL_HEAP_SIZE                    ((size_t)15360)
+#define configTOTAL_HEAP_SIZE                    ((size_t)49152)
 #define configMAX_TASK_NAME_LEN                  ( 16 )
 #define configHEAP_CLEAR_MEMORY_ON_FREE          0
 #define configUSE_TRACE_FACILITY                 1
@@ -97,6 +97,8 @@ extern uint32_t SystemCoreClock;
 
 /* The following flag must be enabled only when using newlib */
 #define configUSE_NEWLIB_REENTRANT          1
+#define configUSE_MALLOC_FAILED_HOOK         1
+#define configCHECK_FOR_STACK_OVERFLOW       2
 
 /* CMSIS-RTOS V2 flags */
 #define configUSE_OS2_THREAD_SUSPEND_RESUME  1
@@ -169,6 +171,17 @@ standard names. */
 
 /* USER CODE BEGIN Defines */
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+#ifndef traceISR_ENTER
+#define traceISR_ENTER()
+#endif
+
+#ifndef traceISR_EXIT
+#define traceISR_EXIT()
+#endif
+
+#ifndef traceISR_EXIT_TO_SCHEDULER
+#define traceISR_EXIT_TO_SCHEDULER()
+#endif
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

@@ -6,13 +6,15 @@
  * @date 2026-04-18
  *
  * @copyright Copyright (c) 2026
- *
  */
 
 #ifndef __BSP_CFG_HPP__
 #define __BSP_CFG_HPP__
 
+#include "bsp_buzzer.hpp"
 #include "bsp_can.hpp"
+#include "bsp_gpio.hpp"
+#include "bsp_key.hpp"
 #include "bsp_uart.hpp"
 
 
@@ -30,8 +32,15 @@ extern BspCan bsp_can2;
 extern BspCan bsp_can3;
 
 
-///< USART
-extern BspUart<64, 8> bsp_usart1;
+///< UART
+extern BspUart<128> bsp_uart1;
+extern BspUart<128> bsp_uart3;
+extern BspUart<128> bsp_uart4;
+extern BspUart<128> bsp_uart5;
+extern BspUart<128> bsp_uart7;
+extern BspUart<128> bsp_uart8;
+extern BspUart<128> bsp_uart9;
+extern BspUart<128> bsp_uart10;
 
 
 ///< GPIO 输出引脚（电源控制、片选等）

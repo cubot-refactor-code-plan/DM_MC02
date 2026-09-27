@@ -1,32 +1,17 @@
 #include "bsp_uart.hpp"
-#include "FreeRTOS.h"
-#include "string.h"
+#include "bsp_cfg.hpp" // 中断回调中直接引用 bsp_usartX / bsp_uartX 全局实例
+#include "FreeRTOS.h"  // IWYU pragma: keep
+#include <stdarg.h>
 #include <stdio.h>
 
 // ---------------- 模板实例化 ----------------
 
 /**
  * @brief 模板实例化实现
- * @param 第一个数字为缓冲区大小（uint8_t）
- * @param 第二个数字为消息队列的长度（uint8_t）
+ * @param 缓冲区大小（uint8_t）
  *
  */
- template class BspUart<64, 8>;
-
- 
-/** 
- * @brief 静态成员变量定义
- * @note 模板类的静态成员需要在cpp文件中进行定义
- */
-template <size_t BUFFER_SIZE, size_t MSG_SIZE>
-BspUart<BUFFER_SIZE, MSG_SIZE> *BspUart<BUFFER_SIZE, MSG_SIZE>::_instances[BspUart<BUFFER_SIZE, MSG_SIZE>::MAX_INSTANCES] = {nullptr};
-
-/**
- * @brief 构造函数中自动注册实例
- * @note 在构造函数中调用register_instance，将当前实例注册到静态注册表中
- */
-template <size_t BUFFER_SIZE, size_t MSG_SIZE>
-size_t BspUart<BUFFER_SIZE, MSG_SIZE>::_instance_count = 0;
+template class BspUart<128>;
 
 
 // ----------------
@@ -42,47 +27,138 @@ extern "C"
    */
   void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
   {
-    // 通过UART句柄指针查找对应的bsp_usart实例并处理
-    BspUart<128, 8> *instance = BspUart<128, 8>::get_instance_by_handle(huart);
-    if (instance != nullptr)
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    if (huart == &huart1)
     {
-      // 找到对应实例，调用内部处理函数
-      instance->handle_idle_interrupt_internal(huart, Size);
+      bsp_uart1.on_idle_isr(Size, &xHigherPriorityTaskWoken);
     }
+    else if (huart == &huart3)
+    {
+      bsp_uart3.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart4)
+    {
+      bsp_uart4.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart5)
+    {
+      bsp_uart5.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart7)
+    {
+      bsp_uart7.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart8)
+    {
+      bsp_uart8.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart9)
+    {
+      bsp_uart9.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart10)
+    {
+      bsp_uart10.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
   }
 
   /**
    * @brief UART TX Complete 回调函数
-   * @note 发送完成时触发，用于继续发送剩余数据
+   * @note 发送完成时触发，链式续传发送缓冲区中的剩余数据
    */
   void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
   {
-    BspUart<128, 8> *instance = BspUart<128, 8>::get_instance_by_handle(huart);
-    if (instance != nullptr)
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // 注：UART5 无发送功能（未配 TX DMA），不会触发本回调，故无 huart5 分支
+    if (huart == &huart1)
     {
-      instance->handle_tx_complete();
+      bsp_uart1.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart3)
+    {
+      bsp_uart3.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart4)
+    {
+      bsp_uart4.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart7)
+    {
+      bsp_uart7.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart8)
+    {
+      bsp_uart8.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart9)
+    {
+      bsp_uart9.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart10)
+    {
+      bsp_uart10.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  }
+
+  /**
+   * @brief UART 错误回调函数
+   * @note ORE/FE/NE 等错误后复位 RX 并重新武装，避免接收无声停摆
+   */
+  void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+  {
+    // UART5 仅接收，同样需要错误恢复
+    if (huart == &huart1)
+    {
+      bsp_uart1.handle_dma_error();
+    }
+    else if (huart == &huart3)
+    {
+      bsp_uart3.handle_dma_error();
+    }
+    else if (huart == &huart4)
+    {
+      bsp_uart4.handle_dma_error();
+    }
+    else if (huart == &huart5)
+    {
+      bsp_uart5.handle_dma_error();
+    }
+    else if (huart == &huart7)
+    {
+      bsp_uart7.handle_dma_error();
+    }
+    else if (huart == &huart8)
+    {
+      bsp_uart8.handle_dma_error();
+    }
+    else if (huart == &huart9)
+    {
+      bsp_uart9.handle_dma_error();
+    }
+    else if (huart == &huart10)
+    {
+      bsp_uart10.handle_dma_error();
     }
   }
 }
 
 /**
- * @brief 以下是 BspUart<BUFFER_SIZE, MSG_SIZE>::BspUart 这个类的函数定义，看到这就可以不看了
+ * @brief BspUart<BUFFER_SIZE> 类函数定义
  *
  * 串口驱动组件实现：只使用IDLE中断接收，DMA普通模式收发。
  * 线程安全：收发各用一条FreeRTOS流缓冲区（内置锁），
  *           除任务间抢占写外，无mutex，多任务并发写同一串口需上层自行协调。
  *
  * @note 经过测试，无任何测试问题。
- * @note 单缓冲区在自己串口发送的时候串口助手显示有问题，但是逻辑是对的。内容可以正常的存入缓冲区然后等待一个一个的读取。
- * @note 双缓冲区逻辑无误，但是应用场景需要经过自己测试，理清他的逻辑，有点反直觉
  *
- * @param BUFFER_SIZE 存储的缓冲区大小（单双缓冲区）
- * @param MSG_SIZE 消息队列的大小（消息邮箱）
- *
- * @param huart 串口句柄
- * @param rx_mode 接收模式
- * @param transmit_signal 是否启用发送
- * @param instance_id 实例ID，用于生成唯一资源名称
+ * @param BUFFER_SIZE 缓冲区大小（DMA收发缓冲区与流缓冲区容量，单位uint8_t）
+ * @param cfg 串口配置（huart/发送使能，可匿名按序传入）
  */
 
 // ----------------
@@ -93,73 +169,21 @@ extern "C"
 template <size_t BUFFER_SIZE>
 BspUart<BUFFER_SIZE>::BspUart(const Config &cfg)
 
-  : _huart(huart),
-    _receive_mode(rx_mode),
-    _transmit_enable(transmit_signal),
-    _instance_id(instance_id)
+  : _huart(cfg.huart),
+    _transmit_enable(cfg.transmit_enable)
 {
-  // 注册当前实例到静态注册表中
-  register_instance();
+  // 构造函数只做赋值；运行时逻辑（FreeRTOS资源创建）推迟到 init()
 }
 
-template <size_t BUFFER_SIZE, size_t MSG_SIZE>
-bool BspUart<BUFFER_SIZE, MSG_SIZE>::init()
+template <size_t BUFFER_SIZE>
+Status BspUart<BUFFER_SIZE>::init()
 {
-  // 根据接收模式创建消息队列 - 只有LATEST_ONLY模式才创建
-  if (_receive_mode == ReceiveMode::LATEST_ONLY)
+  // 创建接收流缓冲区
+  _rx_stream_buffer = xStreamBufferCreate(BUFFER_SIZE, 1);
+  if (_rx_stream_buffer == nullptr)
   {
-    snprintf(msgq_name, sizeof(msgq_name), "USART%d_MsgQ", _instance_id);
-
-    // 对于LATEST_ONLY模式，消息队列长度为1，只保留最新数据
-    _msg_queue_id = xQueueCreate(1, _msg_item_size);
-    if (_msg_queue_id == nullptr)
-    {
-      cleanup_resources(); // 清理已创建的资源
-      return false;        // 消息队列创建失败
-    }
-  }
-  else
-  {
-    _msg_queue_id = nullptr; // 非LATEST_ONLY模式不需要消息队列
-  }
-
-  // 初始化接收流缓冲区数组
-  for (int i = 0; i < 2; i++)
-  {
-    _rx_stream_buffers[i] = nullptr;
-  }
-
-  // 根据接收模式创建相应的缓冲区
-  switch (_receive_mode)
-  {
-    case ReceiveMode::SINGLE_BUFFER:
-      _rx_stream_buffers[0] = xStreamBufferCreate(BUFFER_SIZE, 1);
-      if (_rx_stream_buffers[0] == nullptr)
-      {
-        cleanup_resources(); // 清理已创建的资源
-        return false;        // 流缓冲区创建失败
-      }
-      break;
-    case ReceiveMode::DOUBLE_BUFFER:
-      // 创建两个流缓冲区用于双缓冲机制
-      _rx_stream_buffers[0] = xStreamBufferCreate(BUFFER_SIZE, 1);
-      if (_rx_stream_buffers[0] == nullptr)
-      {
-        cleanup_resources(); // 清理已创建的资源
-        return false;        // 流缓冲区创建失败
-      }
-
-      _rx_stream_buffers[1] = xStreamBufferCreate(BUFFER_SIZE, 1);
-      if (_rx_stream_buffers[1] == nullptr)
-      {
-        cleanup_resources(); // 清理已创建的资源
-        return false;        // 流缓冲区创建失败
-      }
-      break;
-    case ReceiveMode::LATEST_ONLY:
-    default: // LATEST_ONLY
-      // 不需要流缓冲区
-      break;
+    cleanup_resources();     // 清理已创建的资源
+    return Status::IO_ERROR; // 流缓冲区创建失败
   }
 
   if (_transmit_enable)
@@ -168,8 +192,8 @@ bool BspUart<BUFFER_SIZE, MSG_SIZE>::init()
     _tx_stream_buffer = xStreamBufferCreate(BUFFER_SIZE, 1);
     if (_tx_stream_buffer == nullptr)
     {
-      cleanup_resources(); // 清理已创建的资源
-      return false;        // 发送流缓冲区创建失败
+      cleanup_resources();     // 清理已创建的资源
+      return Status::IO_ERROR; // 发送流缓冲区创建失败
     }
   }
   else
@@ -193,10 +217,7 @@ bool BspUart<BUFFER_SIZE, MSG_SIZE>::init()
     return Status::IO_ERROR; // 接收启动失败，避免静默失能
   }
 
-  // 启动接收
-  start_reception();
-
-  return true; // 初始化成功
+  return Status::OK; // 初始化成功
 }
 
 // 析构函数实现（终止场景：RX/TX DMA 全停后释放资源）
@@ -213,14 +234,20 @@ BspUart<BUFFER_SIZE>::~BspUart()
 template <size_t BUFFER_SIZE>
 Status BspUart<BUFFER_SIZE>::send(const uint8_t *data, size_t size, uint32_t timeout, size_t *written)
 {
-  if (!_transmit_enable)
+  if (data == nullptr || size == 0)
   {
-    return -1; // 没使能发送 返回错误
+    return Status::BAD_ARG; // 参数非法
   }
 
-  if (_tx_stream_buffer == nullptr)
+  // 单次发送不能超过流缓冲区容量，否则 xStreamBufferSend 会永久阻塞（死锁）
+  if (size > BUFFER_SIZE)
   {
-    return -1; // 发送缓冲区未初始化
+    return Status::BAD_ARG; // 数据超长，调用方应分包发送
+  }
+
+  if (!_transmit_enable || _tx_stream_buffer == nullptr)
+  {
+    return Status::IO_ERROR; // 未启用发送或发送缓冲区未初始化
   }
 
   // 将数据写入发送流缓冲区
@@ -232,59 +259,62 @@ Status BspUart<BUFFER_SIZE>::send(const uint8_t *data, size_t size, uint32_t tim
     (void)start_transmission();
   }
 
-  return bytes_written;
+  if (written != nullptr)
+  {
+    *written = bytes_written;
+  }
+
+  return (bytes_written == size) ? Status::OK : Status::TIMEOUT;
+}
+
+// printf 格式化发送实现
+template <size_t BUFFER_SIZE>
+Status BspUart<BUFFER_SIZE>::printf(const char *fmt, ...)
+{
+  if (fmt == nullptr)
+  {
+    return Status::BAD_ARG; // 参数非法
+  }
+
+  va_list args;
+  va_start(args, fmt);
+  int len = vsnprintf(_printf_buffer, sizeof(_printf_buffer), fmt, args);
+  va_end(args);
+
+  if (len <= 0)
+  {
+    return Status::BAD_ARG; // 格式化失败或空输出
+  }
+
+  // vsnprintf 返回的是期望写入的完整长度，实际写入可能被截断
+  if (static_cast<size_t>(len) >= sizeof(_printf_buffer))
+  {
+    len = static_cast<int>(sizeof(_printf_buffer)) - 1;
+  }
+
+  return send(reinterpret_cast<const uint8_t *>(_printf_buffer), static_cast<size_t>(len));
 }
 
 // 接收数据实现
 template <size_t BUFFER_SIZE>
 Status BspUart<BUFFER_SIZE>::receive(uint8_t *buffer, size_t size, uint32_t timeout, size_t *received)
 {
-  // 根据接收模式进行不同的处理
-  switch (_receive_mode)
+  if (buffer == nullptr || size == 0)
   {
-    case ReceiveMode::LATEST_ONLY:
-    {
-      // 在LATEST_ONLY模式下，从消息队列获取最新数据
-
-      // 获取最新消息
-      BaseType_t status = xQueueReceive(_msg_queue_id, buffer, pdMS_TO_TICKS(timeout));
-
-      if (status == pdTRUE)
-      {
-        return (size < MSG_SIZE) ? size : MSG_SIZE; // 返回实际读取的字节数
-      }
-      else
-      {
-        return -1; // 没有数据或超时
-      }
-    }
-
-    case ReceiveMode::SINGLE_BUFFER:
-    {
-      // 单缓冲处理
-      if (_rx_stream_buffers[0] != nullptr)
-      {
-        size_t bytes_read = xStreamBufferReceive(_rx_stream_buffers[0], buffer, size, pdMS_TO_TICKS(timeout));
-        return bytes_read;
-      }
-      return -1;
-    }
-
-    case ReceiveMode::DOUBLE_BUFFER:
-    {
-      // 双缓冲处理
-      StreamBufferHandle_t target_buffer = _current_buffer ? _rx_stream_buffers[1] : _rx_stream_buffers[0];
-      if (target_buffer != nullptr)
-      {
-        size_t bytes_read = xStreamBufferReceive(target_buffer, buffer, size, pdMS_TO_TICKS(timeout));
-        return bytes_read;
-      }
-      return -1;
-    }
-
-    default:
-      return -2; // 未定义的接收模式
+    return Status::BAD_ARG; // 参数非法
   }
+
+  if (_rx_stream_buffer == nullptr)
+  {
+    return Status::IO_ERROR; // 流缓冲区未创建
+  }
+
+  size_t bytes_read = xStreamBufferReceive(_rx_stream_buffer, buffer, size, pdMS_TO_TICKS(timeout));
+  if (received != nullptr)
+  {
+    *received = bytes_read;
+  }
+  return (bytes_read > 0) ? Status::OK : Status::TIMEOUT;
 }
 
 // TX 断链兜底实现（非阻塞，供周期任务调用）
@@ -420,8 +450,8 @@ void BspUart<BUFFER_SIZE>::handle_dma_error()
 // ---------------- 查询接口 ----------------
 
 // 获取发送缓冲区剩余空间实现
-template <size_t BUFFER_SIZE, size_t MSG_SIZE>
-size_t BspUart<BUFFER_SIZE, MSG_SIZE>::get_tx_free_space()
+template <size_t BUFFER_SIZE>
+size_t BspUart<BUFFER_SIZE>::get_tx_free_space()
 {
   if (_tx_stream_buffer != nullptr)
   {
@@ -431,47 +461,14 @@ size_t BspUart<BUFFER_SIZE, MSG_SIZE>::get_tx_free_space()
 }
 
 // 获取接收缓冲区可用数据量实现
-template <size_t BUFFER_SIZE, size_t MSG_SIZE>
-size_t BspUart<BUFFER_SIZE, MSG_SIZE>::get_rx_available_data()
+template <size_t BUFFER_SIZE>
+size_t BspUart<BUFFER_SIZE>::get_rx_available_data()
 {
-  switch (_receive_mode)
+  if (_rx_stream_buffer != nullptr)
   {
-    case ReceiveMode::LATEST_ONLY:
-    {
-      // 对于LATEST_ONLY模式，检查消息队列是否有数据
-      if (_msg_queue_id != nullptr)
-      {
-        uint32_t count = uxQueueMessagesWaiting(_msg_queue_id);
-        return count * _msg_item_size;
-      }
-      return 0;
-    }
-
-    case ReceiveMode::SINGLE_BUFFER:
-    {
-      if (_rx_stream_buffers[0] != nullptr)
-      {
-        return xStreamBufferBytesAvailable(_rx_stream_buffers[0]);
-      }
-      return 0;
-    }
-
-    case ReceiveMode::DOUBLE_BUFFER:
-    {
-      size_t total_bytes = 0;
-      for (int i = 0; i < 2; i++)
-      {
-        if (_rx_stream_buffers[i] != nullptr)
-        {
-          total_bytes += xStreamBufferBytesAvailable(_rx_stream_buffers[i]);
-        }
-      }
-      return total_bytes;
-    }
-
-    default:
-      return 0; // 未知接收模式
+    return xStreamBufferBytesAvailable(_rx_stream_buffer);
   }
+  return 0;
 }
 
 // RX 健康查询实现（多点一致性校验）
@@ -590,8 +587,8 @@ bool BspUart<BUFFER_SIZE>::start_transmission(TickType_t wait)
   const bool channel_idle  = (_huart->gState == HAL_UART_STATE_READY);
   if (has_tx_buffer && channel_idle)
   {
-    // 从发送缓冲区获取数据准备发送
-    size_t bytes_to_send = xStreamBufferReceiveFromISR(_tx_stream_buffer, _tx_dma_buffer, BUFFER_SIZE, nullptr);
+    // 从发送缓冲区获取数据准备发送（任务级API）
+    size_t bytes_to_send = xStreamBufferReceive(_tx_stream_buffer, _tx_dma_buffer, BUFFER_SIZE, 0);
     if (bytes_to_send > 0)
     {
       if (HAL_UART_Transmit_DMA(_huart, _tx_dma_buffer, bytes_to_send) != HAL_OK)

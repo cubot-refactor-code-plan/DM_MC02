@@ -24,7 +24,7 @@
  *        ✅ 蜂鸣器     → bsp_buzzer          [TIM12 CH2 PB15，配置在全局构造时传入，无需 init]
  *
  */
-extern "C" int __io_putchar(int ch)
+void bsp_init()
 {
   // FreeRTOS 驱动的 CAN（init() 失败 = 该路 CAN 静默不可用，必须当场发现）
   configASSERT(bsp_can1.init() == Status::OK);
@@ -68,12 +68,19 @@ BspCan bsp_can3(BspCan::Config{&hfdcan3});
 /**
  * @brief 全局实例化
  * @param 第一个串口句柄
- * @param 第二个是串口接收模式
- * @param 第三个是是否启用发送逻辑
+ * @param 第二个是是否启用发送逻辑
  * @note 这个 __attribute__((section(".dma_buffer"))) 是把他放到dtcm区域外，在.ld格式文件下实现的
  *
  */
-__attribute__((section(".dma_buffer"))) BspUart<64, 8> bsp_usart1(&huart1, ReceiveMode::SINGLE_BUFFER, true, 1); // 添加实例ID为6
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart3({&huart3, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart4({&huart4, true});
+///< UART5 仅接收：CubeMX 未配 TX DMA，发送功能关闭（transmit_enable=false）
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart5({&huart5, false});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart7({&huart7, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart8({&huart8, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true});
 
 
 // ----------------

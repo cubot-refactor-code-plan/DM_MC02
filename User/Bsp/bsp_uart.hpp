@@ -1,9 +1,9 @@
 /**
- * @file BspUart.cpp
+ * @file bsp_uart.hpp
  * @author Rh
- * @brief 实现了一个简易的串口驱动（FreeRTOS）（只接收最新数据不能用FIFO）
- * @version 0.2
- * @date 2026-02-08
+ * @brief 实现了一个简易的串口驱动（FreeRTOS + IDLE中断 + DMA）
+ * @version 0.3
+ * @date 2026-09-10
  *
  * @todo 接收到的数据需要在应用层 app_message 中做分发处理
  *
@@ -11,13 +11,10 @@
  *
  * @details 使用IDLE中断接收，TX Complete中断链式发送，全程DMA。
  *
- * @details 使用示例：（必须要在freertos的任务中运行收发 中断中不行 中断不能阻塞）
-           （使用的IDLE中断进行接收 发送也是同理）
- *
- * @note 模板实例化实现 以及类的实例化 第一个数字为缓冲区大小（uint8_t） 第二个数字为消息队列的长度（uint8_t）
+ * @note 模板参数为缓冲区大小（uint8_t）
  *
  *   // 全局实例化模板在bsp_uart.cpp中
- *   template class BspUart<64,8>;
+ *   template class BspUart<128>;
  *
  *   // 全局实例化类 在bsp_cfg.cpp中
  *   __attribute__((section(".dma_buffer")))
@@ -37,28 +34,21 @@
 #include "FreeRTOS.h" // IWYU pragma: keep
 #include "semphr.h"   // IWYU pragma: keep (TX 启动锁)
 #include "stream_buffer.h"
-#include "queue.h"
+#include "task.h"  // IWYU pragma: keep
 #include "usart.h" // IWYU pragma: keep
+
+#include "status.hpp" // 统一状态码
 
 
 /**
- * @brief 接收模式枚举
+ * @brief 简易串口驱动（IDLE中断 + DMA收发 + FreeRTOS流缓冲区）
  *
  * @tparam BUFFER_SIZE DMA收发缓冲区大小（uint8_t），也是流缓冲区容量
  *
  * @note RX：IDLE/TC 事件 → 投递流缓冲区 → 重新武装（HT 事件忽略，全程不碰 TX DMA）
  *       TX：写入流缓冲区 → 任务侧启动或 TX-Complete 中断续传
  */
-enum class ReceiveMode
-{
-  LATEST_ONLY   = 1, // 仅保留最新一次接收到的数据（使用消息邮箱）（不能开FIFO）
-  SINGLE_BUFFER = 2, // 使用单个流缓冲区
-  DOUBLE_BUFFER = 3  // 使用双流缓冲区机制
-};
-
-
-// 模板的第一个数字为缓冲区大小（单位uint8_t） 第二个数字为消息队列的长度（uint8_t）
-template <size_t BUFFER_SIZE = 256, size_t MSG_SIZE = 8>
+template <size_t BUFFER_SIZE = 256>
 class BspUart
 {
 public:
@@ -161,54 +151,22 @@ public:
    * @param size 接收到的数据大小
    * @param pxHigherPriorityTaskWoken 中断处理后可能唤醒的高优先级任务
    */
-  void dmaTransferCompleteCallback(UART_HandleTypeDef *huart);
+  void on_idle_isr(uint16_t size, BaseType_t *pxHigherPriorityTaskWoken);
 
   /**
    * @brief 发送完成/续传处理（ISR上下文，由 TX Complete 中断调用）
    * @param pxHigherPriorityTaskWoken 需初始化为pdFALSE，若唤醒高优先级任务则置为pdTRUE
    */
-  void dma_error_callback(UART_HandleTypeDef *huart);
+  void start_transmission_from_isr(BaseType_t *pxHigherPriorityTaskWoken);
 
   /**
-   * @brief IDLE中断处理函数 处理由IDLE中断检测到的数据包
+   * @brief UART 错误恢复（供 HAL_UART_ErrorCallback 调用）
    *
    * @note 用【多点一致性校验】代替单点 `RxState == BUSY_RX` 判断：
    *       只有三处证据一致地表明"RX 仍在运行"时才认定为非阻塞错误、不打断；
    *       否则认为 RX 已停摆，执行「复位 → 重新武装」。全程只操作 RX。
    */
-  void handle_idle_interrupt(uint32_t received_length);
-
-  /**
-   * @brief 内部IDLE中断处理函数 内部处理IDLE中断，自动计算接收到的数据长度
-   *
-   * @param huart UART句柄
-   */
-  void handle_idle_interrupt_internal(UART_HandleTypeDef *huart, uint16_t Size);
-
-  /**
-   * @brief TX发送完成处理函数 由TX Complete中断调用，用于继续发送剩余数据
-   */
-  void handle_tx_complete();
-
-  /**
-   * @brief 通过UART句柄查找对应的bsp_usart实例
-   *
-   * @note 静态成员函数，用于在中断回调中通过UART句柄找到对应的类实例
-   *
-   * @param huart UART句柄指针
-   * @return BspUart* 找到的实例指针，未找到返回nullptr
-   */
-  static BspUart *get_instance_by_handle(UART_HandleTypeDef *huart);
-
-  /**
-   * @brief 注册实例到静态注册表中
-   *
-   * @note 在构造函数中自动调用，将当前实例添加到注册表
-   *
-   * @return true 注册成功
-   * @return false 注册失败（已满或其他错误）
-   */
-  bool register_instance();
+  void handle_dma_error();
 
   // ---------------- 查询接口 ----------------
 
