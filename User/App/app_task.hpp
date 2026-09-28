@@ -26,6 +26,9 @@ extern "C"
    */
   void sys_task(void *argument);
 
+  /** @brief 按键任务：200 ms 轮询，短按/长按发不同提示音 */
+  void key_task(void *argument);
+
 #ifdef __cplusplus
 }
 #endif

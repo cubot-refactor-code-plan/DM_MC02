@@ -1,16 +1,18 @@
 #include "app_task.hpp"
 
-#include "FreeRTOS.h" // IWYU pragma: keep
 #include "bsp_cfg.hpp"
+#include "FreeRTOS.h" // IWYU pragma: keep
 #include "online_check.hpp"
 #include "task.h"
 
 #include <stdint.h>
 
 
-volatile uint32_t sys_task_loop_count = 0U;
-volatile Status sys_task_online_status = Status::NOT_INIT;
+volatile uint32_t sys_task_loop_count    = 0U;
+volatile Status   sys_task_online_status = Status::NOT_INIT;
 
+static BspCan *const       can_ports[]  = {&bsp_can1, &bsp_can2, &bsp_can3};
+static BspUart<128> *const uart_ports[] = {&bsp_uart1, &bsp_uart3, &bsp_uart4, &bsp_uart5, &bsp_uart7, &bsp_uart8, &bsp_uart9, &bsp_uart10};
 
 extern "C" void sys_task(void *argument)
 {
@@ -23,36 +25,19 @@ extern "C" void sys_task(void *argument)
   {
     sys_task_online_status = Online::update();
 
-    /* 断链兜底（全部非阻塞，正常时只看一眼就返回）：
-       收发链靠「取包 → 启转」接力推进，一旦某一环的中断丢了就再没人点火，
-       所以每个周期都巡检一次。注意：必须与 bsp_cfg.hpp 的实例列表保持一致。 */
-
-    // UART：tx_recover = 30ms 没发出去就强制重发；rx_recover = RX 停摆就复位重装
-    //      UART5 仅接收（transmit_enable=false），其 tx_recover 会立即返回
-    (void)bsp_uart1.tx_recover();
-    (void)bsp_uart1.rx_recover();
-    (void)bsp_uart3.tx_recover();
-    (void)bsp_uart3.rx_recover();
-    (void)bsp_uart4.tx_recover();
-    (void)bsp_uart4.rx_recover();
-    (void)bsp_uart5.tx_recover();
-    (void)bsp_uart5.rx_recover();
-    (void)bsp_uart7.tx_recover();
-    (void)bsp_uart7.rx_recover();
-    (void)bsp_uart8.tx_recover();
-    (void)bsp_uart8.rx_recover();
-    (void)bsp_uart9.tx_recover();
-    (void)bsp_uart9.rx_recover();
-    (void)bsp_uart10.tx_recover();
-    (void)bsp_uart10.rx_recover();
-
-    (void)bsp_can1.tx_recover();
-    (void)bsp_can2.tx_recover();
-    (void)bsp_can3.tx_recover();
-
-    (void)bsp_can1.bus_recover();
-    (void)bsp_can2.bus_recover();
-    (void)bsp_can3.bus_recover();
+    /* 断链兜底（全部非阻塞，正常时看一眼即返回）：逐个巡检下面两张表里的实例，新增实例只需往表里加一项。 */
+    // 串口兜底
+    for (BspUart<128> *u : uart_ports)
+    {
+      (void)u->tx_recover(); // 30ms 没发出去就强制重发
+      (void)u->rx_recover(); // RX 停摆就复位重装（UART5 仅接收，其 tx_recover 立即返回）
+    }
+    // CAN兜底
+    for (BspCan *c : can_ports)
+    {
+      (void)c->tx_recover();  // 发送链断了补点火
+      (void)c->bus_recover(); // 卡在 Bus-Off 就重启外设
+    }
 
     ++sys_task_loop_count;
     vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(10U));

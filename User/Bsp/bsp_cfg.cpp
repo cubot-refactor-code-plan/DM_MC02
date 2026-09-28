@@ -9,6 +9,7 @@
  *        目前除了串口的模板实例化需要在 bsp_uart.cpp 中定义，其他 BSP 全局实例化都在 bsp_cfg.cpp 中定义。
  *        当前已初始化的外设一览：
  *
+ *        ✅ DWT        → bsp_dwt.init()      [内核 CYCCNT 计时，无外设]
  *        ✅ CAN1/2/3   → bsp_can1/2/3.init()  [Message Buffer 收发]
  *        ✅ USART1     → bsp_uart1.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ USART3     → bsp_uart3.init()     [IDLE RX DMA + FreeRTOS stream buffer]
@@ -26,6 +27,9 @@
  */
 void bsp_init()
 {
+  // DWT 计时（内核 CYCCNT，不依赖 FreeRTOS/中断）：最先就绪，供其它驱动打点
+  configASSERT(bsp_dwt.init() == Status::OK);
+
   // FreeRTOS 驱动的 CAN（init() 失败 = 该路 CAN 静默不可用，必须当场发现）
   configASSERT(bsp_can1.init() == Status::OK);
   configASSERT(bsp_can2.init() == Status::OK);
@@ -47,6 +51,13 @@ void bsp_init()
 }
 
 
+// ---------------- DWT ----------------
+
+///< 内核 CYCCNT 计时（CPU 频率由 init() 自动从 RCC 算出，无需配置）
+BspDwt bsp_dwt;
+
+
+// ----------------
 // ---------------- CAN ----------------
 
 /**

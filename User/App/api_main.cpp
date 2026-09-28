@@ -33,15 +33,9 @@ void all_init()
   /* 维护任务：sys_task 为 10 ms（Online 计时 + UART/CAN 断链兜底，优先级 +7） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
 
-  /* 测试任务：can_test 为 10 ms（CAN1 <-> CAN3 互测，优先级 +5；关闭开关即不参与编译） */
-#if APP_TEST_CAN_ENABLED
-  configASSERT(xTaskCreate(can_test_task, "can_test", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
+  /* 按键任务：200 ms 轮询（短按/长按发不同提示音，优先级 +5） */
+  configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 
-  /* 测试任务：key_test 为 200 ms（按键短按/长按提示音，优先级 +5；关闭开关即不参与编译） */
-#if APP_TEST_KEY_ENABLED
-  configASSERT(xTaskCreate(key_test_task, "key_test", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
 }
 
 
@@ -53,7 +47,6 @@ void all_init()
  */
 extern "C" void StartDefaultTask(void *argument)
 {
-
   for (;;)
   {
 

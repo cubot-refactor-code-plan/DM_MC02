@@ -13,6 +13,7 @@
 
 #include "bsp_buzzer.hpp"
 #include "bsp_can.hpp"
+#include "bsp_dwt.hpp"
 #include "bsp_gpio.hpp"
 #include "bsp_key.hpp"
 #include "bsp_uart.hpp"
@@ -25,6 +26,10 @@ void bsp_init();
 
 // ----------------
 // ---------------- 全局声明 ----------------
+
+///< DWT 计时（内核 CYCCNT，不占外设、不依赖中断）
+extern BspDwt bsp_dwt;
+
 
 ///< CAN 一共三个 都初始化了
 extern BspCan bsp_can1;
