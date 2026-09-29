@@ -21,18 +21,19 @@
 #include "bsp_can.hpp"
 #include "motor_definition.hpp"
 #include "online_check.hpp"
+#include "can_tx_node.hpp"
 
 #include <stdint.h>
 
 /** @todo 将以下临时协议常量迁移到按 MotorType 特化的 traits，随后删除宏。 */
-#define K_ECD_TO_ANGLE 0.043945f       ///< 编码器计数到机械角度的临时换算系数，单位：度/count
-#define ECD_RANGE_FOR_3508 8191        ///< M3508 编码器原始值上限（包含 0，共 8192 个计数）
-#define CURRENT_LIMIT_FOR_3508 16000   ///< M3508/C620 软件限制使用的原始电流指令绝对值
-#define ECD_RANGE_FOR_6020 8191        ///< GM6020 编码器原始值上限（包含 0，共 8192 个计数）
-#define CURRENT_LIMIT_FOR_6020 16384   ///< GM6020 电流模式原始控制指令绝对值上限
-#define VOLTAGE_LIMIT_FOR_6020 25000   ///< GM6020 电压模式原始控制指令绝对值上限
-#define ECD_RANGE_FOR_2006 8191        ///< M2006 编码器原始值上限（包含 0，共 8192 个计数）
-#define CURRENT_LIMIT_FOR_2006 10000   ///< M2006/C610 软件限制使用的原始电流指令绝对值
+// #define K_ECD_TO_ANGLE 0.043945f       ///< 编码器计数到机械角度的临时换算系数，单位：度/count
+// #define ECD_RANGE_FOR_3508 8191        ///< M3508 编码器原始值上限（包含 0，共 8192 个计数）
+// #define CURRENT_LIMIT_FOR_3508 16000   ///< M3508/C620 软件限制使用的原始电流指令绝对值
+// #define ECD_RANGE_FOR_6020 8191        ///< GM6020 编码器原始值上限（包含 0，共 8192 个计数）
+// #define CURRENT_LIMIT_FOR_6020 16384   ///< GM6020 电流模式原始控制指令绝对值上限
+// #define VOLTAGE_LIMIT_FOR_6020 25000   ///< GM6020 电压模式原始控制指令绝对值上限
+// #define ECD_RANGE_FOR_2006 8191        ///< M2006 编码器原始值上限（包含 0，共 8192 个计数）
+// #define CURRENT_LIMIT_FOR_2006 10000   ///< M2006/C610 软件限制使用的原始电流指令绝对值
 
 /**
  * @brief 框架支持的 DJI 电机型号
@@ -138,33 +139,39 @@ private:
   BspCan            *_can_item;     ///< 接收反馈所用的物理 CAN
   uint8_t            _motor_id;     ///< 电调配置的 DJI 协议 ID
   uint8_t            _bus_slot;     ///< 当前电机在控制帧中的槽位，范围 0~3
+  CanTxNode       *_tx_node;
   DjiMotorControlMode _control_mode; ///< GM6020 控制模式；其他型号忽略
-  Status             _statu;        ///< 构造注册或最近一次公开操作的状态
+  Status             _statu;        ///< 构造校验或初始化状态，运行期收发结果由函数返回
 
-  int16_t _last_ecd;       ///< 上一次反馈的编码器原始值，用于检测跨零
-  float   _total_angle;    ///< 已完成跨零展开的电机转子累计角度，单位：rad
-  float   _last_velocity;  ///< 上一次输出轴角速度，用于计算角加速度
+  osMutexId_t       data_mutex_headler;
+  osMutexAttr_t     data_mutex_attr;
+  char              data_mutex_name[24];
+
+  int64_t _total_ecd;      ///< 跨零展开后的累计转子编码器计数
   bool    _feedback_ready; ///< 是否已接收过至少一帧有效反馈
 
-  DjiMotor *_next;        ///< 同型号电机分发链表的后继节点
-  static DjiMotor *_head; ///< 同型号电机分发链表头
-  static DjiMotor *_tail; ///< 同型号电机分发链表尾
+  // DjiMotor *_next;        ///< 同型号电机分发链表的后继节点
+  // static DjiMotor *_head; ///< 同型号电机分发链表头
+  // static DjiMotor *_tail; ///< 同型号电机分发链表尾
 
 public:
   /**
    * @brief 获取只读电机数据
    * @return 内部 MotorData 的常量引用。
-   * @warning 返回的是实时引用；若反馈更新与读取不在同一任务，实现时需提供同步或快照机制。
+   * @warning 返回实时引用而非快照；调用方须保证读取期间不并发执行 DataUnpack()。
    */
   const MotorData &data(void) const;
 
   /**
    * @brief 获取 DJI 电调反馈协议原始数据
+   * @return 内部 DjiMotorRawData 的常量引用。
+   * @warning 返回实时引用而非快照；调用方须保证读取期间不并发执行 DataUnpack()。
    */
   const DjiMotorRawData &raw_data(void) const;
 
   /**
    * @brief 获取 DJI 编码器和原始控制限幅参数
+   * @return 内部 DjiMotorParam 的常量引用，构造完成后不再修改。
    */
   const DjiMotorParam &param(void) const;
 
@@ -182,8 +189,10 @@ public:
   const LuenbergerMotorData &lvboData(void) const;
 
   /**
-   * @brief 查询对象最近一次初始化或操作状态
-   * @return Status::OK 表示内部 Bus 注册成功且最近操作成功；其他值表示具体错误。
+   * @brief 查询对象构造校验或初始化状态
+   * @return Status::OK 表示初始化成功；其他值表示未初始化或初始化错误。
+   * @note 收发操作结果由 DataUnpack() 和 FillData() 的返回值提供，不更新此状态。
+   * @warning 不得与 init() 并发调用。
    */
   Status statu(void) const;
 
@@ -209,8 +218,13 @@ public:
   /**
    * @brief 注销控制帧槽位并销毁电机对象
    * @note 注销时应先将输出清零，避免回收后保留旧控制量。
+   * @note 清零发送缓存并释放槽位；共享发送节点保留，清零帧异步发送。
+   * @warning 仅在调度器启动前或正常任务上下文销毁；调用方必须先停止
+   *          对本对象的所有并发访问，且不得继续使用之前取得的数据引用。
    */
   ~DjiMotor();
+
+  Status init(void);
 
   /**
    * @brief 解析一帧属于本电机的 DJI CAN 反馈
@@ -219,7 +233,10 @@ public:
    * @return Status::OK 反馈有效且数据已更新；Status::BAD_ARG 标识符或帧格式不匹配；
    *         Status::NOT_INIT 电机未成功完成内部注册。
    *
-   * @note 只有完整且有效的反馈才能刷新 _online。
+   * @note 在任务上下文调用；互斥锁不可用时返回 Status::BUSY，不更新反馈。
+   * @note 只有完整且有效的反馈才能刷新 _online。相邻反馈转子位移必须小于半圈。
+   * @note 首帧以绝对编码器位置初始化多圈角度；单圈角度为输出轴角度对 2π 取模。
+   * @note 不计算角加速度；通用数据中的 acceleration 保持初始零值，不代表实际角加速度。
    */
   Status DataUnpack(CanRxMsg rx);
 

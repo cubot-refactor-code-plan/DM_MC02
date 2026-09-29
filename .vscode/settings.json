@@ -52,5 +52,6 @@
     "cmake.cmakePath": "cmake",
     "cmake.configureArgs": [
         "-DCMAKE_COMMAND=cmake"
-    ]
+    ],
+    "editor.tabSize": 2
 }

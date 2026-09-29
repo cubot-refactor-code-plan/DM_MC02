@@ -1,5 +1,4 @@
 #include "status.hpp"
-#include "FreeRTOSConfig.h"
 
 osEventFlagsId_t sysEvent = NULL;
 const osEventFlagsAttr_t sysEvent_Attr = {
