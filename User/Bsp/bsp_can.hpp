@@ -23,7 +23,7 @@
  *      bsp_can1.send(0x101,data);        // 存入缓冲区中 自动处理发送
  *
  *      CanRxMsg data1 = {0};             // 定义数据内容
- *      bsp_can1.receive(&data1);         // 从缓冲区取值（自动接收到缓冲区）
+ *      bsp_can1.receive(&data1);         // 从回退缓冲取值（需运行 can_rx_task）
  *
  */
 
@@ -38,6 +38,11 @@
 
 #include "status.hpp" // 统一状态码
 
+
+class CanRxNode;
+class CanTxNode;
+extern "C" void can_rx_task(void *argument);
+extern "C" void can_tx_task(void *argument);
 
 /**
  * @brief CAN工作模式
@@ -124,7 +129,9 @@ public:
   Status send(uint32_t std_id, uint8_t *data);
 
   /**
-   * @brief 从接收缓冲取出一帧消息
+   * @brief 从回退缓冲取出未被接收节点成功处理的一帧消息
+   * @note 依赖 can_rx_task 运行；每条总线仅允许一个 receive() 消费任务。
+   *       无匹配、格式不支持或回调非 OK 的帧会进入此缓冲。
    *
    * @param msg     接收消息结构体（CanRxMsg，固定 8 字节）
    * @param timeout 等待超时（ticks）
@@ -136,10 +143,37 @@ public:
   void   trigger_tx_from_isr(BaseType_t *pxHigherPriorityTaskWoken); // 触发一次发送（ISR上下文调用）
   void   process_fifo0_isr();                                        // FIFO0 中断处理（供中断回调调用）
 
-  MessageBufferHandle_t _rx_message_buffer;
+  /** @brief sys_task 每毫秒调用；非阻塞恢复 Bus-Off，不重新分配资源。 */
+  Status service_recovery();
+  struct Diagnostics
+  {
+    volatile uint32_t bus_off_events = 0;
+    volatile uint32_t recovery_attempts = 0;
+    volatile uint32_t recovery_successes = 0;
+    volatile uint32_t tx_dropped = 0;
+    volatile uint32_t rx_dropped = 0;
+    volatile uint32_t recovery_max_ticks = 0;
+    volatile bool recovering = false;
+  } diagnostics;
+
   MessageBufferHandle_t _tx_message_buffer;
 
 private:
+  TickType_t _recovery_started = 0;
+  TickType_t _recovery_attempted = 0;
+  bool tx_available() const;
+
+  CanRxNode *rx_head; ///< 本总线接收节点；运行期间只读
+  CanTxNode *tx_head; ///< 本总线发送节点；运行期间只读
+  MessageBufferHandle_t _rx_message_buffer; ///< ISR 写入，仅接收分发任务读取
+  MessageBufferHandle_t _rx_return_buffer; ///< 分发失败帧，仅 receive() 读取
+
+  friend CanRxNode *regist(BspCan &, uint32_t, Status (*)(void *, const CanRxMsg &), void *, uint32_t);
+  friend Status unregist(BspCan &, CanRxNode *);
+  friend void can_rx_task(void *argument);
+  friend void can_tx_task(void *argument);
+  friend class CanTxNode;
+  friend CanTxNode *regist(BspCan &, uint32_t, uint8_t, uint8_t);
   FDCAN_HandleTypeDef *_hfdcan;
   const char          *_name;
   CanMode              _work_mode;

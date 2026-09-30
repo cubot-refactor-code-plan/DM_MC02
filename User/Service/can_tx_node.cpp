@@ -4,20 +4,19 @@
 #include <string.h>
 
 uint8_t    CanTxNode::node_num = 0;
-CanTxNode *CanTxNode::head     = nullptr;
-CanTxNode *CanTxNode::tail     = nullptr;
+bool       CanTxNode::frozen   = false;
 
-CanTxNode::CanTxNode(BspCan &can, uint32_t can_id, uint8_t division) :
-  _bspcan(&can),
+CanTxNode::CanTxNode(uint32_t can_id, uint8_t division) :
   txBuffer {},
   division(division),
   _statu(Status::NOT_INIT),
   bufferRegister(0),
   bufferUnsend(0),
+  bufferMutex(nullptr),
   bufferMutex_Attr {},
   _registered(false),
   next(nullptr),
-  last(nullptr)
+  last_send_tick(0)
 {
   if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0) // 只允许在初始化期使用
   {
@@ -41,7 +40,7 @@ CanTxNode::CanTxNode(BspCan &can, uint32_t can_id, uint8_t division) :
   txBuffer.std_id = can_id;
 }
 
-Status CanTxNode::init(void)
+Status CanTxNode::init(BspCan &can)
 {
   // 状态校验
   if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0) // 只允许在初始化期使用
@@ -67,22 +66,10 @@ Status CanTxNode::init(void)
     return Status::FULL;
   }
 
-  // 加入链表
-  taskENTER_CRITICAL();
-  if (head == nullptr) // 空链表
-  {
-    head       = this;
-    tail       = this;
-    this->last = nullptr;
-  }
-  else
-  {
-    tail->next = this;
-    this->last = tail;
-    tail       = this;
-  }
-  this->_registered = true;
-  taskEXIT_CRITICAL();
+  // 每条总线独立维护单向链表，仅初始化阶段修改。
+  next = can.tx_head;
+  can.tx_head = this;
+  _registered = true;
 
   this->_statu = Status::OK;
   return Status::OK;
@@ -90,98 +77,9 @@ Status CanTxNode::init(void)
 
 CanTxNode::~CanTxNode()
 {
-  _bspcan        = nullptr;
-  bufferRegister = 0;
-  if (bufferMutex != NULL)
-  {
+  // 仅 init() 失败的未注册节点会被删除；成功节点由 BSP 持有至系统停止。
+  if (bufferMutex != nullptr)
     osMutexDelete(bufferMutex);
-  }
-
-  if (this->_registered)
-  {
-    taskENTER_CRITICAL();
-    if (head == tail)
-    {
-      head = nullptr;
-      tail = nullptr;
-    }
-    else if (this == head)
-    {
-      head       = this->next;
-      head->last = nullptr;
-    }
-    else if (this == tail)
-    {
-      tail       = this->last;
-      tail->next = nullptr;
-    }
-    else
-    {
-      this->last->next = this->next;
-      this->next->last = this->last;
-    }
-    this->_registered = false;
-    taskEXIT_CRITICAL();
-  }
-}
-
-extern "C" void can_tx_task(void *argument)
-{
-  (void)argument;
-
-  CanTxNode *p;
-  SysFlagWaitRunning();
-  if (CanTxNode::head == nullptr || CanTxNode::tail == nullptr)
-  {
-    osThreadExit();
-    return;
-  }
-
-  TickType_t *node_last_send_tick = new (std::nothrow) TickType_t[CanTxNode::node_num];
-  if (node_last_send_tick == nullptr)
-  {
-    SysFlagSet(Status::FULL);
-    osThreadExit();
-    return;
-  }
-  for (uint8_t i = 0; i < CanTxNode::node_num; i++)
-  {
-    node_last_send_tick[i] = xTaskGetTickCount();
-  }
-
-  const TickType_t SEND_TIMEOUT_TICKS = pdMS_TO_TICKS(5U); // 节点距上次成功入队达到 5 ms 时触发补发
-
-  TickType_t wake_time = xTaskGetTickCount();
-  for (;;)
-  {
-    uint8_t id = 0;
-    for (p = CanTxNode::head; p != nullptr; p = p->next)
-    {
-      if (osMutexAcquire(p->bufferMutex, pdMS_TO_TICKS(1U)) == osOK)
-      { // 尝试获取互斥量
-        if (p->bufferRegister != 0U && p->bufferUnsend == p->bufferRegister)
-        { // 已经准备好发送
-          if (p->_bspcan->send(p->txBuffer.std_id, p->txBuffer.data) == Status::OK)
-          { // 发送成功才更新标记
-            p->bufferUnsend         = 0;
-            node_last_send_tick[id] = xTaskGetTickCount();
-          }
-        }
-        else if (static_cast<TickType_t>(xTaskGetTickCount() - node_last_send_tick[id]) >= SEND_TIMEOUT_TICKS)
-        { // 发送间隔超时，直接发送
-          if (p->_bspcan->send(p->txBuffer.std_id, p->txBuffer.data) == Status::OK)
-          {
-            p->bufferUnsend         = 0;
-            node_last_send_tick[id] = xTaskGetTickCount();
-          }
-        }
-        osMutexRelease(p->bufferMutex);
-      }
-      id++;
-    }
-    // 按 1 ms 周期调度，避免将本轮扫描耗时累加到等待周期中。
-    vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(1U));
-  }
 }
 
 CanTxNode *regist(BspCan &can_item, uint32_t can_id)
@@ -195,8 +93,9 @@ CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t s
   {
     return nullptr;
   }
-  if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0U) // 只允许在初始化期注册
+  if (CanTxNode::frozen || (osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0U) // 只允许在初始化期注册
   {
+    CanTxNode::frozen = true;
     return nullptr;
   }
 
@@ -208,9 +107,9 @@ CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t s
   }
 
   // 从链表中查找有无符合条件的Node
-  for (CanTxNode *node = CanTxNode::head; node != nullptr; node = node->next)
+  for (CanTxNode *node = can_item.tx_head; node != nullptr; node = node->next)
   {
-    if (node->_bspcan == &can_item && node->txBuffer.std_id == can_id) // 有
+    if (node->txBuffer.std_id == can_id) // 有
     {
       if (node->division == division && (node->bufferRegister & (1U << slot)) == 0U) // 校验
       {
@@ -226,19 +125,18 @@ CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t s
   }
 
   // 无则创建一个新的Node
-  if (CanTxNode::node_num > 50)
+  if (CanTxNode::node_num >= 50U)
   {
     SysInitError(Status::FULL);
     return nullptr;
-    ;
   }
-  CanTxNode *node = new (std::nothrow) CanTxNode(can_item, can_id, division);
+  CanTxNode *node = new (std::nothrow) CanTxNode(can_id, division);
   if (node == nullptr)
   {
     SysInitError(Status::BUSY);
     return nullptr;
   }
-  const Status status = node->init();
+  const Status status = node->init(can_item);
   if (status != Status::OK)
   {
     delete node;

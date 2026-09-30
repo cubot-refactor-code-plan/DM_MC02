@@ -33,11 +33,12 @@ extern "C"
   void sys_task(void *argument);
 
   /**
-   * @brief 电机 1 kHz 维护任务，负责 DJI/DM CAN 反馈分发和统一控制帧发送
+   * @brief 以 1 kHz 轮询各 CAN 原始缓冲，成功分发则消费，否则转入回退缓冲
    * @param argument 任务参数（未使用，NULL）
-   * @note 由 all_init() 创建，不应由业务代码直接调用。
+   * @note 原始缓冲仅由本任务读取；receive() 读取未被节点成功处理的帧。
    */
-  void dji_motor_task(void *argument);
+  void can_rx_task(void *argument);
+  // void dji_motor_task(void *argument);
 
   /**
    * @brief 菜单消息测试任务 1（阻塞等待 menu_sem[0] 后经 USART1 发送测试字节）

@@ -2,11 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <cmath>
-
-// template<MotorType type>
-// DjiMotor<type>* DjiMotor<type>::_head = nullptr;
-// template<MotorType type>
-// DjiMotor<type>* DjiMotor<type>::_tail = nullptr;
+#include <cstdlib>
 
 template<MotorType type>
 DjiMotor<type>::DjiMotor(BspCan &can_item,
@@ -22,15 +18,15 @@ _can_item(&can_item),
 _motor_id(motor_id),
 _bus_slot((motor_id - 1U) % 4),
 _tx_node(nullptr),
+_rx_node(nullptr),
 _control_mode(control_mode),
 _statu(Status::NOT_INIT),
 data_mutex_headler(NULL),
 data_mutex_attr{},
 _total_ecd(0),
-_feedback_ready(0)//,
-// _next(nullptr)
+_feedback_ready(false)
 {
-  if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0)  // 只允许在初始化期使用
+  if (sysEvent != nullptr && (osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0)  // 只允许在初始化期使用
   {
     return;
   }
@@ -92,6 +88,18 @@ _feedback_ready(0)//,
 template <MotorType type>
 DjiMotor<type>::~DjiMotor()
 {
+  // 接收节点持有 this；必须在上下文销毁之前成功注销。
+  if (_rx_node != nullptr)
+  {
+    const Status result = unregist(*_can_item, _rx_node);
+    configASSERT(result == Status::OK);
+    if (result != Status::OK)
+    {
+      // 运行期注册表已冻结，继续析构会留下悬空回调。
+      std::abort();
+    }
+    _rx_node = nullptr;
+  }
   if (_tx_node != nullptr)
   {
     const Status result = unregist(_tx_node, _bus_slot);
@@ -217,12 +225,33 @@ Status DjiMotor<type>::init()
     return _statu;
   }
 
+  const uint32_t feedback_id = (type == Motor6020 ? 0x204U : 0x200U) + _motor_id;
+  _rx_node = regist(*_can_item, feedback_id, &DjiMotor<type>::rx_callback, this);
+  if (_rx_node == nullptr)
+  {
+    // 注册器已记录具体冲突/资源错误；撤销本次初始化取得的发送槽位和锁。
+    const Status result = unregist(_tx_node, _bus_slot);
+    configASSERT(result == Status::OK);
+    (void)result;
+    _tx_node = nullptr;
+    osMutexDelete(data_mutex_headler);
+    data_mutex_headler = nullptr;
+    _statu = Status::IO_ERROR;
+    return _statu;
+  }
+
   _statu = Status::OK;
   return _statu;
 }
 
 template <MotorType type>
-Status DjiMotor<type>::DataUnpack(CanRxMsg rx)
+Status DjiMotor<type>::rx_callback(void *context, const CanRxMsg &rx)
+{
+  return static_cast<DjiMotor<type> *>(context)->DataUnpack(rx);
+}
+
+template <MotorType type>
+Status DjiMotor<type>::DataUnpack(const CanRxMsg &rx)
 {
   if (_tx_node == nullptr || data_mutex_headler == nullptr)
   {

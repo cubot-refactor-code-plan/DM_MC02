@@ -19,14 +19,17 @@
 /** @brief 编译并创建 Online 实机自检任务；设为 0 可停用。 */
 #define APP_TEST_ONLINE_CHECK_ENABLED 0
 
+/** @brief CAN1 零输出故障注入与 Bus-Off 恢复实机测试。 */
+#define APP_TEST_CAN_RECOVERY_ENABLED 0
+
 /** @brief 编译并创建 CAN1 ID2 M3508 低电流转动测试；设为 0 可停用。 */
-#define APP_TEST_DJI_MOTOR_ENABLED 0
+#define APP_TEST_DJI_MOTOR_ENABLED 1
 
 /** @brief 编译并创建 CAN2 ID1 达妙普通固件四模式实机测试；设为 0 可停用。 */
 #define APP_TEST_DM_MOTOR_ENABLED 0
 
 /** @brief 启用当前 USB 类的周期发送及 HID 回环测试；设为 0 可停用。 */
-#define APP_TEST_USB_TRANSPORT_ENABLED 1
+#define APP_TEST_USB_TRANSPORT_ENABLED 0
 
 /** @brief 旧名称兼容；新代码应使用 APP_TEST_USB_TRANSPORT_ENABLED。 */
 #define APP_TEST_USB_CDC_ENABLED APP_TEST_USB_TRANSPORT_ENABLED
@@ -35,12 +38,17 @@
 #define APP_TEST_UART_TRANSPORT_ENABLED 0
 
 /** @brief 编译并创建 W25Q64JV 擦写、映射与 XIP 实机测试；完成后应设回 0。 */
-#define APP_TEST_QSPI_FLASH_ENABLED 1
+#define APP_TEST_QSPI_FLASH_ENABLED 0
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
+
+  /** @brief 在系统运行标志置位前初始化 CAN1 ID2 测试电机。 */
+  void dji_motor_test_init(void);
+  void can_recovery_test_init(void);
+  void can_recovery_test_task(void *argument);
 
   /**
    * @brief Online 状态机自检任务
@@ -53,7 +61,8 @@ extern "C"
    * @brief CAN1 ID2 M3508 低电流实机测试任务
    * @param argument 任务参数（未使用，NULL）
    * @note 仅在 APP_TEST_DJI_MOTOR_ENABLED 非零时创建。
-   * @warning 启用后每次复位都会在启动 2 秒后驱动电机 1 秒，测试时必须架空或固定电机。
+   * @note 启用后保持零输出，调试器写 dji_motor_test_arm=1 才执行一次双向测试。
+   * @warning 正反向各输出原始电流指令 512 持续 600 ms，测试时必须架空或固定电机。
    */
   void dji_motor_test_task(void *argument);
 

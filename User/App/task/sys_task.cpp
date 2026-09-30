@@ -1,4 +1,5 @@
 #include "app_task.hpp"
+#include "bsp_cfg.hpp"
 
 #include "FreeRTOS.h" // IWYU pragma: keep
 #include "online_check.hpp"
@@ -20,6 +21,11 @@ extern "C" void sys_task(void *argument)
   TickType_t wake_time = xTaskGetTickCount();
   for (;;)
   {
+    // can硬件bus-off自恢复
+    bsp_can1.service_recovery();
+    bsp_can2.service_recovery();
+    bsp_can3.service_recovery();
+    // 在线情况更新
     sys_task_online_status = Online::update();
     ++sys_task_loop_count;
     vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(1U));

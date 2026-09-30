@@ -16,7 +16,7 @@
 #include "protocol_cfg.hpp"
 
 /* Service */
-#include "motor_txBuffers.hpp"
+#include "can_tx_node.hpp"
 #include "status.hpp"
 
 /* 任务声明 */
@@ -81,9 +81,19 @@ void all_init()
   /* 初始化协议层 */
   protocol_init();
 
-  /* 系统维护与电机发送任务（均为 1 kHz，电机发送优先级更高） */
+#if APP_TEST_DJI_MOTOR_ENABLED
+  // 注册必须早于运行标志，接收任务等待初始化完成后开始轮询。
+  dji_motor_test_init();
+#endif
+
+#if APP_TEST_CAN_RECOVERY_ENABLED
+  can_recovery_test_init();
+#endif
+
+  /* 系统维护与 CAN 发送任务（均为 1 kHz，CAN 发送优先级更高） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
-  configASSERT(xTaskCreate(MotorTxTask, "motor_tx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
+  configASSERT(xTaskCreate(can_rx_task, "can_rx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
+  configASSERT(xTaskCreate(can_tx_task, "can_tx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
 
   /* 菜单任务（LCD 菜单 + 按键，事件转发给 menu 模块；优先级最高） */
   configASSERT(xTaskCreate(task_menu, "t_menu", 2048, NULL, tskIDLE_PRIORITY + 6, NULL) == pdPASS);
@@ -92,6 +102,10 @@ void all_init()
   configASSERT(xTaskCreate(msg_task_task1, "m_tsk1", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
   configASSERT(xTaskCreate(msg_task_task2, "m_tsk2", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
   configASSERT(xTaskCreate(msg_task_task3, "m_tsk3", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
+
+#if APP_TEST_CAN_RECOVERY_ENABLED
+  configASSERT(xTaskCreate(can_recovery_test_task, "can_fault", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
 
 #if APP_TEST_ONLINE_CHECK_ENABLED
   configASSERT(xTaskCreate(online_check_test_task,

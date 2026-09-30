@@ -5,15 +5,9 @@
  * @version 0.1
  * @date 2026-09-01
  *
- * @details 一个 DjiMotor 实例表示一台电机。用户只需提供所用 CAN 和电机 ID；
- *          类内部根据电机型号计算控制帧 ID 与帧内槽位，并从固定池中复用或启用
- *          对应的 DjiMotorBus。Bus 以 (BspCan*, std_id) 为唯一键，因此采用相同
- *          控制帧协议的不同型号电机可以共享一帧发送。
- *
- * @note 构造阶段只登记软件对象关系，不初始化或访问 CAN 硬件。
- * @warning FillData() 与 MotorTxManager::update() 若运行在不同任务或中断上下文，实现时
- *          必须保护共享输出槽位，避免 C++ 数据竞争。
- * @note 协议映射、反馈解析、固定池管理和发送逻辑实现在 dji_motor.cpp。
+ * @details init() 将控制帧槽位注册到 CanTxNode，将反馈 ID 注册到 CanRxNode。
+ *          can_rx_task 自动调用反馈解包，并在成功后刷新在线状态。
+ * @note 构造阶段仅校验参数；成功初始化的对象必须存活至系统停止。
  */
 #ifndef __DJI_MOTOR_HPP__
 #define __DJI_MOTOR_HPP__
@@ -22,6 +16,7 @@
 #include "motor_definition.hpp"
 #include "online_check.hpp"
 #include "can_tx_node.hpp"
+#include "can_rx_node.hpp"
 
 #include <stdint.h>
 
@@ -82,48 +77,11 @@ template <MotorType type>
 class DjiMotor;
 
 /**
- * @brief 发送固定池中所有已启用的 DJI 电机控制帧
- *
- * @return Status::OK 所有控制帧均成功交给 CAN BSP；其他状态表示至少一帧发送失败。
- *
- * @note 保留本函数用于兼容直接发送；正常周期发送由 MotorTxManager::update() 统一完成。
- * @note 未占用的帧槽位必须保持为零，防止向不存在的电机输出指令。
- */
-Status DjiMotorSendAll(void);
-
-/**
- * @brief 判断指定 CAN 是否注册了 DJI 电机
- * @param can_item 待查询的 CAN BSP 对象
- * @return true 至少有一个电机使用该 CAN；false 没有注册电机。
- * @note 本函数只查询注册关系，不访问 CAN 硬件。
- */
-bool dji_motor_uses_can(const BspCan &can_item);
-
-/**
- * @brief 将一帧 CAN 数据分发给匹配的 DJI 电机对象
- * @param can_item 接收到该帧的 CAN BSP 对象
- * @param rx       待分发的 CAN 帧
- * @return Status::OK 找到目标电机并成功解析；Status::BAD_ARG 帧不属于已注册电机。
- * @note 调用方应先从对应 CAN 接收队列取出完整帧，再调用本函数。
- */
-Status dji_motor_dispatch_rx(BspCan &can_item, const CanRxMsg &rx);
-
-/**
- * @brief 检查指定 CAN 上的反馈标识符是否已被任意 DJI 电机对象占用
- * @param can_item        待查询的 CAN BSP 对象
- * @param feedback_std_id 待查询的反馈帧标准标识符
- * @return true 标识符已被占用；false 标识符尚未被占用。
- * @note 供 DjiMotor 构造注册时进行跨型号冲突检查，业务代码通常无需调用。
- */
-bool dji_motor_feedback_in_use(const BspCan &can_item, uint32_t feedback_std_id);
-
-/**
  * @brief 单个 DJI 电机设备对象
  *
  * @tparam type 电机型号，决定合法 ID、反馈解析、控制帧映射、限幅和默认减速比
  *
- * @details 对象负责保存单电机反馈和目标输出。多个电机的目标输出由内部
- *          DjiMotorBus 聚合后注册到 MotorTxManager 周期发送。
+ * @details CanTxNode 聚合发送槽位，CanRxNode 按总线和反馈 ID 分发接收帧。
  * @note 对象不可复制或移动，以保证在线检查节点和控制帧槽位的身份稳定。
  */
 template <MotorType type>
@@ -140,6 +98,8 @@ private:
   uint8_t            _motor_id;     ///< 电调配置的 DJI 协议 ID
   uint8_t            _bus_slot;     ///< 当前电机在控制帧中的槽位，范围 0~3
   CanTxNode       *_tx_node;
+  CanRxNode       *_rx_node;
+  static Status rx_callback(void *context, const CanRxMsg &rx);
   DjiMotorControlMode _control_mode; ///< GM6020 控制模式；其他型号忽略
   Status             _statu;        ///< 构造校验或初始化状态，运行期收发结果由函数返回
 
@@ -150,9 +110,6 @@ private:
   int64_t _total_ecd;      ///< 跨零展开后的累计转子编码器计数
   bool    _feedback_ready; ///< 是否已接收过至少一帧有效反馈
 
-  // DjiMotor *_next;        ///< 同型号电机分发链表的后继节点
-  // static DjiMotor *_head; ///< 同型号电机分发链表头
-  // static DjiMotor *_tail; ///< 同型号电机分发链表尾
 
 public:
   /**
@@ -197,7 +154,7 @@ public:
   Status statu(void) const;
 
   /**
-   * @brief 构造单个 DJI 电机对象并注册控制帧槽位
+   * @brief 构造单个 DJI 电机对象并校验参数
    *
    * @param can_item   电机连接的物理 CAN BSP 对象
    * @param motor_id   电调设置的 DJI 协议 ID
@@ -206,7 +163,7 @@ public:
    * @param offset     电机转子机械零位偏移，单位：rad
    * @param control_mode GM6020 的控制模式；其他电机型号忽略该参数
    *
-   * @note 构造函数不能返回错误；ID 非法、槽位冲突或池耗尽可通过 statu() 查询。
+   * @note 构造后调用 init() 注册收发节点；错误可通过 statu() 查询。
    * @note 构造阶段不会调用 BspCan::init() 或发送 CAN 帧。
    */
   DjiMotor(BspCan &can_item,
@@ -216,14 +173,13 @@ public:
            DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE);
 
   /**
-   * @brief 注销控制帧槽位并销毁电机对象
-   * @note 注销时应先将输出清零，避免回收后保留旧控制量。
-   * @note 清零发送缓存并释放槽位；共享发送节点保留，清零帧异步发送。
-   * @warning 仅在调度器启动前或正常任务上下文销毁；调用方必须先停止
-   *          对本对象的所有并发访问，且不得继续使用之前取得的数据引用。
+   * @brief 初始化阶段注销收发节点并销毁电机对象。
+   * @note 接收节点注销成功后，释放发送槽位和互斥量。
+   * @warning 成功初始化后不支持运行期销毁；接收注册表冻结后析构会触发断言/终止。
    */
   ~DjiMotor();
 
+  /** @brief 系统运行前创建互斥量并注册发送槽位、标准帧反馈节点；重复成功初始化无副作用。 */
   Status init(void);
 
   /**
@@ -233,21 +189,22 @@ public:
    * @return Status::OK 反馈有效且数据已更新；Status::BAD_ARG 标识符或帧格式不匹配；
    *         Status::NOT_INIT 电机未成功完成内部注册。
    *
-   * @note 在任务上下文调用；互斥锁不可用时返回 Status::BUSY，不更新反馈。
+   * @note 由 CanRxNode 在接收任务中调用；失败帧进入 BSP 回退缓冲。
+   *       互斥锁不可用时返回 Status::BUSY，不更新反馈。
    * @note 只有完整且有效的反馈才能刷新 _online。相邻反馈转子位移必须小于半圈。
    * @note 首帧以绝对编码器位置初始化多圈角度；单圈角度为输出轴角度对 2π 取模。
    * @note 不计算角加速度；通用数据中的 acceleration 保持初始零值，不代表实际角加速度。
    */
-  Status DataUnpack(CanRxMsg rx);
+  Status DataUnpack(const CanRxMsg &rx);
 
   /**
    * @brief 设置下一周期发送的原始控制量
    *
    * @param output 有符号原始控制指令；实现时应按具体型号的限制进行饱和限幅
-   * @return Status::OK 写入成功；Status::NOT_INIT 未取得内部 Bus；
-   *         Status::BAD_ARG 或其他状态表示参数/Bus 操作失败。
+   * @return Status::OK 写入成功；Status::NOT_INIT 未成功初始化；
+   *         Status::BAD_ARG 或其他状态表示参数或发送槽位操作失败。
    *
-   * @note 本函数只更新内部 Bus 槽位，实际发送由 MotorTxManager::update() 统一完成。
+   * @note 本函数只更新发送槽位，实际发送由 can_tx_task 统一完成。
    */
   Status FillData(int16_t output);
 

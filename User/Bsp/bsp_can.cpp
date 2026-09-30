@@ -59,8 +59,11 @@ extern "C"
 
 BspCan::BspCan(const Config &cfg)
 
-  : _rx_message_buffer(nullptr),
-    _tx_message_buffer(nullptr),
+  : _tx_message_buffer(nullptr),
+    rx_head(nullptr),
+    tx_head(nullptr),
+    _rx_message_buffer(nullptr),
+    _rx_return_buffer(nullptr),
     _hfdcan(cfg.hfdcan),
     _name(cfg.name),
     _work_mode(cfg.mode)
@@ -69,6 +72,10 @@ BspCan::BspCan(const Config &cfg)
 
 BspCan::~BspCan()
 {
+  if (_hfdcan != nullptr)
+  {
+    HAL_FDCAN_Stop(_hfdcan);
+  }
   if (_rx_message_buffer != nullptr)
   {
     vMessageBufferDelete(_rx_message_buffer);
@@ -79,9 +86,10 @@ BspCan::~BspCan()
     vMessageBufferDelete(_tx_message_buffer);
     _tx_message_buffer = nullptr;
   }
-  if (_hfdcan != nullptr)
+  if (_rx_return_buffer != nullptr)
   {
-    HAL_FDCAN_Stop(_hfdcan);
+    vMessageBufferDelete(_rx_return_buffer);
+    _rx_return_buffer = nullptr;
   }
 }
 
@@ -92,11 +100,23 @@ Status BspCan::init()
   if (_rx_message_buffer == nullptr)
     return Status::IO_ERROR;
 
+  // 分发任务写入、receive() 的唯一消费者读取。
+  _rx_return_buffer = xMessageBufferCreate((sizeof(CanRxMsg) + 4) * 8);
+  if (_rx_return_buffer == nullptr)
+  {
+    vMessageBufferDelete(_rx_message_buffer);
+    _rx_message_buffer = nullptr;
+    return Status::IO_ERROR;
+  }
+
   // 创建发送消息缓冲区
   _tx_message_buffer = xMessageBufferCreate((sizeof(CanTxMsg) + 4) * 8);
   if (_tx_message_buffer == nullptr)
   {
     vMessageBufferDelete(_rx_message_buffer);
+    _rx_message_buffer = nullptr;
+    vMessageBufferDelete(_rx_return_buffer);
+    _rx_return_buffer = nullptr;
     return Status::IO_ERROR;
   }
 
@@ -118,7 +138,7 @@ Status BspCan::init()
 
 Status BspCan::send(uint32_t std_id, uint8_t *data)
 {
-  if (data == nullptr)
+  if (data == nullptr || std_id > 0x7FFU)
     return Status::BAD_ARG;
   if (_tx_message_buffer == nullptr)
     return Status::NOT_INIT;
@@ -127,23 +147,27 @@ Status BspCan::send(uint32_t std_id, uint8_t *data)
   txMsg.std_id = std_id;
   memcpy(txMsg.data, data, 8);
 
-  // 放入发送缓冲区（不阻塞）
-  size_t sent = xMessageBufferSend(_tx_message_buffer, &txMsg, sizeof(CanTxMsg), 0);
-
-  // 如果发送FIFO有空闲，触发一次发送
+  // 与 ISR 消费、sys_task 清队列串行化，避免 MessageBuffer 多读者竞争。
+  taskENTER_CRITICAL();
+  if (!tx_available())
+  {
+    taskEXIT_CRITICAL();
+    return Status::BUSY;
+  }
+  const size_t sent = xMessageBufferSend(_tx_message_buffer, &txMsg, sizeof(txMsg), 0);
   trigger_tx();
-
-  return (sent == sizeof(CanTxMsg)) ? Status::OK : Status::FULL;
+  taskEXIT_CRITICAL();
+  return sent == sizeof(txMsg) ? Status::OK : Status::FULL;
 }
 
 Status BspCan::receive(CanRxMsg *msg, uint32_t timeout)
 {
   if (msg == nullptr)
     return Status::BAD_ARG;
-  if (_rx_message_buffer == nullptr)
+  if (_rx_return_buffer == nullptr)
     return Status::NOT_INIT;
 
-  size_t received = xMessageBufferReceive(_rx_message_buffer, msg, sizeof(CanRxMsg), timeout);
+  size_t received = xMessageBufferReceive(_rx_return_buffer, msg, sizeof(CanRxMsg), timeout);
   return (received > 0) ? Status::OK : Status::TIMEOUT;
 }
 
@@ -200,7 +224,8 @@ void BspCan::trigger_tx()
   if (_tx_message_buffer == nullptr)
     return;
 
-  if (HAL_FDCAN_GetTxFifoFreeLevel(_hfdcan) > 0)
+  taskENTER_CRITICAL();
+  if (tx_available() && HAL_FDCAN_GetTxFifoFreeLevel(_hfdcan) > 0)
   {
     CanTxMsg txMsg;
     size_t   len = xMessageBufferReceive(_tx_message_buffer, &txMsg, sizeof(CanTxMsg), 0);
@@ -217,9 +242,11 @@ void BspCan::trigger_tx()
       txHeader.TxEventFifoControl  = FDCAN_NO_TX_EVENTS;
       txHeader.MessageMarker       = 0;
 
-      HAL_FDCAN_AddMessageToTxFifoQ(_hfdcan, &txHeader, txMsg.data);
+      if (HAL_FDCAN_AddMessageToTxFifoQ(_hfdcan, &txHeader, txMsg.data) != HAL_OK)
+        ++diagnostics.tx_dropped;
     }
   }
+  taskEXIT_CRITICAL();
 }
 
 /**
@@ -231,7 +258,7 @@ void BspCan::trigger_tx_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
   if (_tx_message_buffer == nullptr)
     return;
 
-  if (HAL_FDCAN_GetTxFifoFreeLevel(_hfdcan) > 0)
+  if (tx_available() && HAL_FDCAN_GetTxFifoFreeLevel(_hfdcan) > 0)
   {
     CanTxMsg txMsg;
     size_t   len = xMessageBufferReceiveFromISR(_tx_message_buffer, &txMsg, sizeof(CanTxMsg), pxHigherPriorityTaskWoken);
@@ -248,7 +275,8 @@ void BspCan::trigger_tx_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
       txHeader.TxEventFifoControl  = FDCAN_NO_TX_EVENTS;
       txHeader.MessageMarker       = 0;
 
-      HAL_FDCAN_AddMessageToTxFifoQ(_hfdcan, &txHeader, txMsg.data);
+      if (HAL_FDCAN_AddMessageToTxFifoQ(_hfdcan, &txHeader, txMsg.data) != HAL_OK)
+        ++diagnostics.tx_dropped;
     }
   }
 }
@@ -261,14 +289,17 @@ void BspCan::process_fifo0_isr()
   if (_hfdcan == nullptr || _rx_message_buffer == nullptr)
     return;
 
-  CanRxMsg rxMsg;
-  if (HAL_FDCAN_GetRxMessage(_hfdcan, FDCAN_RX_FIFO0, &rxMsg.header, rxMsg.data) == HAL_OK)
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  // 新消息中断可能合并多帧；读取本次积压快照，避免只取一帧导致 FIFO 长期满载。
+  const uint32_t pending = HAL_FDCAN_GetRxFifoFillLevel(_hfdcan, FDCAN_RX_FIFO0);
+  for (uint32_t i = 0; i < pending; ++i)
   {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xMessageBufferSendFromISR(_rx_message_buffer,
-                              &rxMsg,
-                              sizeof(CanRxMsg),
-                              &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    CanRxMsg rxMsg = {};
+    if (HAL_FDCAN_GetRxMessage(_hfdcan, FDCAN_RX_FIFO0, &rxMsg.header, rxMsg.data) != HAL_OK)
+      break;
+    if (xMessageBufferSendFromISR(_rx_message_buffer, &rxMsg, sizeof(rxMsg),
+                                  &xHigherPriorityTaskWoken) != sizeof(rxMsg))
+      ++diagnostics.rx_dropped;
   }
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }

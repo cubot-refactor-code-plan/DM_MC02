@@ -13,7 +13,6 @@ extern "C" void can_tx_task(void *argument);
 class CanTxNode
 {
 private:
-  BspCan       *_bspcan;
   CanTxMsg      txBuffer; ///< 消息本身
   uint8_t       division; ///< 同一 CAN 帧划分的等长数据槽位数
   Status        _statu;
@@ -25,20 +24,19 @@ private:
   bool          _registered; ///< 是否已加入发送节点链表
 
   static uint8_t    node_num;
-  static CanTxNode *head;
-  static CanTxNode *tail;
+  static bool      frozen;
   CanTxNode        *next;
-  CanTxNode        *last;
+  TickType_t        last_send_tick; ///< 发送任务启动时初始化，成功发送后更新
 
-  CanTxNode(BspCan &can, uint32_t can_id, uint8_t division = 1);
+  CanTxNode(uint32_t can_id, uint8_t division = 1);
   ~CanTxNode();
   /**
-   * @brief 创建信号量并将节点注册到统一发送链表
+   * @brief 创建互斥量并将节点注册到所属 CAN 的发送链表
    * @return Status::OK 初始化成功；Status::BAD_ARG 配置非法；
    *         Status::BUSY 已经初始化；Status::FULL 内存或 RTOS 资源不足。
    * @note 必须在 osKernelInitialize() 之后且非 ISR 上下文调用。
    */
-  Status init(void);
+  Status init(BspCan &can);
 
 public:
   Status filldata(uint8_t data[], uint8_t slot = 0);
@@ -46,8 +44,6 @@ public:
   friend CanTxNode *regist(BspCan &can_item, uint32_t can_id);
   friend CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t slot);
   friend Status     unregist(CanTxNode *node, uint8_t slot);
-  // friend Status unregist(CanTxNode* node);
-  // friend Status unregist(CanTxNode* node, uint8_t slot);
 
   CanTxNode(const CanTxNode &)            = delete;
   CanTxNode &operator=(const CanTxNode &) = delete;
@@ -59,9 +55,6 @@ public:
 
 CanTxNode *regist(BspCan &can_item, uint32_t can_id);
 CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t slot);
-// Status unregist(CanTxNode* node);
-// Status unregist(CanTxNode* node, uint8_t slot);
-void can_tx_task(void *argument);
 
 /**
  * @brief 清零并释放指定发送槽位，保留节点供发送任务继续扫描。
