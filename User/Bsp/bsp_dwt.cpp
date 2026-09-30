@@ -4,10 +4,18 @@
 // ---------------- 公共接口 ----------------
 
 
+/**
+ * @brief 使能 CYCCNT 周期计数（幂等，可重复调用）
+ *
+ * @return Status OK=可用；IO_ERROR=本内核无 CYCCNT（CTRL.NOCYCCNT=1）或使能未生效
+ *
+ * @note 顺序：先开 DEMCR.TRCENA，再写 LAR 解锁，然后清零 → 使能 →
+ *       等约 8 个周期计数稳定 → 再清零（否则第一次读数不可靠）。
+ */
 Status BspDwt::init()
 {
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk; // 1. 总开关（脱机运行时必须自己置位）
-  DWT->LAR = 0xC5ACCE55UL;                        // 2. Cortex-M7 的软件锁解锁
+  DWT->LAR    = 0xC5ACCE55UL;                     // 2. Cortex-M7 的软件锁解锁
   DWT->CYCCNT = 0U;                               // 3. 清零
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;            // 4. 使能计数
   for (volatile uint32_t i = 0U; i < 16U; i++)    // 5. 使能后约 8 周期计数才稳定
@@ -26,24 +34,16 @@ Status BspDwt::init()
   return _inited ? Status::OK : Status::IO_ERROR;
 }
 
-bool BspDwt::available() const
-{
-  return _inited;
-}
-
-uint32_t BspDwt::cpu_hz() const
-{
-  return _cpu_hz;
-}
-
+/** @brief 与上次调用的时间差（秒）；无符号差值，回绕安全 */
 double BspDwt::delta_s(uint32_t *last) const
 {
   const uint32_t now = DWT->CYCCNT;
   const double   dt  = (double)(uint32_t)(now - *last) / (double)_cpu_hz; // 无符号差值 ⇒ 回绕安全
-  *last = now;
+  *last              = now;
   return dt;
 }
 
+/** @brief 绝对时间（秒，自 init() 起算） */
 double BspDwt::time_s()
 {
   // 必须先调用 update_timeline()（它会累加 _base_s 的副作用），再取 _base_s。
@@ -53,25 +53,56 @@ double BspDwt::time_s()
   return _base_s + (double)now / (double)_cpu_hz;
 }
 
+/** @brief 绝对时间（毫秒） */
 double BspDwt::time_ms()
 {
   return time_s() * 1000.0;
 }
 
+/** @brief 绝对时间（微秒） */
 double BspDwt::time_us()
 {
   return time_s() * 1000000.0;
 }
 
-void BspDwt::delay(double seconds) const
+/** @brief 忙等指定纳秒，ns的值只能是1.818的倍数，这个太短了 */
+void BspDwt::delay_ns(double ns) const
 {
-  if (seconds <= 0.0)
+  wait_cycles(ns * 1e-9 * (double)_cpu_hz);
+}
+
+/** @brief 忙等指定微秒 */
+void BspDwt::delay_us(double us) const
+{
+  wait_cycles(us * 1e-6 * (double)_cpu_hz);
+}
+
+/** @brief 忙等指定毫秒 */
+void BspDwt::delay_ms(double ms) const
+{
+  wait_cycles(ms * 1e-3 * (double)_cpu_hz);
+}
+
+/** @brief 忙等指定秒 */
+void BspDwt::delay_s(double s) const
+{
+  wait_cycles(s * (double)_cpu_hz);
+}
+
+
+// ----------------
+// ---------------- 私有实现 ----------------
+
+
+/** @brief 四个 delay_* 的公共实现：忙等 cycles 个 CPU 周期 */
+void BspDwt::wait_cycles(double cycles) const
+{
+  if (cycles <= 0.0 || !available()) // 未初始化时计数频率未知，无法换算
   {
     return;
   }
 
-  double cycles = seconds * (double)_cpu_hz;
-  if (cycles > 4294967295.0) // 32 位上限（本工程 ≈7.809 s @550 MHz）
+  if (cycles > 4294967295.0) // 32 位计数器上限（本工程 ≈7.809 s @550 MHz）
   {
     cycles = 4294967295.0;
   }
@@ -82,12 +113,19 @@ void BspDwt::delay(double seconds) const
   }
 }
 
+/** @brief 是否已初始化且计数可用（供类内自检，不对外暴露） */
+bool BspDwt::available() const
+{
+  return _inited;
+}
 
-// ----------------
-// ---------------- 私有实现 ----------------
+/** @brief CYCCNT 计数频率（Hz） */
+uint32_t BspDwt::cpu_hz() const
+{
+  return _cpu_hz;
+}
 
-
-///< 回绕检测 + 累加（绝对时间轴唯一的状态更新点）
+/** @brief 回绕检测 + 累加，返回本次读到的 CYCCNT（绝对时间轴唯一的状态更新点） */
 uint32_t BspDwt::update_timeline()
 {
   const uint32_t now = DWT->CYCCNT;
@@ -101,7 +139,11 @@ uint32_t BspDwt::update_timeline()
   return now;
 }
 
-///< 按 RCC 算 CPU 时钟（Hz）= SYSCLK / D1CPRE 分频
+/**
+ * @brief 算出 CPU 时钟（Hz）= SYSCLK / D1CPRE
+ *
+ * @note D1CPRE 的编码与 AHB 预分频 HPRE 相同：0xx=/1，1000=/2 … 1111=/512。
+ */
 uint32_t BspDwt::cpu_clock_hz()
 {
   // D1CPRE 的编码与 AHB 预分频 HPRE 相同：0xx=/1，1000=/2 … 1111=/512

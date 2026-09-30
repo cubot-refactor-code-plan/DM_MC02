@@ -1,7 +1,7 @@
 /**
  * @file bsp_key.hpp
  * @author Rh
- * @brief 按键驱动 — 纯软件轮询消抖（无 ISR、无 FreeRTOS 依赖）
+ * @brief 按键驱动：纯软件轮询消抖（无 ISR、无 FreeRTOS 依赖）
  * @version 0.2
  * @date 2026-07-25
  *
@@ -13,17 +13,16 @@
  *       消抖时间 = debounce_cnt × T
  *       长按时间 = long_press_cnt × T      ← 从"电平跳变那一刻"起算
  *
- * @note 支持事件 —— 4 种状态:
- *       - NONE:  无事件（常态，绝大多数轮询都返回此值）
+ * @note 有 4 种事件:
+ *       - NONE:  无事件（常态，多数轮询返回此值）
  *       - PRESS: 按下（消抖确认那一刻触发一次）
  *       - SHORT: 短按触发（按下后在长按阈值内松手 → 触发一次）
  *       - LONG:  长按触发（按住达到 long_press_cnt × T → 触发一次）
  *
  * @note 使用约束:
  *       1. poll() 必须在【同一个任务】中周期性调用，本类非线程安全；
- *          调用间隔须尽量恒定，否则消抖/长按时间会随之漂移。
  *       2. init() 以当前电平作为初始稳定状态：上电时若按键已被按住，
- *          不会产生 PRESS（防误触发），直接从"按住中"开始计时。
+ *          不会产生 PRESS（防误触发），直接从"已按下"状态开始计时。
  *       3. 未 init()（或 init() 失败）时，poll() / read_raw() 安全返回，不会崩溃。
  *
  * @note 使用示例 —— 简易按键扫描 + 测试：
@@ -40,29 +39,24 @@
  *       switch (key.poll())                // 无事件时返回 NONE
  *       {
  *         case BspKey::Event::PRESS:       // 按下（消抖确认）
- *           bsp_buzzer.beep(3000, 50);     // 短"滴"一声
+ *           bsp_buzzer.beep(3000, 50);     // 鸣叫 50 ms
  *           break;
  *         case BspKey::Event::SHORT:       // 短按：阈值内松手
  *           bsp_buzzer.beep(2000, 50);
  *           break;
  *         case BspKey::Event::LONG:        // 长按：按住 1s，仅触发一次
- *           bsp_buzzer.beep(4000, 500);    // 长"嘟"一声
+ *           bsp_buzzer.beep(4000, 500);    // 鸣叫 500 ms
  *           break;                         // 注意：此后的松手不再产生 SHORT
  *         case BspKey::Event::NONE:
  *         default:
  *           break;
  *       }
- *
  *       vTaskDelay(pdMS_TO_TICKS(50));   // 50ms 轮询周期
  *     }
  *   }
  *
  *   // ── 3. 创建任务（须在 FreeRTOS 内核启动后，如 bsp_init() 或默认任务中）──
  *   xTaskCreate(key_test_task, "key_test", 256, nullptr, 2, nullptr);
- *
- *   // ── 4. 测试/调试：纯查询接口（不产生事件）──
- *   key.is_pressed();    // 逻辑上是否按下（已消抖，已按 active_low 换算）
- *   key.read_raw();      // 引脚原始电平（未消抖、未换算极性，true = 高电平）
  */
 
 #ifndef __BSP_KEY_HPP__
@@ -83,6 +77,8 @@
 class BspKey
 {
 public:
+  // ---------------- 公有接口 ----------------
+
   /** @brief 按键事件类型（一次"按下→松手"只会得到 PRESS+SHORT 或 PRESS+LONG） */
   enum class Event
   {
@@ -126,6 +122,7 @@ public:
     uint16_t      long_press_cnt; ///< 长按计数阈值 (按住持续次数)
   };
 
+  /** @brief 默认构造（未绑定引脚，须再调 init()） */
   BspKey() = default;
 
   /**
@@ -161,21 +158,10 @@ public:
    */
   Event poll();
 
-  
-  /**
-   * @brief 读取引脚原始电平（未消抖、未换算 active_low）
-   *
-   * @note 与 is_pressed() 语义不同：低有效按键【松开】时本函数返回 true。
-   * @note 未 init() 时安全返回 false。
-   *
-   * @return true=高电平, false=低电平
-   */
-  bool read_raw() const;
-
-  /** @brief 是否正在按下（消抖后的稳定状态）@note 未 init() 时为 false */
-  bool is_pressed() const { return _last_stable; }
-
+  // ----------------
 private:
+  // ---------------- 私有实现 ----------------
+
   GPIO_TypeDef *_port           = nullptr; ///< GPIO 端口指针
   uint16_t      _pin            = 0U;      ///< 引脚掩码
   bool          _active_low     = true;    ///< 有效电平极性
@@ -186,6 +172,8 @@ private:
   uint8_t  _cnt         = 0U;    ///< 当前连续不一致计数
   uint16_t _hold_cnt    = 0U;    ///< 按下保持计数
   bool     _long_fired  = false; ///< 本次按下周期内长按是否已触发
+
+  // ----------------
 };
 
 #endif // __BSP_KEY_HPP__

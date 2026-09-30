@@ -10,15 +10,7 @@ extern "C" void dwt_test_task(void *argument)
 {
   (void)argument;
 
-  if (!bsp_dwt.available())
-  {
-    bsp_uart1.printf("[DWT] not available\r\n");
-    for (;;)
-    {
-      vTaskDelay(1000);
-    }
-  }
-
+  // init() 由 bsp_init() 用 configASSERT 保证成功，这里直接开始测
   uint32_t last = 0;
   (void)bsp_dwt.delta_s(&last); // 第一次结果无效，丢掉
 
@@ -29,13 +21,12 @@ extern "C" void dwt_test_task(void *argument)
     vTaskDelay(pdMS_TO_TICKS(1000U));
     const double t1 = bsp_dwt.time_s();
 
-    // 忙等延时自测：delay(1 ms) 实测应 ≈0.001 s
+    // 忙等延时自测：delay_ms(1) 实测应 ≈0.001 s
     (void)bsp_dwt.delta_s(&last);
-    bsp_dwt.delay(0.001);
+    bsp_dwt.delay_ms(1);
     const double d1 = bsp_dwt.delta_s(&last);
 
-    bsp_uart1.printf("[DWT] t=%.3f s | 1s=%+.4f | 1ms=%+.5f | cpu=%.1f MHz\r\n",
-                     bsp_dwt.time_s(), t1 - t0, d1, (double)bsp_dwt.cpu_hz() / 1000000.0);
+    bsp_uart1.printf("[DWT] t=%.3f s | 1s=%+.4f | 1ms=%+.5f\r\n", bsp_dwt.time_s(), t1 - t0, d1);
   }
 }
 

@@ -14,7 +14,7 @@
  *
  * @note 先在 bsp_cfg.cpp 实例化并外部声明，再在 all_init() → bsp_init() 中初始化
  *
- *      BspCan bsp_can1(BspCan::Config{&hfdcan1}); // 单字段 Config 需显式构造，否则与拷贝构造二义
+ *      BspCan bsp_can1(&hfdcan1); // 只需句柄，不设 Config
  *      bsp_can1.init();
  *
  * @note 如何使用：（多任务并发调用 send() 安全：TX 启动由 _tx_lock 串行化）
@@ -25,7 +25,7 @@
  *      CanRxMsg data1 = {};              // 定义接收消息
  *      bsp_can1.receive(&data1, 0);      // 从接收缓冲区取值，0=不等待，portMAX_DELAY=一直等
  *
- * @note 总线异常兜底：tx_recover() / bus_recover() 由 sys_task 周期调用（非阻塞）。
+ * @note 总线异常恢复：tx_recover() / bus_recover() 由 sys_task 周期调用（非阻塞）。
  *       详细状态用 bus_status() / rx_diag() / tx_diag() 查询（Live Watch 可看）。
  *
  */
@@ -40,7 +40,6 @@
 #include "semphr.h"    // IWYU pragma: keep (TX 启动锁)
 #include "status.hpp"  // 统一状态码
 #include "task.h"
-
 
 
 /**
@@ -75,26 +74,10 @@ public:
   // ---------------- 公有接口 ----------------
 
   /**
-   * @brief CAN 配置结构体（可匿名按序传入）
-   */
-  struct Config
-  {
-    /**
-     * @brief 按序构造配置（参数顺序 = 字段顺序）
-     */
-    Config(FDCAN_HandleTypeDef *hfdcan = nullptr)
-      : hfdcan(hfdcan)
-    {
-    }
-
-    FDCAN_HandleTypeDef *hfdcan; ///< CAN 句柄
-  };
-
-  /**
    * @brief 构造函数
-   * @param cfg CAN 配置（句柄/名称/工作模式，可匿名按序传入）
+   * @param hfdcan FDCAN 句柄
    */
-  BspCan(const Config &cfg);
+  BspCan(FDCAN_HandleTypeDef *hfdcan);
   ~BspCan();
 
   /**
@@ -125,24 +108,24 @@ public:
   Status receive(CanRxMsg *msg, uint32_t timeout_ms = portMAX_DELAY);
 
   /**
-   * @brief TX 断链兜底：缓冲有帧要发、而发送链却没人推进时，踢一脚
+   * @brief TX 卡死恢复：软件缓冲有帧、硬件 FIFO 有空位，但发送中断处于关闭状态时补一次发送
    *
-   * @return true=本次确实救回一次（原先断链且成功送出）
+   * @return true=本次确实恢复了一次（原先卡死，本次成功写入硬件 FIFO）
    *
-   * @note Bus-Off 期间直接返回：此时帧只能塞进硬件 FIFO、发不到总线上，
-   *       算成「救回」会让诊断量虚高并堆满 FIFO；总线恢复交给 bus_recover()。
-   * @note 非阻塞（取锁等待为 0），可安全地在周期任务中调用（sys_task 10 ms）。
+   * @note Bus-Off 期间直接返回：此时帧只能写进硬件 FIFO、发不到总线上，
+   *       计入恢复次数会让诊断量虚高并堆满 FIFO；总线恢复交给 bus_recover()。
+   * @note 非阻塞（取锁等待为 0），可在周期任务中调用（sys_task 10 ms）。
    */
   bool tx_recover();
 
   /**
-   * @brief 总线异常兜底：处于 Bus-Off 时重启外设（停外设 → 重新配置 → 上线）
+   * @brief 总线恢复：处于 Bus-Off 时重启外设（停外设 → 重新配置 → 启动）
    *
    * @return true=本次确实重启了一次
-   * @note 非阻塞，可安全地在周期任务中调用（sys_task 10 ms）。
+   * @note 非阻塞，可在周期任务中调用（sys_task 10 ms）。
    * @note 限流：两次重启之间至少有最小间隔（见实现中的 BUS_RECOVER_MIN_GAP_MS）。
    *       M_CAN 在 CCCR.INIT=0 时本就会自行尝试恢复（等 128×11 个隐性位），
-   *       这里只是「卡死时踢一脚」，所以不应每次巡检都重启，以免总线长期故障时反复抖动。
+   *       所以不应每次巡检都重启，避免总线长期故障时反复抖动。
    */
   bool bus_recover();
 
@@ -171,7 +154,7 @@ public:
   // ----------------
   // ---------------- 查询接口 ----------------
 
-  ///< RX 诊断计数（只增不减，正常应恒为 0）
+  /** @brief RX 诊断计数（只增不减，正常应恒为 0） */
   struct RxDiag
   {
     uint32_t sw_drop_cnt;  ///< 软件消息缓冲区满而丢弃的帧数
@@ -179,16 +162,16 @@ public:
     uint32_t len_drop_cnt; ///< 数据长度超过 8 字节而被丢弃的帧数
   };
 
-  ///< TX 诊断计数（只增不减，正常应恒为 0）
+  /** @brief TX 诊断计数（只增不减，正常应恒为 0） */
   struct TxDiag
   {
-    uint32_t drop_cnt;          ///< 软件发送缓冲满而丢弃的帧数（调用方不看返回值时就是静默丢帧）
+    uint32_t drop_cnt;          ///< 软件发送缓冲满而丢弃的帧数（调用方不检查返回值时即丢帧）
     uint32_t fifo_fail_cnt;     ///< 写入硬件 TX FIFO 失败次数（任务与 ISR 合计）
-    uint32_t stall_recover_cnt; ///< 真丢唤醒次数：缓冲有帧 + FIFO 有空位 + 接力中断处于关闭
-    uint32_t it_fail_cnt;       ///< 接力中断没写成（HAL 被锁）的次数，由巡检补开
+    uint32_t stall_recover_cnt; ///< 丢唤醒并成功恢复的次数：缓冲有帧 + FIFO 有空位 + 发送中断关闭
+    uint32_t it_fail_cnt;       ///< 开关 TX-FIFO-EMPTY 中断失败（HAL_BUSY）的次数，由巡检补开
   };
 
-  ///< 总线错误状态快照（HAL PSR/错误计数器 + 本驱动的累计次数）
+  /** @brief 总线错误状态快照（HAL PSR/错误计数器 + 本驱动的累计次数） */
   struct BusStatus
   {
     bool     bus_off;           ///< 当前是否处于 Bus-Off（M_CAN 在 INIT=0 时会自行尝试恢复）
@@ -203,13 +186,13 @@ public:
     uint32_t bus_rec_cnt;       ///< bus_recover() 实际重启外设的次数
   };
 
-  ///< 读取 RX 诊断计数
+  /** @brief 读取 RX 诊断计数 */
   RxDiag rx_diag() const;
 
-  ///< 读取 TX 诊断计数
+  /** @brief 读取 TX 诊断计数 */
   TxDiag tx_diag() const;
 
-  ///< 读取总线错误状态快照
+  /** @brief 读取总线错误状态快照 */
   BusStatus bus_status() const;
 
   // ----------------
@@ -218,30 +201,28 @@ private:
 
   // 成员变量
 
-  ///< 软件收发缓冲区的帧数深度（满即丢并计数，不做流控；按需调整）
-  static constexpr size_t RX_QUEUE_DEPTH = 16;
-  static constexpr size_t TX_QUEUE_DEPTH = 16;
+  static constexpr size_t RX_QUEUE_DEPTH = 16; ///< 接收消息缓冲区深度（帧，满即丢并计数）
+  static constexpr size_t TX_QUEUE_DEPTH = 16; ///< 发送消息缓冲区深度（帧，满即丢并计数）
 
   FDCAN_HandleTypeDef *_hfdcan = nullptr; ///< FDCAN 句柄
 
   MessageBufferHandle_t _rx_message_buffer = nullptr; ///< 接收消息缓冲区
   MessageBufferHandle_t _tx_message_buffer = nullptr; ///< 发送消息缓冲区
 
-  ///< TX 启动锁：串行化「判有空位 → 取帧 → 写入硬件 FIFO」，多任务并发也安全
-  SemaphoreHandle_t _tx_lock = nullptr;
+  SemaphoreHandle_t _tx_lock = nullptr; ///< TX 启动锁：串行化「判有空位 → 取帧 → 写入硬件 FIFO」
 
-  ///< RX 诊断量（volatile：ISR 中更新，任务中读取）
+  // RX 诊断量（ISR 中更新，任务中读取）
   volatile uint32_t _rx_sw_drop_cnt  = 0; ///< 软件缓冲满丢弃帧数
   volatile uint32_t _rx_lost_cnt     = 0; ///< 硬件 FIFO 溢出丢帧数
   volatile uint32_t _rx_len_drop_cnt = 0; ///< 数据长度超过 8 字节而丢弃的帧数
 
-  ///< TX 诊断量（volatile：ISR 中更新，任务中读取）
+  // TX 诊断量（ISR 中更新，任务中读取）
   volatile uint32_t _tx_drop_cnt      = 0; ///< 软件发送缓冲满而丢掉的帧数
   volatile uint32_t _tx_fifo_fail_cnt = 0; ///< 写硬件 FIFO 失败次数
-  volatile uint32_t _tx_stall_rec_cnt = 0; ///< 真丢唤醒次数（缓冲有帧 + FIFO 有空位 + 接力中断关）
-  volatile uint32_t _tx_it_fail_cnt   = 0; ///< 接力中断没写成（HAL 被锁）的次数
+  volatile uint32_t _tx_stall_rec_cnt = 0; ///< 丢唤醒并成功恢复的次数
+  volatile uint32_t _tx_it_fail_cnt   = 0; ///< 开关 TX-FIFO-EMPTY 中断失败的次数
 
-  ///< 总线错误量（volatile：ISR 中更新，任务中读取）
+  // 总线错误量（ISR 中更新，任务中读取）
   volatile uint32_t _bus_off_cnt     = 0; ///< IR.BO 触发次数（Bus-Off 状态变化）
   volatile uint32_t _err_passive_cnt = 0; ///< 进入错误被动次数
   volatile uint32_t _err_warning_cnt = 0; ///< 进入错误警告次数
@@ -251,28 +232,28 @@ private:
 
   // 内部实现
 
-  ///< 停外设并摘除本驱动用过的全部通知（幂等，可在未初始化状态下调用）
+  /** @brief 停外设并摘除本驱动用过的全部通知（幂等，未初始化时调用也安全） */
   void reset_hardware();
 
-  ///< 配置滤波器 + 启动外设 + 打开 RX/错误状态通知（须先 reset_hardware()）
+  /** @brief 配置滤波器 + 启动外设 + 打开 RX/错误状态通知（须先 reset_hardware()） */
   Status configure_hardware();
 
-  ///< 初始化失败收尾：复位外设 + 释放软件资源，保证不留半初始化态
+  /** @brief 初始化失败收尾：复位外设 + 释放软件资源 */
   void rollback_init();
 
-  ///< 只做 TX-FIFO-EMPTY 接力中断的开关；返回 false = HAL 被锁（HAL_BUSY）没写成
+  /** @brief 开关 TX-FIFO-EMPTY 中断；返回 false = HAL 被占用（HAL_BUSY），中断状态未改变 */
   bool set_tx_empty_it(bool enable);
 
-  ///< 任务上下文：判定软件缓冲是否还有帧，并在临界区内校正接力中断
+  /** @brief 任务上下文：判断软件缓冲是否还有帧，在临界区内开关 TX-FIFO-EMPTY 中断 */
   void update_tx_empty_it();
 
-  ///< 主动尝试向硬件 TX FIFO 送出一帧；wait=0 时非阻塞
+  /** @brief 尝试向硬件 TX FIFO 写入一帧；wait=0 时非阻塞 */
   bool start_transmission(TickType_t wait = portMAX_DELAY);
 
-  ///< 构造 8 字节经典帧的标准发送头（任务与 ISR 共用，避免两处不同步）
+  /** @brief 构造 8 字节经典帧的发送头（任务与 ISR 共用） */
   static void fill_tx_header(FDCAN_TxHeaderTypeDef &header, const CanTxMsg &msg);
 
-  ///< 释放所有已创建的 FreeRTOS 资源
+  /** @brief 释放所有已创建的 FreeRTOS 资源（消息缓冲区、锁） */
   void cleanup_resources();
 
   // ----------------

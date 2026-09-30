@@ -12,14 +12,10 @@
  *          TIM12: PSC=23, ARR 动态调整以改变频率。
  *          计数基频 base_clk = 定时器主频 / (PSC + 1)，TIM12 ≈ 6 MHz。
  *
- * @note 初始化示例（默认配置）：
+ * @note 没有 init()：构造时传入 Config，默认值即本板参数（TIM12 CH2 / PB15）
  *
- *       // 参数顺序：htim, channel, base_clk, default_freq, freq_min, freq_max, short_ms
- *       BspBuzzer buzzer2({&htim3, TIM_CHANNEL_1, 1000000UL}); // 1 MHz 基频，其余默认
- *
- * @note beep 使用示例（内部用 vTaskDelay 阻塞等待，必须在任务上下文调用；
- *       频率 / 时长传 0 表示用 Config 里的默认值，音量缺省 50%）：
- *
+ * @note beep 使用示例（内部用 vTaskDelay 阻塞等待，必须在任务上下文调用；传 0 表示用 Config 里的默认值）：
+ *       
  *       bsp_buzzer.beep(2000, 100);      // 2 kHz 响 100 ms 后自动关闭
  *       bsp_buzzer.beep(2000, 100, 30);  // 同上，音量（占空比）30%
  *       bsp_buzzer.beep(2000, 0);        // 只给频率：时长用 Config::short_ms（默认 80 ms）
@@ -81,7 +77,9 @@ public:
   // ----------------
   // ---------------- 公共接口 ----------------
 
+  /** @brief 默认构造：全部使用 Config 的默认值（TIM12 CH2 / PB15，基频 6 MHz） */
   BspBuzzer()  = default;
+  /** @brief 默认析构 */
   ~BspBuzzer() = default;
 
   /**
@@ -91,7 +89,7 @@ public:
   BspBuzzer(const Config &cfg);
 
   /**
-   * @brief 鸣叫指定时长后自动关闭（阻塞）
+   * @brief 鸣叫指定时长后自动关闭（任务级阻塞）
    *
    * @note 唯一的对外发声入口：等价于 tone + 延时 + off，只把延时做成阻塞的。
    *
@@ -113,7 +111,7 @@ private:
    */
   void tone(uint32_t freq_hz, uint32_t volume_pct = 50);
 
-  ///< 停止 PWM
+  /** @brief 停止 PWM 输出 */
   void off();
 
   // ----------------

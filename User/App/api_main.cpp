@@ -1,6 +1,6 @@
 #include "api_main.h"
-#include "FreeRTOS.h"
-#include "main.h" // IWYU pragma: keep
+#include "FreeRTOS.h" // IWYU pragma: keep
+#include "main.h"     // IWYU pragma: keep
 #include "stdio.h"
 #include "task.h"
 
@@ -9,13 +9,13 @@
 #include "bsp_cfg.hpp"
 
 /* Device */
-#include "device_cfg.hpp"
+#include "device_cfg.hpp" // IWYU pragma: keep
 
 /* 任务声明 */
 #include "app_task.hpp"
 
 /* 测试任务声明（开关见 app_test.hpp） */
-#include "app_test.hpp"
+#include "app_test.hpp" // IWYU pragma: keep
 
 
 /**

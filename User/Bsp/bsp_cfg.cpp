@@ -3,13 +3,13 @@
 #include "FreeRTOS.h" // IWYU pragma: keep (configASSERT)
 
 /**
- * @brief bsp层整体的初始化
+ * @brief BSP 层统一初始化
  *
- * @note  必须在 FreeRTOS 内核启动后调用（因为大部分 BSP 驱动内部创建 RTOS 对象）。
- *        目前除了串口的模板实例化需要在 bsp_uart.cpp 中定义，其他 BSP 全局实例化都在 bsp_cfg.cpp 中定义。
- *        当前已初始化的外设一览：
+ * @note  必须在 FreeRTOS 内核启动后调用（这些驱动内部要创建 RTOS 对象）。
+ *        串口的模板实例化只能在 bsp_uart.cpp，其余 BSP 全局实例都在 bsp_cfg.cpp 中定义。
+ *        本函数初始化的外设：
  *
- *        ✅ DWT        → bsp_dwt.init()      [内核 CYCCNT 计时，无外设]
+ *        ✅ DWT        → bsp_dwt.init()       [内核 CYCCNT 计时，无外设]
  *        ✅ CAN1/2/3   → bsp_can1/2/3.init()  [Message Buffer 收发]
  *        ✅ USART1     → bsp_uart1.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ USART3     → bsp_uart3.init()     [IDLE RX DMA + FreeRTOS stream buffer]
@@ -22,20 +22,20 @@
  *        ✅ GPIO       → MX_GPIO_Init()       [BspGpio 仅封装]
  *        ✅ KEY (PA15) → key_user.init(...)   [纯软件轮询消抖，无 ISR；200ms 轮询 → 200ms 消抖, 1s 长按]
  *        ✅ USB        → BspUsb::instance()   [由默认任务启动后初始化]
- *        ✅ 蜂鸣器     → bsp_buzzer          [TIM12 CH2 PB15，配置在全局构造时传入，无需 init]
+ *        ✅ 蜂鸣器      → bsp_buzzer           [TIM12 CH2 PB15，构造时完成配置，没有 init()]
  *
  */
 void bsp_init()
 {
-  // DWT 计时（内核 CYCCNT，不依赖 FreeRTOS/中断）：最先就绪，供其它驱动打点
+  // DWT 计时（内核 CYCCNT，不依赖 FreeRTOS/中断）：最先初始化，供其它驱动记时间戳
   configASSERT(bsp_dwt.init() == Status::OK);
 
-  // FreeRTOS 驱动的 CAN（init() 失败 = 该路 CAN 静默不可用，必须当场发现）
+  // CAN（init() 失败则这一路不可用，用 configASSERT 立刻停机）
   configASSERT(bsp_can1.init() == Status::OK);
   configASSERT(bsp_can2.init() == Status::OK);
   configASSERT(bsp_can3.init() == Status::OK);
 
-  // FreeRTOS 驱动的 UART
+  // UART（同样依赖 FreeRTOS 流缓冲区，失败则立刻停机）
   configASSERT(bsp_uart1.init() == Status::OK);
   configASSERT(bsp_uart3.init() == Status::OK);
   configASSERT(bsp_uart4.init() == Status::OK);
@@ -45,71 +45,60 @@ void bsp_init()
   configASSERT(bsp_uart9.init() == Status::OK);
   configASSERT(bsp_uart10.init() == Status::OK);
 
-  // 按键（纯软件轮询消抖，200ms 轮询 → 200ms 消抖, 1s 长按）
-  //    长按时间 = long_press_cnt × 轮询周期（从电平跳变起算）= 5 × 200ms = 1s
+  // 按键（纯软件轮询消抖，200ms轮询 → 200ms消抖, 1s长按）
   key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U});
 }
 
 
 // ---------------- DWT ----------------
 
-///< 内核 CYCCNT 计时（CPU 频率由 init() 自动从 RCC 算出，无需配置）
-BspDwt bsp_dwt;
+BspDwt bsp_dwt; ///< 内核 CYCCNT 计时（CPU 频率由 init() 从 RCC 读出，没有配置项）
 
 
 // ----------------
 // ---------------- CAN ----------------
 
-/**
- * @brief 全局实例化
- * @param CAN句柄
- *
- * @note Config 只有单个字段时，`BspCan x({&hfdcan1})` 会与拷贝构造产生二义
- *       （GCC: call of overloaded 'BspCan(<brace-enclosed initializer list>)' is
- *       ambiguous），故这里显式构造 BspCan::Config。
- */
-BspCan bsp_can1(BspCan::Config{&hfdcan1});
-BspCan bsp_can2(BspCan::Config{&hfdcan2});
-BspCan bsp_can3(BspCan::Config{&hfdcan3});
+BspCan bsp_can1(&hfdcan1); ///< 构造只绑句柄，没有其它参数
+BspCan bsp_can2(&hfdcan2);
+BspCan bsp_can3(&hfdcan3);
 
 
 // ----------------
 // ---------------- UART ----------------
 
 /**
- * @brief 全局实例化
- * @param 第一个串口句柄
- * @param 第二个是是否启用发送逻辑
- * @note 这个 __attribute__((section(".dma_buffer"))) 是把他放到dtcm区域外，在.ld格式文件下实现的
+ * @brief UART 全局实例，构造参数为 {句柄, 是否启用发送, 波特率}
  *
+ * @note __attribute__((section(".dma_buffer"))) 把这些实例放进 .dma_buffer 段：
+ *       该段在 STM32H723XG_FLASH.ld 中定义在 RAM_D1，而普通全局变量所在的 .bss 在 DTCMRAM；
+ *       DTCM 不能被 DMA 访问，而这些实例里含 DMA 收发缓冲区，所以必须放到这里。
  */
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart3({&huart3, true});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart4({&huart4, true});
-///< UART5 仅接收：CubeMX 未配 TX DMA，发送功能关闭（transmit_enable=false）
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart5({&huart5, false});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart7({&huart7, true});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart8({&huart8, true});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true, 115200U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart3({&huart3, true, 115200U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart4({&huart4, true, 115200U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart5({&huart5, false, 115200U}); ///< 仅接收：CubeMX 未配 TX DMA
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart7({&huart7, true, 921600U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart8({&huart8, true, 115200U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true, 115200U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true, 921600U});
 
 
 // ----------------
 // ---------------- GPIO 输出引脚 ----------------
 
-///< 电源控制
+// 电源控制
 BspGpio power_24v_2({POWER_24V_2_GPIO_Port, POWER_24V_2_Pin}); // PC13
 BspGpio power_24v_1({POWER_24V_1_GPIO_Port, POWER_24V_1_Pin}); // PC14
 BspGpio power_5v({POWER_5V_GPIO_Port, POWER_5V_Pin});          // PC15
 
-///< IMU 片选
+// IMU 片选
 BspGpio gyro_acc_cs({GYRO_ACC_CS_GPIO_Port, GYRO_ACC_CS_Pin});    // PC0
 BspGpio gyro_gyro_cs({GYRO_GYRO_CS_GPIO_Port, GYRO_GYRO_CS_Pin}); // PC3
 
-///< BTB 扩展 IO
+// BTB 扩展 IO
 BspGpio btb_gpio({BTB_GPIO_GPIO_Port, BTB_GPIO_Pin}); // PE14
 
-///< LCD 控制
+// LCD 控制
 BspGpio lcd_cs({LCD_CS_GPIO_Port, LCD_CS_Pin});    // PE15
 BspGpio lcd_blk({LCD_BLK_GPIO_Port, LCD_BLK_Pin}); // PB10
 BspGpio lcd_res({LCD_RES_GPIO_Port, LCD_RES_Pin}); // PB11
@@ -119,16 +108,14 @@ BspGpio lcd_dc({LCD_DC_GPIO_Port, LCD_DC_Pin});    // PD10
 // ----------------
 // ---------------- 蜂鸣器 ----------------
 
-///< TIM12 CH2 (PB15) PWM 无源蜂鸣器
-///< 默认配置即为 TIM12 CH2 / 6MHz 基频，换定时器时传入 BspBuzzer::Config 即可
+// 蜂鸣器：TIM12 CH2 (PB15)，默认 Config（计数基频 6 MHz）；换定时器/通道时传 BspBuzzer::Config
 BspBuzzer bsp_buzzer;
 
 
 // ----------------
 // ---------------- 按键 ----------------
 
-///< 用户按键 PA15, 低有效
-BspKey key_user;
+BspKey key_user; ///< 用户按键 PA15，低有效
 
 
 // ----------------
