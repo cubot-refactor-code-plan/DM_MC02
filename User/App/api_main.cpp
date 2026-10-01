@@ -85,53 +85,30 @@ void all_init()
   can_recovery_test_init();
 #endif
 
-  /* 系统维护任务（10 ms）与 CAN 收发任务（1 kHz，优先级更高） */
+  /* 系统维护（10 ms）、CAN 收发（1 kHz，优先级更高）、按键（200 ms） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
   configASSERT(xTaskCreate(can_rx_task, "can_rx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
   configASSERT(xTaskCreate(can_tx_task, "can_tx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
+  configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 2, NULL) == pdPASS);
 
 #if APP_TEST_CAN_RECOVERY_ENABLED
   configASSERT(xTaskCreate(can_recovery_test_task, "can_fault", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
 #if APP_TEST_ONLINE_CHECK_ENABLED
-  configASSERT(xTaskCreate(online_check_test_task,
-                           "online_test",
-                           256,
-                           NULL,
-                           tskIDLE_PRIORITY + 3,
-                           NULL)
-               == pdPASS);
+  configASSERT(xTaskCreate(online_check_test_task, "online_test", 256, NULL, tskIDLE_PRIORITY + 3, NULL) == pdPASS);
 #endif
 
 #if APP_TEST_DJI_MOTOR_ENABLED
-  configASSERT(xTaskCreate(dji_motor_test_task,
-                           "motor_test",
-                           256,
-                           NULL,
-                           tskIDLE_PRIORITY + 5,
-                           NULL)
-               == pdPASS);
+  configASSERT(xTaskCreate(dji_motor_test_task, "motor_test", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
 #if APP_TEST_DM_MOTOR_ENABLED
-  configASSERT(xTaskCreate(dm_motor_test_task,
-                           "dm_test",
-                           512,
-                           NULL,
-                           tskIDLE_PRIORITY + 5,
-                           NULL)
-               == pdPASS);
+  configASSERT(xTaskCreate(dm_motor_test_task, "dm_test", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
 #if APP_TEST_QSPI_FLASH_ENABLED
-  configASSERT(xTaskCreate(qspi_flash_test_task,
-                           "qspi_test",
-                           512,
-                           NULL,
-                           tskIDLE_PRIORITY + 4,
-                           NULL)
-               == pdPASS);
+  configASSERT(xTaskCreate(qspi_flash_test_task, "qspi_test", 512, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
 #endif
 
 #if APP_TEST_DWT_ENABLED

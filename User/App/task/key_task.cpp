@@ -25,6 +25,6 @@ extern "C" void key_task(void *argument)
         break;
     }
 
-    vTaskDelay(200); // beep 是阻塞的，周期会多出一个响铃时长，测试无所谓
+    vTaskDelay(pdMS_TO_TICKS(200U)); // beep 是阻塞的，周期会多出一个响铃时长，测试无所谓
   }
 }

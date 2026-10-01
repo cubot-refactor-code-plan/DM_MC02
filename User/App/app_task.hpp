@@ -28,6 +28,15 @@ extern "C"
    */
   void sys_task(void *argument);
 
+  /**
+   * @brief 按键任务：200 ms 轮询 key_user，按事件驱动蜂鸣器提示
+   * @param argument 任务参数（未使用，NULL）
+   * @note 轮询周期与 key_user 的消抖 / 长按配置对应（debounce 1 → 200 ms，
+   *       long_press 5 → 1 s）；beep 为阻塞调用，实际周期会多出一个响铃时长。
+   * @note 由 all_init() 创建，不应由业务代码直接调用。
+   */
+  void key_task(void *argument);
+
 #ifdef __cplusplus
 }
 #endif
