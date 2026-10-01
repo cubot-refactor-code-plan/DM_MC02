@@ -42,3 +42,23 @@ clangd 的 include-cleaner 会检查头文件是否被直接使用。间接使�
 ## 条件编译的文件
 
 整体被 `#if APP_TEST_XXX_ENABLED` 包住的测试文件，include 也要放在 `#if` 内部：否则宏为 0 时翻译单元为空，include-cleaner 会把每一个 include 都判为多余。
+
+## 代码格式化
+
+格式化只由 `.clang-format` 决定，`.clangd` 不参与格式化。
+
+本机没有单独安装 `clang-format`，用的是 VS Code C/C++ 扩展自带的那份（`~/.vscode/extensions/ms-vscode.cpptools-*/LLVM/bin/clang-format`）。编辑器与命令行走同一份配置，因此结果一致；配置里已不再使用会随版本改变行为的旧写法（如 `ConstructorInitializerAllOnOneLineOrOnePerLine`），所以换扩展版本也不会改变格式。
+
+用法：
+
+- 保存时自动格式化已开启（`[c]` / `[cpp]` → `ms-vscode.cpptools`）。
+- 提交前检查：`Tools/clang_format.sh check`（Windows 用 `Tools/clang_format.bat check`），不符合规范时列出文件并以退出码 1 结束。
+- 统一格式：把 `check` 换成 `format`。
+- VS Code 任务里对应 `Format_Check_linux` / `Format_Apply_linux` / `Format_Check_win` / `Format_Apply_win`。
+
+范围是 `User/` 与 `QSPI_Flash/`。`Core/` 由 CubeMX 生成、第三方目录是上游代码，两者都不格式化。
+
+### 必须靠前的头文件
+
+FreeRTOS 要求 `FreeRTOS.h` 出现在其它 FreeRTOS 头文件之前，否则 `task.h`、`event_groups.h` 会直接 `#error`。`.clang-format` 已用 `IncludeCategories` 给 `FreeRTOS.h` 最高优先级，排序不会把它挤到后面；新增 FreeRTOS 头文件时不需要手动调整顺序。
+
