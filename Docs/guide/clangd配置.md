@@ -63,9 +63,9 @@ clangd 的 include-cleaner 会检查头文件是否被直接使用。间接使�
 
 ## 抑制上游库的诊断
 
-`Middlewares/`、`Drivers/`、`tinyusb-0.20.0/` 是上游代码，不由本工程维护。单独打开这些目录下的头文件时，clangd 没有对应的编译命令，会按默认方式解析并报大量错误（例如直接打开 `event_groups.h` 会报 `include FreeRTOS.h must appear in source files before...`）。
+`Middlewares/`、`Drivers/` 是 STM32 / FreeRTOS 提供的库，不由本工程维护。单独打开这些目录下的头文件时，clangd 没有对应的编译命令，会按默认方式解析并报大量错误（例如直接打开 `event_groups.h` 会报 `include FreeRTOS.h must appear in source files before...`）。
 
-`.clangd` 用按路径生效的片段把这三个目录的诊断整体关掉：
+`.clangd` 用按路径生效的片段把这两个目录的诊断整体关掉：
 
 ```yaml
 If:
@@ -74,7 +74,7 @@ Diagnostics:
   Suppress: '*'
 ```
 
-本工程自己的代码（`User/`、`QSPI_Flash/`、`Core/`）不受影响。
+本工程自己的代码（`User/`、`QSPI_Flash/`、`Core/`）不受影响；`tinyusb-0.20.0/` 也不屏蔽，它本身是可编译的源码，保留诊断便于排查问题。
 
 ### 必须靠前的头文件
 

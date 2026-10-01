@@ -32,8 +32,4 @@ If:
   PathMatch: Drivers/.*
 Diagnostics:
   Suppress: '*'
----
-If:
-  PathMatch: tinyusb-0.20.0/.*
-Diagnostics:
-  Suppress: '*'
+
