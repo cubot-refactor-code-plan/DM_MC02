@@ -49,10 +49,10 @@ clangd 的 include-cleaner 会检查头文件是否被直接使用。间接使�
 
 本机没有单独安装 `clang-format`，用的是 VS Code C/C++ 扩展自带的那份（`~/.vscode/extensions/ms-vscode.cpptools-*/LLVM/bin/clang-format`）。编辑器与命令行走同一份配置，因此结果一致；配置里已不再使用会随版本改变行为的旧写法（如 `ConstructorInitializerAllOnOneLineOrOnePerLine`），所以换扩展版本也不会改变格式。
 
-用法：
+用法（工程里没有任何自动格式化，格式化都要手动触发）：
 
-- 保存时自动格式化已开启（`[c]` / `[cpp]` → `ms-vscode.cpptools`），这是日常唯一需要的方式。
-- 需要手工整体统一时，直接用那份 clang-format 覆盖格式化：`"$CF" -i <文件...>`，范围 `User/` 与 `QSPI_Flash/`：
+- 单文件：在编辑器中对当前文件执行 Format Document（`Shift+Alt+F`），用的就是 `.clang-format`。
+- 批量统一：直接用那份 clang-format 覆盖格式化，范围 `User/` 与 `QSPI_Flash/`：
 
   ```bash
   CF=~/.vscode/extensions/ms-vscode.cpptools-*/LLVM/bin/clang-format

@@ -34,6 +34,10 @@ TODO：实机测试部分已存在，但不完善、可读性不足。
 
 环境要求、命令行细节，以及 VS Code / Cortex-Debug / Ozone 的用法见 [Docs/guide/开发环境与烧录调试.md](Docs/guide/开发环境与烧录调试.md)。
 
+## 代码规范
+
+代码遵循 [Docs/spec/编码规范.md](Docs/spec/编码规范.md)：分层依赖单向、命名与注释有固定写法，格式由 `.clang-format` 固定。格式化为**手动执行**，工程里没有任何自动格式化；格式化范围是 `User/` 与 `QSPI_Flash/`，`Core/`（CubeMX 生成）与第三方目录不参与，细节见 [Docs/guide/clangd配置.md](Docs/guide/clangd配置.md)。
+
 ## 文档
 
 开发文档总入口（AI 开发必读）：[Docs/README.md](Docs/README.md)
