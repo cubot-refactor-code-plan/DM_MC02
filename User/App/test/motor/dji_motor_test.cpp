@@ -1,11 +1,11 @@
 #include "app_test.hpp"
+
+#if APP_TEST_DJI_MOTOR_ENABLED
 #include "dji_motor.hpp"
 #include "task.h"
 
 #include <cmath>
 #include <cstdlib>
-
-#if APP_TEST_DJI_MOTOR_ENABLED
 
 #  include "bsp_cfg.hpp"     // bsp_can1.diagnostics
 #  include "service_cfg.hpp" // bus_can1

@@ -21,7 +21,7 @@
 #define APP_TEST_CAN_RECOVERY_ENABLED 0
 
 /** @brief 编译并创建 CAN1 ID2 M3508 低电流转动测试；设为 0 可停用。 */
-#define APP_TEST_DJI_MOTOR_ENABLED 1
+#define APP_TEST_DJI_MOTOR_ENABLED 0
 
 /** @brief 编译并创建 CAN2 ID1 达妙普通固件四模式实机测试；设为 0 可停用。 */
 #define APP_TEST_DM_MOTOR_ENABLED 0
