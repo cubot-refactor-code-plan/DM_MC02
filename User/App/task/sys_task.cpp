@@ -8,8 +8,8 @@
 #include <stdint.h>
 
 
-volatile uint32_t sys_task_loop_count = 0U;
-volatile Status sys_task_online_status = Status::NOT_INIT;
+volatile uint32_t sys_task_loop_count    = 0U;
+volatile Status   sys_task_online_status = Status::NOT_INIT;
 
 
 extern "C" void sys_task(void *argument)

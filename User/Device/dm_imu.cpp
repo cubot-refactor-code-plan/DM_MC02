@@ -1,5 +1,5 @@
-#include "dm_imu.hpp"
 #include "FreeRTOS.h" // IWYU pragma: keep
+#include "dm_imu.hpp"
 #include "semphr.h"
 #include <stdio.h>
 #include <string.h>
@@ -11,7 +11,7 @@
  * @brief 构造函数
  * @param cfg IMU 配置（CAN 接口/设备ID/主机ID，可匿名按序传入）
  */
-DmImu::DmImu(const Config& cfg)
+DmImu::DmImu(const Config &cfg)
 
   : _can_bus(cfg.can_bus),
     _device_id(cfg.device_id),
@@ -244,7 +244,7 @@ ImuData DmImu::get_imu_data()
  * @brief 设置IMU数据（线程安全）
  * @param data IMU数据
  */
-void DmImu::set_imu_data(const ImuData& data)
+void DmImu::set_imu_data(const ImuData &data)
 {
   if (_data_mutex_handle != nullptr)
   {
@@ -366,7 +366,7 @@ void DmImu::_update_quaternion(const uint8_t (&data)[8])
  * @note 本函数只按 data[0] 判帧类型，不校验 CAN ID；
  *       由上层分发（CAN 接收任务）先按帧 ID 过滤后调用。
  */
-void DmImu::on_can_message(const CanRxMsg& rx_msg)
+void DmImu::on_can_message(const CanRxMsg &rx_msg)
 {
   if (rx_msg.data[0] == 0x03)
   {

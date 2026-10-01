@@ -73,12 +73,11 @@ enum class DmPendingAction : uint8_t
  */
 struct DmProtocolLimits
 {
-  DmProtocolLimits(float position_max_rad = 0.0f,
+  DmProtocolLimits(float position_max_rad   = 0.0f,
                    float velocity_max_rad_s = 0.0f,
-                   float torque_max_nm = 0.0f)
-    : position_max_rad(position_max_rad),
-      velocity_max_rad_s(velocity_max_rad_s),
-      torque_max_nm(torque_max_nm)
+                   float torque_max_nm      = 0.0f) : position_max_rad(position_max_rad),
+                                                 velocity_max_rad_s(velocity_max_rad_s),
+                                                 torque_max_nm(torque_max_nm)
   {
   }
 
@@ -129,45 +128,44 @@ public:
      * @param phase_ticks 周期内发送相位
      * @param order 同一周期内的发送顺序，数值较小者优先
      */
-    Config(CanBus         &can,
-           uint16_t        esc_id,
-           uint16_t        master_id,
-           DmControlMode   mode,
-           float           position_max_rad = 0.0f,
-           float           velocity_max_rad_s = 0.0f,
-           float           torque_max_nm = 0.0f,
-           float           ratio = 1.0f,
-           float           offset = 0.0f,
-           uint16_t        period_ticks = 1U,
-           uint16_t        phase_ticks = 0U,
-           uint16_t        order = 0U)
-      : can(can),
-        esc_id(esc_id),
-        master_id(master_id),
-        mode(mode),
-        position_max_rad(position_max_rad),
-        velocity_max_rad_s(velocity_max_rad_s),
-        torque_max_nm(torque_max_nm),
-        ratio(ratio),
-        offset(offset),
-        period_ticks(period_ticks),
-        phase_ticks(phase_ticks),
-        order(order)
+    Config(CanBus       &can,
+           uint16_t      esc_id,
+           uint16_t      master_id,
+           DmControlMode mode,
+           float         position_max_rad   = 0.0f,
+           float         velocity_max_rad_s = 0.0f,
+           float         torque_max_nm      = 0.0f,
+           float         ratio              = 1.0f,
+           float         offset             = 0.0f,
+           uint16_t      period_ticks       = 1U,
+           uint16_t      phase_ticks        = 0U,
+           uint16_t      order              = 0U) : can(can),
+                                  esc_id(esc_id),
+                                  master_id(master_id),
+                                  mode(mode),
+                                  position_max_rad(position_max_rad),
+                                  velocity_max_rad_s(velocity_max_rad_s),
+                                  torque_max_nm(torque_max_nm),
+                                  ratio(ratio),
+                                  offset(offset),
+                                  period_ticks(period_ticks),
+                                  phase_ticks(phase_ticks),
+                                  order(order)
     {
     }
 
-    CanBus       &can;               ///< 电机连接的物理 CAN
-    uint16_t      esc_id;            ///< 电机接收 ID
-    uint16_t      master_id;         ///< 电机反馈 ID
-    DmControlMode mode;              ///< 电机当前已配置的控制模式
-    float         position_max_rad;  ///< PMAX；0 = 型号默认值
+    CanBus       &can;                ///< 电机连接的物理 CAN
+    uint16_t      esc_id;             ///< 电机接收 ID
+    uint16_t      master_id;          ///< 电机反馈 ID
+    DmControlMode mode;               ///< 电机当前已配置的控制模式
+    float         position_max_rad;   ///< PMAX；0 = 型号默认值
     float         velocity_max_rad_s; ///< VMAX；0 = 型号默认值
-    float         torque_max_nm;     ///< TMAX；0 = 型号默认值
-    float         ratio;             ///< 达妙输出轴到最终机构输出轴的传动比
-    float         offset;            ///< 机械零位偏移，单位：rad
-    uint16_t      period_ticks;      ///< 发送周期（MotorTxManager::update() 次数）
-    uint16_t      phase_ticks;       ///< 周期内发送相位
-    uint16_t      order;             ///< 同周期内发送顺序，数值较小者优先
+    float         torque_max_nm;      ///< TMAX；0 = 型号默认值
+    float         ratio;              ///< 达妙输出轴到最终机构输出轴的传动比
+    float         offset;             ///< 机械零位偏移，单位：rad
+    uint16_t      period_ticks;       ///< 发送周期（MotorTxManager::update() 次数）
+    uint16_t      phase_ticks;        ///< 周期内发送相位
+    uint16_t      order;              ///< 同周期内发送顺序，数值较小者优先
   };
 
   /**
@@ -273,28 +271,28 @@ public:
    */
   Status data_unpack(const CanRxMsg &rx);
 
-  DmMotor(const DmMotor &) = delete;
+  DmMotor(const DmMotor &)            = delete;
   DmMotor &operator=(const DmMotor &) = delete;
-  DmMotor(DmMotor &&) = delete;
-  DmMotor &operator=(DmMotor &&) = delete;
+  DmMotor(DmMotor &&)                 = delete;
+  DmMotor &operator=(DmMotor &&)      = delete;
 
 private:
-  MotorData                 _data;           ///< 最终机构输出轴通用运动学数据
-  DmMotorFeedback           _feedback;       ///< 达妙普通协议特有反馈
-  Online                    _online;         ///< 有效反馈在线检查
-  LuenbergerMotorData       _lvbo_data;      ///< 可选状态观测结果
-  CanBus                   *_can_item;       ///< 接收和发送所用的 CAN 总线
-  uint16_t                  _esc_id;         ///< 电机接收 ID
-  uint16_t                  _master_id;      ///< 电机反馈 ID
-  DmControlMode             _mode;           ///< 当前配置的普通固件控制模式
-  DmProtocolLimits          _limits;         ///< MIT 编解码映射范围
-  DmPendingAction           _pending_action; ///< 独立于启停状态的一次性特殊指令
-  Status                    _status;         ///< 最近一次公开操作结果
-  CanTxMsg                  _control_msg;    ///< 已完整编码的周期控制帧缓存
-  float                     _last_velocity;  ///< 上一次最终机构输出轴速度，单位：rad/s
-  bool                      _initialized;    ///< 是否已完成 init() 注册
+  MotorData           _data;           ///< 最终机构输出轴通用运动学数据
+  DmMotorFeedback     _feedback;       ///< 达妙普通协议特有反馈
+  Online              _online;         ///< 有效反馈在线检查
+  LuenbergerMotorData _lvbo_data;      ///< 可选状态观测结果
+  CanBus             *_can_item;       ///< 接收和发送所用的 CAN 总线
+  uint16_t            _esc_id;         ///< 电机接收 ID
+  uint16_t            _master_id;      ///< 电机反馈 ID
+  DmControlMode       _mode;           ///< 当前配置的普通固件控制模式
+  DmProtocolLimits    _limits;         ///< MIT 编解码映射范围
+  DmPendingAction     _pending_action; ///< 独立于启停状态的一次性特殊指令
+  Status              _status;         ///< 最近一次公开操作结果
+  CanTxMsg            _control_msg;    ///< 已完整编码的周期控制帧缓存
+  float               _last_velocity;  ///< 上一次最终机构输出轴速度，单位：rad/s
+  bool                _initialized;    ///< 是否已完成 init() 注册
 
-  DmMotor *_next;        ///< 同型号反馈分发链表后继节点
+  DmMotor        *_next; ///< 同型号反馈分发链表后继节点
   static DmMotor *_head; ///< 同型号反馈分发链表头
   static DmMotor *_tail; ///< 同型号反馈分发链表尾
 };

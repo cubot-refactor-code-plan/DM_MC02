@@ -70,8 +70,7 @@ extern BspBuzzer bsp_buzzer;
 extern BspKey key_user;
 
 ///< USB
-extern BspUsb& bsp_usb;
-
+extern BspUsb &bsp_usb;
 
 
 // ----------------

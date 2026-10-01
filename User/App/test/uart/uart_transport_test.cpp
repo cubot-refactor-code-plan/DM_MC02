@@ -2,21 +2,21 @@
 
 #if APP_TEST_UART_TRANSPORT_ENABLED
 
-#include "FreeRTOS.h" // IWYU pragma: keep
-#include "task.h"     // IWYU pragma: keep
+#  include "FreeRTOS.h" // IWYU pragma: keep
+#  include "task.h"     // IWYU pragma: keep
 
-#include <stdint.h>
+#  include <stdint.h>
 
-#include "bsp_cfg.hpp" // bsp_uart1
+#  include "bsp_cfg.hpp" // bsp_uart1
 
 
 // ---------------- 测试参数 ----------------
 
 ///< 心跳周期（ms）；设为 0 可关闭周期心跳，只保留回显
-#define UART_TEST_HEARTBEAT_MS 2000U
+#  define UART_TEST_HEARTBEAT_MS 2000U
 
 ///< 单次读取的最大字节数（须小于 BspUart 的流缓冲区容量 BUFFER_SIZE=128）
-#define UART_TEST_RX_CHUNK 32U
+#  define UART_TEST_RX_CHUNK 32U
 
 
 // ----------------
@@ -50,7 +50,7 @@ extern "C" void uart_transport_test_step(void)
     return; // 有收发时不发心跳，避免打断回显节奏
   }
 
-#if (UART_TEST_HEARTBEAT_MS > 0U)
+#  if (UART_TEST_HEARTBEAT_MS > 0U)
   // 3. 周期心跳：验证发送通路（附累计收发字节数）
   static TickType_t last_tick = 0;
   const TickType_t  now       = xTaskGetTickCount();
@@ -68,7 +68,7 @@ extern "C" void uart_transport_test_step(void)
   }
 
 // ----------------
-#endif
+#  endif
 }
 
 #endif

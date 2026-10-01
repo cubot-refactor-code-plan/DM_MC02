@@ -1,6 +1,6 @@
+#include "FreeRTOS.h" // IWYU pragma: keep
 #include "bsp_cfg.hpp"
 #include "bsp_key.hpp" // IWYU pragma: keep (BspKey::Event)
-#include "FreeRTOS.h"  // IWYU pragma: keep
 #include "task.h"
 
 extern "C" void key_task(void *argument)

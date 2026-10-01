@@ -4,8 +4,8 @@
 #include "external_flash.h"
 #include "loader_board.h"
 
-#define LOADER_FLASH_BASE FLASH_DEVICE_MAPPED_BASE /**< 烧录工具使用的外置存储绝对基址。 */
-#define LOADER_BUFFER_SIZE 256U /**< Verify 分块读取缓冲区大小。 */
+#define LOADER_FLASH_BASE FLASH_DEVICE_MAPPED_BASE                         /**< 烧录工具使用的外置存储绝对基址。 */
+#define LOADER_BUFFER_SIZE 256U                                            /**< Verify 分块读取缓冲区大小。 */
 #define LOADER_API __attribute__((section(".loader_api"), used, noinline)) /**< 保留 Loader ABI 入口。 */
 
 /** @brief Verify() 从外置 Flash 分块读取时使用的静态缓冲区。 */
@@ -24,9 +24,10 @@ extern uint32_t __bss_end__;
 /** @brief 清零 Loader 的 BSS，使每次 Init() 调用都从确定状态开始。 */
 static void loader_clear_bss(void)
 {
-    for (uint32_t *word = &__bss_start__; word < &__bss_end__; ++word) {
-        *word = 0U;
-    }
+  for (uint32_t *word = &__bss_start__; word < &__bss_end__; ++word)
+  {
+    *word = 0U;
+  }
 }
 
 /**
@@ -38,12 +39,12 @@ static void loader_clear_bss(void)
  */
 static int loader_offset(uint32_t address, uint32_t size, uint32_t *offset)
 {
-    if (address < LOADER_FLASH_BASE || size > FLASH_DEVICE_SIZE ||
-        address - LOADER_FLASH_BASE > FLASH_DEVICE_SIZE - size) {
-        return -1;
-    }
-    *offset = address - LOADER_FLASH_BASE;
-    return 0;
+  if (address < LOADER_FLASH_BASE || size > FLASH_DEVICE_SIZE || address - LOADER_FLASH_BASE > FLASH_DEVICE_SIZE - size)
+  {
+    return -1;
+  }
+  *offset = address - LOADER_FLASH_BASE;
+  return 0;
 }
 
 /**
@@ -55,29 +56,32 @@ static int loader_offset(uint32_t address, uint32_t size, uint32_t *offset)
  */
 LOADER_API int Init(uint8_t configure_memory_mapped_mode)
 {
-    ext_flash_info_t info;
+  ext_flash_info_t info;
 
-    loader_clear_bss();
-    loader_last_stage = 1;
-    if (loader_board_init() != 0) {
-        loader_last_stage = -1;
-        return 0;
+  loader_clear_bss();
+  loader_last_stage = 1;
+  if (loader_board_init() != 0)
+  {
+    loader_last_stage = -1;
+    return 0;
+  }
+  loader_last_stage        = 2;
+  loader_flash_init_result = ext_flash_init(&info);
+  loader_flash_info        = info;
+  if (loader_flash_init_result != EXT_FLASH_OK)
+  {
+    loader_last_stage = -2;
+    return 0;
+  }
+  if (configure_memory_mapped_mode != 0U)
+  {
+    if (ext_flash_memory_mapped_enable() != EXT_FLASH_OK || ext_flash_memory_mapped_access_enable(0) != EXT_FLASH_OK)
+    {
+      return 0;
     }
-    loader_last_stage = 2;
-    loader_flash_init_result = ext_flash_init(&info);
-    loader_flash_info = info;
-    if (loader_flash_init_result != EXT_FLASH_OK) {
-        loader_last_stage = -2;
-        return 0;
-    }
-    if (configure_memory_mapped_mode != 0U) {
-        if (ext_flash_memory_mapped_enable() != EXT_FLASH_OK ||
-            ext_flash_memory_mapped_access_enable(0) != EXT_FLASH_OK) {
-            return 0;
-        }
-    }
-    loader_last_stage = 3;
-    return 1;
+  }
+  loader_last_stage = 3;
+  return 1;
 }
 
 /**
@@ -89,12 +93,13 @@ LOADER_API int Init(uint8_t configure_memory_mapped_mode)
  */
 LOADER_API int Read(uint32_t address, uint32_t size, uint8_t *buffer)
 {
-    uint32_t offset;
+  uint32_t offset;
 
-    if (buffer == NULL || loader_offset(address, size, &offset) != 0) {
-        return 0;
-    }
-    return ext_flash_read(offset, buffer, size) == EXT_FLASH_OK ? 1 : 0;
+  if (buffer == NULL || loader_offset(address, size, &offset) != 0)
+  {
+    return 0;
+  }
+  return ext_flash_read(offset, buffer, size) == EXT_FLASH_OK ? 1 : 0;
 }
 
 /**
@@ -107,12 +112,13 @@ LOADER_API int Read(uint32_t address, uint32_t size, uint8_t *buffer)
  */
 LOADER_API int Write(uint32_t address, uint32_t size, uint8_t *buffer)
 {
-    uint32_t offset;
+  uint32_t offset;
 
-    if (buffer == NULL || loader_offset(address, size, &offset) != 0) {
-        return 0;
-    }
-    return ext_flash_write(offset, buffer, size) == EXT_FLASH_OK ? 1 : 0;
+  if (buffer == NULL || loader_offset(address, size, &offset) != 0)
+  {
+    return 0;
+  }
+  return ext_flash_write(offset, buffer, size) == EXT_FLASH_OK ? 1 : 0;
 }
 
 /**
@@ -124,22 +130,24 @@ LOADER_API int Write(uint32_t address, uint32_t size, uint8_t *buffer)
 LOADER_API int SectorErase(uint32_t erase_start_address,
                            uint32_t erase_end_address)
 {
-    uint32_t start;
-    uint32_t end;
+  uint32_t start;
+  uint32_t end;
 
-    if (loader_offset(erase_start_address, 1U, &start) != 0 ||
-        loader_offset(erase_end_address, 1U, &end) != 0) {
-        return 0;
+  if (loader_offset(erase_start_address, 1U, &start) != 0 || loader_offset(erase_end_address, 1U, &end) != 0)
+  {
+    return 0;
+  }
+  start &= ~(FLASH_DEVICE_SECTOR_SIZE - 1U);
+  end &= ~(FLASH_DEVICE_SECTOR_SIZE - 1U);
+  for (uint32_t address = start; address <= end;
+       address += FLASH_DEVICE_SECTOR_SIZE)
+  {
+    if (ext_flash_erase_sector(address) != EXT_FLASH_OK)
+    {
+      return 0;
     }
-    start &= ~(FLASH_DEVICE_SECTOR_SIZE - 1U);
-    end &= ~(FLASH_DEVICE_SECTOR_SIZE - 1U);
-    for (uint32_t address = start; address <= end;
-         address += FLASH_DEVICE_SECTOR_SIZE) {
-        if (ext_flash_erase_sector(address) != EXT_FLASH_OK) {
-            return 0;
-        }
-    }
-    return 1;
+  }
+  return 1;
 }
 
 /**
@@ -149,7 +157,7 @@ LOADER_API int SectorErase(uint32_t erase_start_address,
  */
 LOADER_API int MassErase(void)
 {
-    return ext_flash_erase_chip() == EXT_FLASH_OK ? 1 : 0;
+  return ext_flash_erase_chip() == EXT_FLASH_OK ? 1 : 0;
 }
 
 /**
@@ -161,30 +169,33 @@ LOADER_API int MassErase(void)
  * @return 高 32 位为截至返回位置的累加和；低 32 位为首个错误绝对地址，
  *         全部匹配时为 memory_address + size。
  */
-LOADER_API uint64_t Verify(uint32_t memory_address, uint32_t ram_buffer_address,
-                           uint32_t size, uint32_t miss_alignment)
+LOADER_API uint64_t Verify(uint32_t memory_address, uint32_t ram_buffer_address, uint32_t size, uint32_t miss_alignment)
 {
-    const uint8_t *expected = (const uint8_t *)(uintptr_t)ram_buffer_address;
-    uint32_t offset;
-    uint32_t checksum = 0U;
+  const uint8_t *expected = (const uint8_t *)(uintptr_t)ram_buffer_address;
+  uint32_t       offset;
+  uint32_t       checksum = 0U;
 
-    (void)miss_alignment;
-    if (loader_offset(memory_address, size, &offset) != 0) {
-        return memory_address;
+  (void)miss_alignment;
+  if (loader_offset(memory_address, size, &offset) != 0)
+  {
+    return memory_address;
+  }
+  for (uint32_t done = 0U; done < size;)
+  {
+    uint32_t chunk = (size - done) < LOADER_BUFFER_SIZE ? (size - done) : LOADER_BUFFER_SIZE;
+    if (ext_flash_read(offset + done, verify_buffer, chunk) != EXT_FLASH_OK)
+    {
+      return memory_address + done;
     }
-    for (uint32_t done = 0U; done < size;) {
-        uint32_t chunk = (size - done) < LOADER_BUFFER_SIZE ?
-                         (size - done) : LOADER_BUFFER_SIZE;
-        if (ext_flash_read(offset + done, verify_buffer, chunk) != EXT_FLASH_OK) {
-            return memory_address + done;
-        }
-        for (uint32_t i = 0U; i < chunk; ++i) {
-            checksum += verify_buffer[i];
-            if (verify_buffer[i] != expected[done + i]) {
-                return ((uint64_t)checksum << 32) | (memory_address + done + i);
-            }
-        }
-        done += chunk;
+    for (uint32_t i = 0U; i < chunk; ++i)
+    {
+      checksum += verify_buffer[i];
+      if (verify_buffer[i] != expected[done + i])
+      {
+        return ((uint64_t)checksum << 32) | (memory_address + done + i);
+      }
     }
-    return ((uint64_t)checksum << 32) | (memory_address + size);
+    done += chunk;
+  }
+  return ((uint64_t)checksum << 32) | (memory_address + size);
 }

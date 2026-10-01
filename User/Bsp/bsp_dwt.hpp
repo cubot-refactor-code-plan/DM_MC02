@@ -33,7 +33,7 @@
  * @warning delta_s() 的时间戳由调用方保存，同一个 last 不要在多个任务间共用。
  * @warning CPU 进入sleep/stop时，停止计数
  * @warning delta_s() 无状态、可在 ISR 中调用；
- * @warning 32 位计数器每 7.809 s 回绕一次（本工程 550 MHz）：delta_s() 用无符号差值，两次间隔 < 7.809 s 时结果恒正        
+ * @warning 32 位计数器每 7.809 s 回绕一次（本工程 550 MHz）：delta_s() 用无符号差值，两次间隔 < 7.809 s 时结果恒正
  */
 
 #ifndef __BSP_DWT_HPP__

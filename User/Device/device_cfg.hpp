@@ -22,6 +22,5 @@
 void device_init();
 
 
-
 // ----------------
 #endif // __DEVICE_CFG_HPP__

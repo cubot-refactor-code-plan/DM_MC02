@@ -102,14 +102,14 @@ public:
   // ---------------- 公开成员 ----------------
   // 仅供 Service/App 层访问与调试观察，不要随意改动。
 
-  BspCan    *_can;      ///< 绑定的硬件驱动
-  CanRxNode *rx_head;   ///< 本总线接收节点链表；运行期间只读
-  CanTxNode *tx_head;   ///< 本总线发送节点链表；运行期间只读
+  BspCan    *_can;    ///< 绑定的硬件驱动
+  CanRxNode *rx_head; ///< 本总线接收节点链表；运行期间只读
+  CanTxNode *tx_head; ///< 本总线发送节点链表；运行期间只读
 
   MessageBufferHandle_t _rx_return_buffer; ///< 未被节点收取的帧，只由 receive() 读取
 
-  static constexpr uint32_t BUS_NUM        = 3; ///< 总线数量
-  static constexpr uint32_t RX_BATCH_MAX   = 8; ///< 每轮分发最多处理的帧数
+  static constexpr uint32_t BUS_NUM         = 3; ///< 总线数量
+  static constexpr uint32_t RX_BATCH_MAX    = 8; ///< 每轮分发最多处理的帧数
   static constexpr size_t   RX_RETURN_DEPTH = 8; ///< 回退缓冲深度（帧）
 
   static CanBus *const buses[BUS_NUM]; ///< 全部总线，供任务遍历
@@ -136,7 +136,6 @@ extern "C" void can_rx_task(void *argument);
 
 /** @brief 1 kHz 扫描各总线发送节点；无节点时任务自行退出 */
 extern "C" void can_tx_task(void *argument);
-
 
 
 // ----------------

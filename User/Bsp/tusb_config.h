@@ -17,11 +17,11 @@ extern "C"
 #define CFG_TUD_ENDPOINT0_SIZE 64
 
 #if !defined(DM_MC02_USB_CLASS_CDC) || !defined(DM_MC02_USB_CLASS_HID)
-#error "Select the USB class through CMake: -DDM_MC02_USB_CLASS=CDC or HID"
+#  error "Select the USB class through CMake: -DDM_MC02_USB_CLASS=CDC or HID"
 #endif
 
 #if (DM_MC02_USB_CLASS_CDC + DM_MC02_USB_CLASS_HID) != 1
-#error "Exactly one of USB CDC and HID must be enabled"
+#  error "Exactly one of USB CDC and HID must be enabled"
 #endif
 
 #define CFG_TUD_CDC DM_MC02_USB_CLASS_CDC

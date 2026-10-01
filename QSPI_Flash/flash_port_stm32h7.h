@@ -4,9 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum {
-    FLASH_PORT_DATA_1_LINE, /**< 数据阶段使用 IO0。 */
-    FLASH_PORT_DATA_4_LINES /**< 数据阶段并行使用 IO0~IO3。 */
+typedef enum
+{
+  FLASH_PORT_DATA_1_LINE, /**< 数据阶段使用 IO0。 */
+  FLASH_PORT_DATA_4_LINES /**< 数据阶段并行使用 IO0~IO3。 */
 } flash_port_data_mode_t;
 
 /** @brief 建立 OCTOSPI2 MPU 保护，并在配置 MDMA 时开启外设 IRQ。 */
@@ -25,12 +26,10 @@ int flash_port_transmit(uint8_t instruction, const void *data, size_t length);
 int flash_port_address_command(uint8_t instruction, uint32_t address);
 
 /** @brief 发送指令和 24 位地址后轮询接收。 @param[in] instruction 指令码。 @param[in] address 器件内部地址。 @param[out] data 接收缓冲区。 @param[in] length 字节数。 @return 0 成功，-1 失败。 */
-int flash_port_address_receive(uint8_t instruction, uint32_t address,
-                               void *data, size_t length);
+int flash_port_address_receive(uint8_t instruction, uint32_t address, void *data, size_t length);
 
 /** @brief 发送指令和 24 位地址后轮询发送。 @param[in] instruction 指令码。 @param[in] address 器件内部地址。 @param[in] data 源缓冲区。 @param[in] length 字节数。 @return 0 成功，-1 失败。 */
-int flash_port_address_transmit(uint8_t instruction, uint32_t address,
-                                const void *data, size_t length);
+int flash_port_address_transmit(uint8_t instruction, uint32_t address, const void *data, size_t length);
 
 /**
  * @brief 发送带地址命令并通过 MDMA 接收。
@@ -42,9 +41,7 @@ int flash_port_address_transmit(uint8_t instruction, uint32_t address,
  * @param[in] data_mode 数据阶段使用单线或四线。
  * @return 0 成功，-1 失败或超时。
  */
-int flash_port_address_receive_mdma(uint8_t instruction, uint32_t address,
-                                    void *data, size_t length, uint8_t dummy_cycles,
-                                    flash_port_data_mode_t data_mode);
+int flash_port_address_receive_mdma(uint8_t instruction, uint32_t address, void *data, size_t length, uint8_t dummy_cycles, flash_port_data_mode_t data_mode);
 
 /**
  * @brief 发送带地址命令并通过 MDMA 发送数据。
@@ -55,9 +52,7 @@ int flash_port_address_receive_mdma(uint8_t instruction, uint32_t address,
  * @param[in] data_mode 数据阶段使用单线或四线。
  * @return 0 成功，-1 失败或超时。
  */
-int flash_port_address_transmit_mdma(uint8_t instruction, uint32_t address,
-                                     const void *data, size_t length,
-                                     flash_port_data_mode_t data_mode);
+int flash_port_address_transmit_mdma(uint8_t instruction, uint32_t address, const void *data, size_t length, flash_port_data_mode_t data_mode);
 
 /** @brief 配置 OCTOSPI2 Memory-Mapped 读写命令。 @param[in] read_instruction 读取指令。 @param[in] write_instruction 写入指令。 @param[in] dummy_cycles 读取空周期数。 @return 0 成功，-1 失败。 */
 int flash_port_memory_mapped_enable(uint8_t read_instruction,

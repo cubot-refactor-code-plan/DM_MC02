@@ -99,9 +99,7 @@ void CanBus::rx_poll()
 
     bool consumed = false;
     // 只支持经典 CAN 的 8 字节数据帧；格式不符的帧不匹配任何节点，直接进回退缓冲
-    if ((rx.header.IdType == FDCAN_STANDARD_ID || rx.header.IdType == FDCAN_EXTENDED_ID) &&
-        rx.header.RxFrameType == FDCAN_DATA_FRAME && rx.header.FDFormat == FDCAN_CLASSIC_CAN &&
-        rx.header.DataLength == FDCAN_DLC_BYTES_8)
+    if ((rx.header.IdType == FDCAN_STANDARD_ID || rx.header.IdType == FDCAN_EXTENDED_ID) && rx.header.RxFrameType == FDCAN_DATA_FRAME && rx.header.FDFormat == FDCAN_CLASSIC_CAN && rx.header.DataLength == FDCAN_DLC_BYTES_8)
     {
       for (CanRxNode *node = rx_head; node != nullptr; node = node->next)
       {

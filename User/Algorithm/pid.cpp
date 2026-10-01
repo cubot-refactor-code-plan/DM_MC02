@@ -3,7 +3,7 @@
 
 #include "arm_math.h" // IWYU pragma: keep
 
-PID::PID(const Config& cfg) : _config(cfg)
+PID::PID(const Config &cfg) : _config(cfg)
 {
   // 隐藏逻辑显式化：i_max 未设置（为0）时跟随 out_max
   if (_config.i_max == 0.0f)

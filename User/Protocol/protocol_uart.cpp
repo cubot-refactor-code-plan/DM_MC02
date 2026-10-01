@@ -1,6 +1,6 @@
-#include "protocol_uart.hpp"
-#include "bsp_cfg.hpp"
 #include "FreeRTOS.h" // IWYU pragma: keep
+#include "bsp_cfg.hpp"
+#include "protocol_uart.hpp"
 #include "string.h"
 #include "task.h"
 #include <stdio.h>
@@ -14,7 +14,7 @@ ProtocolUart protocol_uart_1({bsp_uart1, 1});
 
 // ----------------
 // ---------------- C函数实现 ----------------
-static inline void protocol_uart_callback(ProtocolUart* uart)
+static inline void protocol_uart_callback(ProtocolUart *uart)
 {
   if (uart == &protocol_uart_1)
   {
@@ -30,9 +30,9 @@ static inline void protocol_uart_callback(ProtocolUart* uart)
  * @note 解析循环在 ProtocolUart::task() 内：C 入口只做一次类型转换，
  *       既不需要友元，也不会把类的内部状态暴露给外部。
  */
-extern "C" void uart_protocol_task_entry(void* argument)
+extern "C" void uart_protocol_task_entry(void *argument)
 {
-  static_cast<ProtocolUart*>(argument)->task();
+  static_cast<ProtocolUart *>(argument)->task();
 }
 
 
@@ -46,7 +46,7 @@ extern "C" void uart_protocol_task_entry(void* argument)
  *
  * @param cfg 协议配置（串口实例/名称/帧头帧尾，可匿名按序传入）
  */
-ProtocolUart::ProtocolUart(const Config& cfg)
+ProtocolUart::ProtocolUart(const Config &cfg)
 
   : _uart_instance(cfg.uart),
     _header1(cfg.h1),
@@ -169,12 +169,12 @@ void ProtocolUart::task()
  * @param len 长度
  * @return uint8_t 校验结果
  */
-uint8_t ProtocolUart::_calculate_checksum(uint8_t* data, uint8_t len)
+uint8_t ProtocolUart::_calculate_checksum(uint8_t *data, uint8_t len)
 {
   uint8_t sum = 0;
   /* 使用指针遍历，减少索引操作 */
-  uint8_t* ptr     = data;
-  uint8_t* ptr_end = data + len;
+  uint8_t *ptr     = data;
+  uint8_t *ptr_end = data + len;
   while (ptr < ptr_end)
   {
     sum += *ptr++;
@@ -189,7 +189,7 @@ uint8_t ProtocolUart::_calculate_checksum(uint8_t* data, uint8_t len)
  * @param data 数据指针
  * @param len 数据长度
  */
-Status ProtocolUart::send(uint8_t cmd, uint8_t* data, uint8_t len)
+Status ProtocolUart::send(uint8_t cmd, uint8_t *data, uint8_t len)
 {
   /* 注意：_uart_instance 是引用类型，构造时已绑定，无需空检查 */
   /* 有效性检查由调用者保证 */

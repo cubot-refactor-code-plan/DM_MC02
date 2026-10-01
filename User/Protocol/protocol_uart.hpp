@@ -23,9 +23,9 @@
 
 
 #include "FreeRTOS.h" // IWYU pragma: keep
-#include "task.h"     // IWYU pragma: keep
 #include "stddef.h"
 #include "stdint.h"
+#include "task.h" // IWYU pragma: keep
 
 #include "status.hpp" // 统一状态码
 
@@ -74,15 +74,15 @@ private:
   // ----------------
   // ---------------- 私有成员变量 ----------------
 
-  ProtocolFrame    _rx_frame;      ///< 接收用结构体
-  BspUart<128>& _uart_instance; ///< 使用的串口驱动实例
-  uint8_t          _header1;       ///< 自定义帧头1
-  uint8_t          _header2;       ///< 自定义帧头2
-  uint8_t          _tail;          ///< 自定义帧尾
-  uint8_t          _instance_name; ///< 实例名称编号
-  char             _task_name[32]; ///< 任务名称
-  uint32_t         _stack_size;    ///< 堆栈大小
-  uint32_t         _priority;      ///< 任务优先级
+  ProtocolFrame _rx_frame;      ///< 接收用结构体
+  BspUart<128> &_uart_instance; ///< 使用的串口驱动实例
+  uint8_t       _header1;       ///< 自定义帧头1
+  uint8_t       _header2;       ///< 自定义帧头2
+  uint8_t       _tail;          ///< 自定义帧尾
+  uint8_t       _instance_name; ///< 实例名称编号
+  char          _task_name[32]; ///< 任务名称
+  uint32_t      _stack_size;    ///< 堆栈大小
+  uint32_t      _priority;      ///< 任务优先级
 
   // ----------------
   // ---------------- 私有成员函数 ----------------
@@ -93,7 +93,7 @@ private:
    * @param len 长度
    * @return uint8_t 校验结果
    */
-  uint8_t _calculate_checksum(uint8_t* data, uint8_t len);
+  uint8_t _calculate_checksum(uint8_t *data, uint8_t len);
 
   /**
    * @brief 逻辑分发：根据指令执行具体动作
@@ -113,20 +113,19 @@ public:
     /**
      * @brief 按序构造配置（参数顺序 = 字段顺序）
      */
-    Config(BspUart<128> &uart, uint8_t name, uint8_t h1 = 0xAA, uint8_t h2 = 0x55, uint8_t t = 0x0C)
-      : uart(uart),
-        name(name),
-        h1(h1),
-        h2(h2),
-        t(t)
+    Config(BspUart<128> &uart, uint8_t name, uint8_t h1 = 0xAA, uint8_t h2 = 0x55, uint8_t t = 0x0C) : uart(uart),
+                                                                                                       name(name),
+                                                                                                       h1(h1),
+                                                                                                       h2(h2),
+                                                                                                       t(t)
     {
     }
 
     BspUart<128> &uart; ///< 串口实例引用
-    uint8_t          name; ///< 实例名称编号
-    uint8_t          h1;   ///< 帧头1
-    uint8_t          h2;   ///< 帧头2
-    uint8_t          t;    ///< 帧尾
+    uint8_t       name; ///< 实例名称编号
+    uint8_t       h1;   ///< 帧头1
+    uint8_t       h2;   ///< 帧头2
+    uint8_t       t;    ///< 帧尾
   };
 
   /**
@@ -161,7 +160,7 @@ public:
    * @param len 数据长度
    * @return Status OK=发送成功，BAD_ARG=参数非法，其余同 BspUart::send()
    */
-  Status send(uint8_t cmd, uint8_t* data, uint8_t len);
+  Status send(uint8_t cmd, uint8_t *data, uint8_t len);
 
   /**
    * @brief 获取接收到的帧命令码
@@ -185,7 +184,7 @@ public:
    * @brief 获取接收到的帧数据指针
    * @return uint8_t* 数据指针
    */
-  uint8_t* get_rx_data()
+  uint8_t *get_rx_data()
   {
     return _rx_frame.data;
   }

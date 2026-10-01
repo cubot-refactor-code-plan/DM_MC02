@@ -36,8 +36,8 @@
 #define __DEVICE_EMMV5_HPP__
 
 
-#include "bsp_cfg.hpp" // IWYU pragma: keep
 #include "FreeRTOS.h"  // IWYU pragma: keep
+#include "bsp_cfg.hpp" // IWYU pragma: keep
 #include "semphr.h"
 
 #include "status.hpp" // 统一状态码
@@ -214,7 +214,7 @@ public:
     }
 
     BspUart<128> &uart; ///< bsp_uart 实例引用
-    uint8_t          addr; ///< 电机地址（1~255，0为广播地址）
+    uint8_t       addr; ///< 电机地址（1~255，0为广播地址）
   };
 
   /**
@@ -678,7 +678,7 @@ public:
   // ---------------- 成员变量 ----------------
 
   BspUart<128> &_uart; ///< bsp_uart 实例引用
-  uint8_t          _addr; ///< 电机地址
+  uint8_t       _addr; ///< 电机地址
 
 
 private:
@@ -711,7 +711,7 @@ private:
 
   static DeviceEmmV5 *_instances[MAX_INSTANCES]; ///< 实例注册表
   static size_t       _instance_count;           ///< 已注册实例数
-  Status              _register_instance();       ///< 构造时注册到注册表
+  Status              _register_instance();      ///< 构造时注册到注册表
 
   // ----------------
   // ---------------- 到位信号量 ----------------

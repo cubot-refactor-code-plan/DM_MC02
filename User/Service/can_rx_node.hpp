@@ -41,12 +41,15 @@ public:
     /**
      * @brief 按序构造配置（参数顺序 = 字段顺序）
      */
-    Config(CanBus *bus = nullptr,
-           uint32_t can_id = 0,
+    Config(CanBus  *bus      = nullptr,
+           uint32_t can_id   = 0,
            Callback callback = nullptr,
-           void *context = nullptr,
-           uint32_t id_type = FDCAN_STANDARD_ID)
-      : bus(bus), can_id(can_id), callback(callback), context(context), id_type(id_type)
+           void    *context  = nullptr,
+           uint32_t id_type  = FDCAN_STANDARD_ID) : bus(bus),
+                                                   can_id(can_id),
+                                                   callback(callback),
+                                                   context(context),
+                                                   id_type(id_type)
     {
     }
 

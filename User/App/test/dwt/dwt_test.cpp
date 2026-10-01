@@ -2,8 +2,8 @@
 
 #if APP_TEST_DWT_ENABLED
 
-#  include "bsp_cfg.hpp"
 #  include "FreeRTOS.h" // IWYU pragma: keep
+#  include "bsp_cfg.hpp"
 #  include "task.h"
 
 extern "C" void dwt_test_task(void *argument)

@@ -36,7 +36,7 @@ private:
   uint16_t _timeout_gap; ///< 离线判定阈值，单位为 update() 调用次数
   Status   _statu;       ///< Status::OK 表示在线，Status::TIMEOUT 表示离线
 
-  Online *_next;        ///< 内部单向链表的后继节点
+  Online        *_next; ///< 内部单向链表的后继节点
   static Online *_head; ///< 在线检查链表头
   static Online *_tail; ///< 在线检查链表尾，用于常数时间追加节点
 
@@ -86,10 +86,10 @@ public:
 
   /** @name 禁止复制和移动，保护链表节点身份 */
   /** @{ */
-  Online(const Online &) = delete;
+  Online(const Online &)            = delete;
   Online &operator=(const Online &) = delete;
-  Online(Online &&) = delete;
-  Online &operator=(Online &&) = delete;
+  Online(Online &&)                 = delete;
+  Online &operator=(Online &&)      = delete;
   /** @} */
 };
 

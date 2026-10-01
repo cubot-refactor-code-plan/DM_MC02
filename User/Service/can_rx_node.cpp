@@ -22,9 +22,7 @@ CanRxNode *regist(const CanRxNode::Config &cfg)
   {
     return nullptr; // 事件组未就绪，或注册表已冻结
   }
-  if (cfg.callback == nullptr || cfg.bus->_can == nullptr || cfg.bus->_can->_hfdcan == nullptr ||
-      (cfg.id_type != FDCAN_STANDARD_ID && cfg.id_type != FDCAN_EXTENDED_ID) ||
-      cfg.can_id > (cfg.id_type == FDCAN_STANDARD_ID ? 0x7FFU : 0x1FFFFFFFU))
+  if (cfg.callback == nullptr || cfg.bus->_can == nullptr || cfg.bus->_can->_hfdcan == nullptr || (cfg.id_type != FDCAN_STANDARD_ID && cfg.id_type != FDCAN_EXTENDED_ID) || cfg.can_id > (cfg.id_type == FDCAN_STANDARD_ID ? 0x7FFU : 0x1FFFFFFFU))
   {
     sys_init_error(Status::BAD_ARG);
     return nullptr;
@@ -48,8 +46,8 @@ CanRxNode *regist(const CanRxNode::Config &cfg)
     sys_init_error(Status::FULL);
     return nullptr;
   }
-  node->next        = cfg.bus->rx_head;
-  cfg.bus->rx_head  = node;
+  node->next       = cfg.bus->rx_head;
+  cfg.bus->rx_head = node;
   CanRxNode::node_num++;
   return node;
 }

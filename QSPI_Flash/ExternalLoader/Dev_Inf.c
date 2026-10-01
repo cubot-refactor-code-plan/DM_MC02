@@ -8,14 +8,11 @@
  */
 __attribute__((section(".Dev_Info"), used))
 const StorageInfoType StorageInfo = {
-    "W25Q64JV_STM32H723_OSPI2",
-    NOR_FLASH,
-    0x70000000UL,
-    0x00800000UL,
-    0x00000100UL,
-    0xFFU,
-    {
-        {2048U, 0x00001000UL},
-        {0U, 0U}
-    }
-};
+  "W25Q64JV_STM32H723_OSPI2",
+  NOR_FLASH,
+  0x70000000UL,
+  0x00800000UL,
+  0x00000100UL,
+  0xFFU,
+  {{2048U, 0x00001000UL},
+   {0U, 0U}}};

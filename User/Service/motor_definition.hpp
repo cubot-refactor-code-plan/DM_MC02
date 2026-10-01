@@ -11,9 +11,9 @@
 #ifndef __MOTOR_DEFINITION_HPP__
 #define __MOTOR_DEFINITION_HPP__
 
-#ifndef PI 
-#define PI 3.1415926f
-#endif  // PI
+#ifndef PI
+#  define PI 3.1415926f
+#endif // PI
 
 /**
  * @brief 单个电机经过机械传动换算后的通用运动学数据

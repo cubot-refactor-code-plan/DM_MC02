@@ -63,9 +63,9 @@ Status CanTxNode::init(const Config &cfg)
   }
 
   // 每条总线独立维护单向链表，仅初始化阶段修改。
-  next           = cfg.bus->tx_head;
+  next             = cfg.bus->tx_head;
   cfg.bus->tx_head = this;
-  _registered    = true;
+  _registered      = true;
 
   this->_statu = Status::OK;
   return Status::OK;
@@ -98,8 +98,7 @@ CanTxNode *regist(const CanTxNode::Config &cfg, uint8_t slot)
     return nullptr;
   }
   // 参数检查
-  if (cfg.can_id > 0x7FFU || cfg.division == 0U || cfg.division > 8U ||
-      (8U % cfg.division) != 0U || slot >= cfg.division)
+  if (cfg.can_id > 0x7FFU || cfg.division == 0U || cfg.division > 8U || (8U % cfg.division) != 0U || slot >= cfg.division)
   {
     sys_init_error(Status::BAD_ARG);
     return nullptr;

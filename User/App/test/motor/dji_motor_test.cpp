@@ -7,8 +7,8 @@
 
 #if APP_TEST_DJI_MOTOR_ENABLED
 
-#include "bsp_cfg.hpp"     // bsp_can1.diagnostics
-#include "service_cfg.hpp" // bus_can1
+#  include "bsp_cfg.hpp"     // bsp_can1.diagnostics
+#  include "service_cfg.hpp" // bus_can1
 
 // CAN1 / C620 ID2：发送 0x200 的第二槽位，反馈 0x202。
 // 使用 M3508 默认减速比，接收与解包完全由 CanRxNode 驱动。

@@ -86,20 +86,20 @@ template <MotorType type>
 class DjiMotor
 {
 private:
-  MotorData           _data;        ///< 最终机构输出轴的通用运动学数据
-  DjiMotorRawData     _raw_data;    ///< DJI 电调反馈协议原始数据
-  DjiMotorParam       _param;       ///< DJI 编码器和原始控制限幅参数
-  Online              _online;      ///< 由有效反馈帧刷新的在线检查对象
-  LuenbergerMotorData _lvbo_data;   ///< 可选的 Luenberger 观测结果
+  MotorData           _data;      ///< 最终机构输出轴的通用运动学数据
+  DjiMotorRawData     _raw_data;  ///< DJI 电调反馈协议原始数据
+  DjiMotorParam       _param;     ///< DJI 编码器和原始控制限幅参数
+  Online              _online;    ///< 由有效反馈帧刷新的在线检查对象
+  LuenbergerMotorData _lvbo_data; ///< 可选的 Luenberger 观测结果
 
-  CanBus            *_can_item;     ///< 接收反馈、下发控制帧所用的 CAN 总线
-  uint8_t            _motor_id;     ///< 电调配置的 DJI 协议 ID
-  uint8_t            _bus_slot;     ///< 当前电机在控制帧中的槽位，范围 0~3
-  CanTxNode       *_tx_node;
-  CanRxNode       *_rx_node;
-  static Status _rx_callback(void *context, const CanRxMsg &rx);
+  CanBus             *_can_item; ///< 接收反馈、下发控制帧所用的 CAN 总线
+  uint8_t             _motor_id; ///< 电调配置的 DJI 协议 ID
+  uint8_t             _bus_slot; ///< 当前电机在控制帧中的槽位，范围 0~3
+  CanTxNode          *_tx_node;
+  CanRxNode          *_rx_node;
+  static Status       _rx_callback(void *context, const CanRxMsg &rx);
   DjiMotorControlMode _control_mode; ///< GM6020 控制模式；其他型号忽略
-  Status             _statu;        ///< 构造校验或初始化状态，运行期收发结果由函数返回
+  Status              _statu;        ///< 构造校验或初始化状态，运行期收发结果由函数返回
 
   SemaphoreHandle_t data_mutex_headler; ///< 保护解析结果与原始数据的互斥量
 
@@ -164,24 +164,23 @@ public:
      * @param offset       电机转子机械零位偏移，单位：rad
      * @param control_mode GM6020 的控制模式；其他电机型号忽略该参数
      */
-    Config(CanBus        &can,
-           uint8_t        motor_id,
-           float          ratio = 0.0f,
-           float          offset = 0.0f,
-           DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE)
-      : can(can),
-        motor_id(motor_id),
-        ratio(ratio),
-        offset(offset),
-        control_mode(control_mode)
+    Config(CanBus             &can,
+           uint8_t             motor_id,
+           float               ratio        = 0.0f,
+           float               offset       = 0.0f,
+           DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE) : can(can),
+                                                                              motor_id(motor_id),
+                                                                              ratio(ratio),
+                                                                              offset(offset),
+                                                                              control_mode(control_mode)
     {
     }
 
-    CanBus              &can;          ///< 电机连接的物理 CAN 总线
-    uint8_t              motor_id;     ///< 电调设置的 DJI 协议 ID
-    float                ratio;        ///< 减速比；0 = 按型号取默认值
-    float                offset;       ///< 机械零位偏移，单位：rad
-    DjiMotorControlMode  control_mode; ///< GM6020 控制模式；其他型号忽略
+    CanBus             &can;          ///< 电机连接的物理 CAN 总线
+    uint8_t             motor_id;     ///< 电调设置的 DJI 协议 ID
+    float               ratio;        ///< 减速比；0 = 按型号取默认值
+    float               offset;       ///< 机械零位偏移，单位：rad
+    DjiMotorControlMode control_mode; ///< GM6020 控制模式；其他型号忽略
   };
 
   /**
@@ -231,13 +230,12 @@ public:
   Status fill_data(int16_t output);
 
   // 禁止复制/移动
-  DjiMotor(const DjiMotor &) = delete;
+  DjiMotor(const DjiMotor &)            = delete;
   DjiMotor &operator=(const DjiMotor &) = delete;
-  DjiMotor(DjiMotor &&) = delete;
-  DjiMotor &operator=(DjiMotor &&) = delete;
+  DjiMotor(DjiMotor &&)                 = delete;
+  DjiMotor &operator=(DjiMotor &&)      = delete;
 
 private:
-
 };
 
 #endif // __DJI_MOTOR_HPP__

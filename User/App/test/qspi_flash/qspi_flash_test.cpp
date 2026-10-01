@@ -2,27 +2,27 @@
 
 #if APP_TEST_QSPI_FLASH_ENABLED
 
-#include "FreeRTOS.h"
-#include "task.h"
+#  include "FreeRTOS.h"
+#  include "task.h"
 
-#include <stdint.h>
+#  include <stdint.h>
 
-#include "external_flash.h"
-#include "external_flash_test.h"
-#include "external_flash_xip.h"
+#  include "external_flash.h"
+#  include "external_flash_test.h"
+#  include "external_flash_xip.h"
 
-volatile uint32_t qspi_flash_test_stage = 0U;
-volatile uint32_t qspi_flash_test_passed = 0U;
-volatile ext_flash_result_t qspi_flash_test_init_result = EXT_FLASH_ERROR_IO;
-volatile ext_flash_result_t qspi_flash_test_data_result = EXT_FLASH_ERROR_IO;
-volatile ext_flash_result_t qspi_flash_test_mapped_result = EXT_FLASH_ERROR_IO;
-volatile ext_flash_result_t qspi_flash_test_xip_result = EXT_FLASH_ERROR_IO;
-volatile uint8_t qspi_flash_test_manufacturer_id = 0U;
-volatile uint8_t qspi_flash_test_memory_type = 0U;
-volatile uint8_t qspi_flash_test_capacity_id = 0U;
-volatile uint32_t qspi_flash_test_mapped_mismatch = UINT32_MAX;
-ext_flash_test_report_t qspi_flash_test_data_report;
-ext_flash_xip_report_t qspi_flash_test_xip_report;
+volatile uint32_t           qspi_flash_test_stage           = 0U;
+volatile uint32_t           qspi_flash_test_passed          = 0U;
+volatile ext_flash_result_t qspi_flash_test_init_result     = EXT_FLASH_ERROR_IO;
+volatile ext_flash_result_t qspi_flash_test_data_result     = EXT_FLASH_ERROR_IO;
+volatile ext_flash_result_t qspi_flash_test_mapped_result   = EXT_FLASH_ERROR_IO;
+volatile ext_flash_result_t qspi_flash_test_xip_result      = EXT_FLASH_ERROR_IO;
+volatile uint8_t            qspi_flash_test_manufacturer_id = 0U;
+volatile uint8_t            qspi_flash_test_memory_type     = 0U;
+volatile uint8_t            qspi_flash_test_capacity_id     = 0U;
+volatile uint32_t           qspi_flash_test_mapped_mismatch = UINT32_MAX;
+ext_flash_test_report_t     qspi_flash_test_data_report;
+ext_flash_xip_report_t      qspi_flash_test_xip_report;
 
 namespace
 {
@@ -40,24 +40,24 @@ void fail(uint32_t stage)
 extern "C" void qspi_flash_test_task(void *argument)
 {
   (void)argument;
-  ext_flash_info_t info = {};
+  ext_flash_info_t        info        = {};
   ext_flash_test_report_t data_report = {};
-  ext_flash_xip_report_t xip_report = {};
+  ext_flash_xip_report_t  xip_report  = {};
 
   vTaskDelay(pdMS_TO_TICKS(250U));
 
-  qspi_flash_test_stage = 1U;
-  qspi_flash_test_init_result = ext_flash_init(&info);
+  qspi_flash_test_stage           = 1U;
+  qspi_flash_test_init_result     = ext_flash_init(&info);
   qspi_flash_test_manufacturer_id = info.manufacturer_id;
-  qspi_flash_test_memory_type = info.memory_type;
-  qspi_flash_test_capacity_id = info.capacity_id;
+  qspi_flash_test_memory_type     = info.memory_type;
+  qspi_flash_test_capacity_id     = info.capacity_id;
   if (qspi_flash_test_init_result != EXT_FLASH_OK)
   {
     fail(1U);
     return;
   }
 
-  qspi_flash_test_stage = 2U;
+  qspi_flash_test_stage       = 2U;
   qspi_flash_test_data_result = ext_flash_run_data_tests(&data_report);
   qspi_flash_test_data_report = data_report;
   if (qspi_flash_test_data_result != EXT_FLASH_OK)
@@ -66,7 +66,7 @@ extern "C" void qspi_flash_test_task(void *argument)
     return;
   }
 
-  qspi_flash_test_stage = 3U;
+  qspi_flash_test_stage         = 3U;
   qspi_flash_test_mapped_result = ext_flash_memory_mapped_enable();
   if (qspi_flash_test_mapped_result == EXT_FLASH_OK)
   {
@@ -85,7 +85,7 @@ extern "C" void qspi_flash_test_task(void *argument)
     if (mapped[index] != static_cast<uint8_t>(index))
     {
       qspi_flash_test_mapped_mismatch = index;
-      qspi_flash_test_mapped_result = EXT_FLASH_ERROR_IO;
+      qspi_flash_test_mapped_result   = EXT_FLASH_ERROR_IO;
       break;
     }
   }
@@ -100,7 +100,7 @@ extern "C" void qspi_flash_test_task(void *argument)
     return;
   }
 
-  qspi_flash_test_stage = 4U;
+  qspi_flash_test_stage      = 4U;
   qspi_flash_test_xip_result = ext_flash_run_xip_test(&xip_report);
   qspi_flash_test_xip_report = xip_report;
   if (qspi_flash_test_xip_result != EXT_FLASH_OK)
@@ -110,7 +110,7 @@ extern "C" void qspi_flash_test_task(void *argument)
   }
 
   qspi_flash_test_passed = 1U;
-  qspi_flash_test_stage = 5U;
+  qspi_flash_test_stage  = 5U;
   vTaskDelete(nullptr);
 }
 

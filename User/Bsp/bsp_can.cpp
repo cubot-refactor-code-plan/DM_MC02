@@ -289,10 +289,7 @@ bool BspCan::tx_recover()
 /** @brief 任务上下文：总线是否可用于发送（已启动、非 Bus-Off、非恢复流程中） */
 bool BspCan::_tx_available() const
 {
-  return _hfdcan != nullptr && _hfdcan->State == HAL_FDCAN_STATE_BUSY &&
-         !diagnostics.recovering &&
-         (_hfdcan->Instance->PSR & FDCAN_PSR_BO) == 0U &&
-         (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U;
+  return _hfdcan != nullptr && _hfdcan->State == HAL_FDCAN_STATE_BUSY && !diagnostics.recovering && (_hfdcan->Instance->PSR & FDCAN_PSR_BO) == 0U && (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U;
 }
 
 /**
@@ -307,8 +304,7 @@ bool BspCan::_tx_available() const
  */
 Status BspCan::service_recovery()
 {
-  if (_hfdcan == nullptr || _tx_message_buffer == nullptr || _rx_message_buffer == nullptr ||
-      _hfdcan->State != HAL_FDCAN_STATE_BUSY)
+  if (_hfdcan == nullptr || _tx_message_buffer == nullptr || _rx_message_buffer == nullptr || _hfdcan->State != HAL_FDCAN_STATE_BUSY)
   {
     return Status::NOT_INIT;
   }
@@ -335,8 +331,7 @@ Status BspCan::service_recovery()
   if (diagnostics.recovering)
   {
     // 只在硬件再次置 INIT 时启动恢复，避免反复打断 129x11 位恢复序列。
-    if ((_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) != 0U &&
-        now - _recovery_attempted >= pdMS_TO_TICKS(100U))
+    if ((_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) != 0U && now - _recovery_attempted >= pdMS_TO_TICKS(100U))
     {
       _hfdcan->Instance->TXBCR = _hfdcan->Instance->TXBRP;
       CLEAR_BIT(_hfdcan->Instance->CCCR, FDCAN_CCCR_INIT);
@@ -344,8 +339,7 @@ Status BspCan::service_recovery()
       diagnostics.recovery_attempts++;
     }
     // 先等旧发送请求彻底取消，才允许新的控制帧入队。
-    if (!bus_off && (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U &&
-        _hfdcan->Instance->TXBRP == 0U)
+    if (!bus_off && (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U && _hfdcan->Instance->TXBRP == 0U)
     {
       diagnostics.recovering = false;
       diagnostics.recovery_successes++;
@@ -670,9 +664,7 @@ void BspCan::_reset_hardware()
   }
 
   (void)HAL_FDCAN_DeactivateNotification(_hfdcan,
-                                         FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST |
-                                           FDCAN_IT_TX_FIFO_EMPTY | FDCAN_IT_BUS_OFF |
-                                           FDCAN_IT_ERROR_PASSIVE | FDCAN_IT_ERROR_WARNING);
+                                         FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST | FDCAN_IT_TX_FIFO_EMPTY | FDCAN_IT_BUS_OFF | FDCAN_IT_ERROR_PASSIVE | FDCAN_IT_ERROR_WARNING);
   (void)HAL_FDCAN_Stop(_hfdcan);
 }
 

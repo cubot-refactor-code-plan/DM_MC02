@@ -27,8 +27,8 @@
 #ifndef __DM_IMU_HPP__
 #define __DM_IMU_HPP__
 
+#include "FreeRTOS.h"  // IWYU pragma: keep
 #include "bsp_cfg.hpp" // IWYU pragma: keep
-#include "FreeRTOS.h"   // IWYU pragma: keep
 #include "semphr.h"
 
 #include "status.hpp" // 统一状态码
@@ -47,8 +47,8 @@
 #define YAW_CAN_MIN (-180.0f)   ///< CAN接口偏航角（Yaw）最小值（单位：度）
 #define TEMP_MIN (0.0f)         ///< 温度传感器最小值（单位：摄氏度）
 #define TEMP_MAX (60.0f)        ///< 温度传感器最大值（单位：摄氏度）
-#define QUATERNION_MIN (-1.0f) ///< 四元数最小值
-#define QUATERNION_MAX (1.0f)  ///< 四元数最大值
+#define QUATERNION_MIN (-1.0f)  ///< 四元数最小值
+#define QUATERNION_MAX (1.0f)   ///< 四元数最大值
 
 #define CMD_READ 0  ///< 读取命令标识符
 #define CMD_WRITE 1 ///< 写入命令标识符
@@ -137,10 +137,9 @@ public:
     /**
      * @brief 按序构造配置（参数顺序 = 字段顺序）
      */
-    Config(BspCan &can_bus, uint8_t device_id, uint8_t master_id = 0)
-      : can_bus(can_bus),
-        device_id(device_id),
-        master_id(master_id)
+    Config(BspCan &can_bus, uint8_t device_id, uint8_t master_id = 0) : can_bus(can_bus),
+                                                                        device_id(device_id),
+                                                                        master_id(master_id)
     {
     }
 
@@ -255,13 +254,13 @@ public:
    * @brief 设置IMU数据（线程安全）
    * @param data IMU数据
    */
-  void set_imu_data(const ImuData& data);
+  void set_imu_data(const ImuData &data);
 
   /**
    * @brief CAN消息回调处理
    * @param rx_msg CAN接收消息
    */
-  void on_can_message(const CanRxMsg& rx_msg);
+  void on_can_message(const CanRxMsg &rx_msg);
 
 
 private:
@@ -335,11 +334,11 @@ private:
   // ----------------
   // ---------------- 私有成员变量 ----------------
 
-  BspCan& _can_bus; ///< CAN总线接口引用
-  ImuData _imu_data; ///< IMU数据
-  uint8_t  _device_id; ///< 设备ID
-  uint8_t  _master_id; ///< 主机ID
-  char    _name[32]; ///< 互斥锁名字
+  BspCan &_can_bus;   ///< CAN总线接口引用
+  ImuData _imu_data;  ///< IMU数据
+  uint8_t _device_id; ///< 设备ID
+  uint8_t _master_id; ///< 主机ID
+  char    _name[32];  ///< 互斥锁名字
 
   SemaphoreHandle_t _data_mutex_handle; ///< 用于保护_imu_data的互斥锁
 

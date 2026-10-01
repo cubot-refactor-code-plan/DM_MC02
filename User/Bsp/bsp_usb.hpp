@@ -45,13 +45,13 @@ public:
    * @param len 本次接收的数据长度（字节）。
    * @param user_ctx 用户上下文指针，由 set_rx_callback 传入。
    */
-  typedef void (*RxCallback)(const uint8_t* data, uint32_t len, void* user_ctx);
+  typedef void (*RxCallback)(const uint8_t *data, uint32_t len, void *user_ctx);
 
   /**
    * @brief 获取 USB BSP 单例对象。
    * @return BspUsb& 单例引用。
    */
-  static BspUsb& instance();
+  static BspUsb &instance();
 
   /**
    * @brief 初始化 TinyUSB Device 栈。
@@ -105,7 +105,7 @@ public:
    * @param len 待发送长度（字节）。
    * @return true 全部发送成功；false 未连接或未全部写入。
    */
-  bool cdc_write(const uint8_t* data, uint32_t len);
+  bool cdc_write(const uint8_t *data, uint32_t len);
 
   /**
    * @brief 通过 CDC 读取数据。
@@ -113,7 +113,7 @@ public:
    * @param len 最多读取长度（字节）。
    * @return uint32_t 实际读取字节数。
    */
-  uint32_t cdc_read(uint8_t* data, uint32_t len);
+  uint32_t cdc_read(uint8_t *data, uint32_t len);
 
   /**
    * @brief 获取 CDC 接收缓冲区内可读字节数。
@@ -127,23 +127,23 @@ public:
    * @param len 有效载荷长度，范围 1~64 字节。
    * @return true 已提交完整 64 字节报告；false 未就绪或参数非法。
    */
-  bool hid_write(const uint8_t* data, uint32_t len);
+  bool hid_write(const uint8_t *data, uint32_t len);
 
   /** @brief 从 HID Output Report 接收队列读取数据。 */
-  uint32_t hid_read(uint8_t* data, uint32_t len);
+  uint32_t hid_read(uint8_t *data, uint32_t len);
 
   /** @brief 返回 HID Output Report 接收队列的可读字节数。 */
   uint32_t hid_available() const;
 
   /** @brief TinyUSB HID OUT 回调入口；应用代码不应直接调用。 */
-  void accept_hid_report(const uint8_t* data, uint32_t len);
+  void accept_hid_report(const uint8_t *data, uint32_t len);
 
   /**
    * @brief 注册当前 USB 传输类的接收回调。
    * @param cb 回调函数指针，传入 nullptr 可注销回调。
    * @param user_ctx 用户上下文指针，将原样传回回调。
    */
-  void set_rx_callback(RxCallback cb, void* user_ctx);
+  void set_rx_callback(RxCallback cb, void *user_ctx);
 
 private:
   /**
@@ -154,14 +154,14 @@ private:
   BspUsb() = default;
 
   RxCallback _rx_callback = nullptr;
-  void*      _rx_user_ctx = nullptr;
+  void      *_rx_user_ctx = nullptr;
   bool       _require_dtr = false;
   bool       _initialized = false;
 
-  static constexpr uint16_t HID_RX_BUFFER_SIZE = 256U;
-  uint8_t           _hid_rx_buffer[HID_RX_BUFFER_SIZE] = {};
-  volatile uint16_t _hid_rx_head = 0U;
-  volatile uint16_t _hid_rx_tail = 0U;
+  static constexpr uint16_t HID_RX_BUFFER_SIZE                 = 256U;
+  uint8_t                   _hid_rx_buffer[HID_RX_BUFFER_SIZE] = {};
+  volatile uint16_t         _hid_rx_head                       = 0U;
+  volatile uint16_t         _hid_rx_tail                       = 0U;
 };
 
 #endif // __BSP_USB_HPP__

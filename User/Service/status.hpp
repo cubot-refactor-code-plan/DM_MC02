@@ -26,7 +26,7 @@
 extern EventGroupHandle_t sys_event; ///< 系统状态事件组（初始化前为 nullptr）
 
 #define SYS_FLAG_INIT_FAIL_BIT (1U << 23) ///< 初始化失败标志位
-#define SYS_FLAG_RUNNING_BIT   (1U << 22) ///< 系统已进入运行态标志位
+#define SYS_FLAG_RUNNING_BIT (1U << 22)   ///< 系统已进入运行态标志位
 
 /**
  * @brief 统一状态码

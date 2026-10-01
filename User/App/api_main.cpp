@@ -1,6 +1,6 @@
-#include "api_main.h"
 #include "FreeRTOS.h" // IWYU pragma: keep
-#include "main.h"     // IWYU pragma: keep
+#include "api_main.h"
+#include "main.h" // IWYU pragma: keep
 #include "task.h"
 
 #include <stdint.h>
@@ -27,20 +27,20 @@
 // ---------------- 全局变量定义 ----------------
 
 /* C620/M3508 CAN1 实机测试诊断量（可在调试器 Live Watch 中查看） */
-volatile Status   can1_statu                = Status::NOT_INIT;
-volatile uint32_t can1_tx_ok_count          = 0;
-volatile uint32_t can1_tx_full_count        = 0;
-volatile uint32_t can1_rx_count             = 0;
-volatile uint32_t can1_feedback_202_count   = 0;
-volatile uint32_t can1_last_rx_id           = 0;
-volatile int16_t  c620_speed_rpm            = 0;
-volatile uint16_t c620_peak_abs_speed_rpm   = 0;
-volatile int16_t  c620_given_current        = 0;
-volatile uint8_t  c620_temperature          = 0;
-volatile uint32_t can1_last_error_code      = 0;
-volatile uint32_t can1_tx_error_count       = 0;
-volatile uint32_t can1_rx_error_count       = 0;
-volatile uint32_t can1_bus_off              = 0;
+volatile Status   can1_statu              = Status::NOT_INIT;
+volatile uint32_t can1_tx_ok_count        = 0;
+volatile uint32_t can1_tx_full_count      = 0;
+volatile uint32_t can1_rx_count           = 0;
+volatile uint32_t can1_feedback_202_count = 0;
+volatile uint32_t can1_last_rx_id         = 0;
+volatile int16_t  c620_speed_rpm          = 0;
+volatile uint16_t c620_peak_abs_speed_rpm = 0;
+volatile int16_t  c620_given_current      = 0;
+volatile uint8_t  c620_temperature        = 0;
+volatile uint32_t can1_last_error_code    = 0;
+volatile uint32_t can1_tx_error_count     = 0;
+volatile uint32_t can1_rx_error_count     = 0;
+volatile uint32_t can1_bus_off            = 0;
 
 
 /**
@@ -100,7 +100,8 @@ void all_init()
                            256,
                            NULL,
                            tskIDLE_PRIORITY + 3,
-                           NULL) == pdPASS);
+                           NULL)
+               == pdPASS);
 #endif
 
 #if APP_TEST_DJI_MOTOR_ENABLED
@@ -109,7 +110,8 @@ void all_init()
                            256,
                            NULL,
                            tskIDLE_PRIORITY + 5,
-                           NULL) == pdPASS);
+                           NULL)
+               == pdPASS);
 #endif
 
 #if APP_TEST_DM_MOTOR_ENABLED
@@ -118,7 +120,8 @@ void all_init()
                            512,
                            NULL,
                            tskIDLE_PRIORITY + 5,
-                           NULL) == pdPASS);
+                           NULL)
+               == pdPASS);
 #endif
 
 #if APP_TEST_QSPI_FLASH_ENABLED
@@ -127,7 +130,8 @@ void all_init()
                            512,
                            NULL,
                            tskIDLE_PRIORITY + 4,
-                           NULL) == pdPASS);
+                           NULL)
+               == pdPASS);
 #endif
 
 #if APP_TEST_DWT_ENABLED
@@ -135,7 +139,6 @@ void all_init()
 #endif
 
   sys_complete_init();
-
 }
 
 

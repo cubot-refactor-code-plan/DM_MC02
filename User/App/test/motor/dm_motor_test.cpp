@@ -4,40 +4,40 @@
 #if APP_TEST_DM_MOTOR_ENABLED
 
 // 依赖只在测试启用时有意义：放进 #if，避免关闭时整个 TU 为空、被 include-cleaner 判成多余
-#include "FreeRTOS.h" // IWYU pragma: keep
-#include "bsp_cfg.hpp"
-#include "dm_motor.hpp"
-#include "service_cfg.hpp" // bus_can2
-#include "task.h"
+#  include "FreeRTOS.h" // IWYU pragma: keep
+#  include "bsp_cfg.hpp"
+#  include "dm_motor.hpp"
+#  include "service_cfg.hpp" // bus_can2
+#  include "task.h"
 
-#include <math.h>
-#include <stdint.h>
-#include <string.h>
+#  include <math.h>
+#  include <stdint.h>
+#  include <string.h>
 
 
-volatile uint32_t dm_motor_test_stage             = 0U;
-volatile uint32_t dm_motor_test_passed            = 0U;
-volatile uint32_t dm_motor_test_mode_pass_mask    = 0U;
-volatile uint32_t dm_motor_test_initial_mode      = 0U;
-volatile uint32_t dm_motor_test_last_drive_state  = 0U;
+volatile uint32_t dm_motor_test_stage              = 0U;
+volatile uint32_t dm_motor_test_passed             = 0U;
+volatile uint32_t dm_motor_test_mode_pass_mask     = 0U;
+volatile uint32_t dm_motor_test_initial_mode       = 0U;
+volatile uint32_t dm_motor_test_last_drive_state   = 0U;
 volatile uint32_t dm_motor_test_parameter_failures = 0U;
-volatile Status   dm_motor_test_last_status       = Status::NOT_INIT;
-volatile Status   dm_motor_test_online_status     = Status::NOT_INIT;
-volatile float    dm_motor_test_pmax              = 0.0f;
-volatile float    dm_motor_test_vmax              = 0.0f;
-volatile float    dm_motor_test_tmax              = 0.0f;
-volatile float    dm_motor_test_last_position     = 0.0f;
-volatile float    dm_motor_test_last_velocity     = 0.0f;
-volatile float    dm_motor_test_peak_abs_velocity = 0.0f;
+volatile Status   dm_motor_test_last_status        = Status::NOT_INIT;
+volatile Status   dm_motor_test_online_status      = Status::NOT_INIT;
+volatile float    dm_motor_test_pmax               = 0.0f;
+volatile float    dm_motor_test_vmax               = 0.0f;
+volatile float    dm_motor_test_tmax               = 0.0f;
+volatile float    dm_motor_test_last_position      = 0.0f;
+volatile float    dm_motor_test_last_velocity      = 0.0f;
+volatile float    dm_motor_test_peak_abs_velocity  = 0.0f;
 
 
 namespace
 {
-constexpr uint16_t DM_ESC_ID    = 0x01U;
-constexpr uint16_t DM_MASTER_ID = 0x00U;
+constexpr uint16_t DM_ESC_ID        = 0x01U;
+constexpr uint16_t DM_MASTER_ID     = 0x00U;
 constexpr uint32_t PARAMETER_STD_ID = 0x7FFU;
-constexpr uint8_t READ_COMMAND  = 0x33U;
-constexpr uint8_t WRITE_COMMAND = 0x55U;
+constexpr uint8_t  READ_COMMAND     = 0x33U;
+constexpr uint8_t  WRITE_COMMAND    = 0x55U;
 
 constexpr uint8_t CTRL_MODE_REGISTER = 0x0AU;
 constexpr uint8_t PMAX_REGISTER      = 0x15U;
@@ -79,14 +79,7 @@ bool wait_parameter_reply(uint8_t command, uint8_t register_id, uint8_t *value)
       continue;
     }
 
-    if ((rx.header.Identifier == DM_MASTER_ID) &&
-        (rx.header.IdType == FDCAN_STANDARD_ID) &&
-        (rx.header.RxFrameType == FDCAN_DATA_FRAME) &&
-        (rx.header.DataLength == FDCAN_DLC_BYTES_8) &&
-        (rx.data[0] == static_cast<uint8_t>(DM_ESC_ID)) &&
-        (rx.data[1] == static_cast<uint8_t>(DM_ESC_ID >> 8U)) &&
-        (rx.data[2] == command) &&
-        (rx.data[3] == register_id))
+    if ((rx.header.Identifier == DM_MASTER_ID) && (rx.header.IdType == FDCAN_STANDARD_ID) && (rx.header.RxFrameType == FDCAN_DATA_FRAME) && (rx.header.DataLength == FDCAN_DLC_BYTES_8) && (rx.data[0] == static_cast<uint8_t>(DM_ESC_ID)) && (rx.data[1] == static_cast<uint8_t>(DM_ESC_ID >> 8U)) && (rx.data[2] == command) && (rx.data[3] == register_id))
     {
       memcpy(value, &rx.data[4], 4U);
       return true;
@@ -173,8 +166,7 @@ bool wait_enabled(DmMotor<DmMotorType::J4310_2EC> &motor)
 {
   for (uint32_t elapsed = 0U; elapsed < 300U; ++elapsed)
   {
-    if ((motor.enable_state() == DmEnableState::ENABLED) &&
-        (motor.online().is_online() == Status::OK))
+    if ((motor.enable_state() == DmEnableState::ENABLED) && (motor.online().is_online() == Status::OK))
     {
       return true;
     }
@@ -245,8 +237,8 @@ bool run_mode_test(DmControlMode mode, const DmProtocolLimits &limits)
       break;
     case DmControlMode::POSITION_TORQUE:
       dm_motor_test_last_status = motor.set_position_torque_target(current_position,
-                                                                  TEST_VELOCITY_RAD_S,
-                                                                  0.05f);
+                                                                   TEST_VELOCITY_RAD_S,
+                                                                   0.05f);
       break;
     default:
       return false;
@@ -290,8 +282,8 @@ bool run_mode_test(DmControlMode mode, const DmProtocolLimits &limits)
       break;
     case DmControlMode::POSITION_TORQUE:
       dm_motor_test_last_status = motor.set_position_torque_target(position_target,
-                                                                  TEST_VELOCITY_RAD_S,
-                                                                  0.05f);
+                                                                   TEST_VELOCITY_RAD_S,
+                                                                   0.05f);
       break;
     default:
       dm_motor_test_last_status = Status::BAD_ARG;
@@ -307,10 +299,7 @@ bool run_mode_test(DmControlMode mode, const DmProtocolLimits &limits)
   const float position_delta =
     fabsf(motor.data().radian_data.angle_multi_round - start_position);
   const bool feedback_valid =
-    (dm_motor_test_last_status == Status::OK) &&
-    (motor.online().is_online() == Status::OK) &&
-    (motor.drive_state() == DmDriveState::ENABLED) &&
-    isfinite(position_delta);
+    (dm_motor_test_last_status == Status::OK) && (motor.online().is_online() == Status::OK) && (motor.drive_state() == DmDriveState::ENABLED) && isfinite(position_delta);
 
   if (mode == DmControlMode::MIT)
   {
@@ -347,17 +336,12 @@ extern "C" void dm_motor_test_task(void *argument)
   vTaskDelay(pdMS_TO_TICKS(100U));
   dm_motor_test_stage = 1U;
 
-  uint32_t initial_mode = 0U;
-  float pmax = 0.0f;
-  float vmax = 0.0f;
-  float tmax = 0.0f;
+  uint32_t   initial_mode = 0U;
+  float      pmax         = 0.0f;
+  float      vmax         = 0.0f;
+  float      tmax         = 0.0f;
   const bool parameters_valid =
-    read_register_u32(CTRL_MODE_REGISTER, &initial_mode) &&
-    read_register_float(PMAX_REGISTER, &pmax) &&
-    read_register_float(VMAX_REGISTER, &vmax) &&
-    read_register_float(TMAX_REGISTER, &tmax) &&
-    (initial_mode >= 1U) && (initial_mode <= 4U) &&
-    (pmax > 0.0f) && (vmax > 0.0f) && (tmax > 0.0f);
+    read_register_u32(CTRL_MODE_REGISTER, &initial_mode) && read_register_float(PMAX_REGISTER, &pmax) && read_register_float(VMAX_REGISTER, &vmax) && read_register_float(TMAX_REGISTER, &tmax) && (initial_mode >= 1U) && (initial_mode <= 4U) && (pmax > 0.0f) && (vmax > 0.0f) && (tmax > 0.0f);
 
   dm_motor_test_initial_mode = initial_mode;
   dm_motor_test_pmax         = pmax;
@@ -373,7 +357,7 @@ extern "C" void dm_motor_test_task(void *argument)
   }
 
   const DmProtocolLimits limits(pmax, vmax, tmax);
-  const DmControlMode modes[] = {
+  const DmControlMode    modes[] = {
     DmControlMode::MIT,
     DmControlMode::POSITION_VELOCITY,
     DmControlMode::VELOCITY,
@@ -396,8 +380,7 @@ extern "C" void dm_motor_test_task(void *argument)
   }
 
   dm_motor_test_passed =
-    ((dm_motor_test_mode_pass_mask == 0x0FU) &&
-     (dm_motor_test_parameter_failures == 0U))
+    ((dm_motor_test_mode_pass_mask == 0x0FU) && (dm_motor_test_parameter_failures == 0U))
       ? 1U
       : 0U;
   dm_motor_test_stage = 7U;

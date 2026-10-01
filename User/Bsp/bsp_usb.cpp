@@ -1,7 +1,7 @@
 #include "bsp_usb.hpp"
 
+#include "FreeRTOS.h" // IWYU pragma: keep
 #include "external_flash.h"
-#include "FreeRTOS.h"      // IWYU pragma: keep
 #include "stm32h7xx_hal.h" // IWYU pragma: keep
 #include "tusb.h"          // IWYU pragma: keep
 
@@ -62,7 +62,7 @@ enum
   ITF_NUM_TOTAL
 };
 
-BspUsb& BspUsb::instance()
+BspUsb &BspUsb::instance()
 {
   static BspUsb s_instance;
   return s_instance;
@@ -175,7 +175,7 @@ bool BspUsb::mounted() const
   return _initialized && tud_mounted();
 }
 
-bool BspUsb::cdc_write(const uint8_t* data, uint32_t len)
+bool BspUsb::cdc_write(const uint8_t *data, uint32_t len)
 {
 #if DM_MC02_USB_CLASS_CDC
   if ((data == nullptr) || (len == 0U) || !is_ready())
@@ -193,7 +193,7 @@ bool BspUsb::cdc_write(const uint8_t* data, uint32_t len)
 #endif
 }
 
-uint32_t BspUsb::cdc_read(uint8_t* data, uint32_t len)
+uint32_t BspUsb::cdc_read(uint8_t *data, uint32_t len)
 {
 #if DM_MC02_USB_CLASS_CDC
   if ((data == nullptr) || (len == 0U) || !mounted())
@@ -217,7 +217,7 @@ uint32_t BspUsb::cdc_available() const
 #endif
 }
 
-bool BspUsb::hid_write(const uint8_t* data, uint32_t len)
+bool BspUsb::hid_write(const uint8_t *data, uint32_t len)
 {
 #if DM_MC02_USB_CLASS_HID
   if ((data == nullptr) || (len == 0U) || (len > HID_REPORT_SIZE) || !is_ready())
@@ -235,7 +235,7 @@ bool BspUsb::hid_write(const uint8_t* data, uint32_t len)
 #endif
 }
 
-uint32_t BspUsb::hid_read(uint8_t* data, uint32_t len)
+uint32_t BspUsb::hid_read(uint8_t *data, uint32_t len)
 {
 #if DM_MC02_USB_CLASS_HID
   if ((data == nullptr) || (len == 0U))
@@ -268,7 +268,7 @@ uint32_t BspUsb::hid_available() const
 #endif
 }
 
-void BspUsb::accept_hid_report(const uint8_t* data, uint32_t len)
+void BspUsb::accept_hid_report(const uint8_t *data, uint32_t len)
 {
 #if DM_MC02_USB_CLASS_HID
   if (data == nullptr)
@@ -291,7 +291,7 @@ void BspUsb::accept_hid_report(const uint8_t* data, uint32_t len)
 #endif
 }
 
-void BspUsb::set_rx_callback(RxCallback cb, void* user_ctx)
+void BspUsb::set_rx_callback(RxCallback cb, void *user_ctx)
 {
   _rx_callback = cb;
   _rx_user_ctx = user_ctx;
@@ -347,19 +347,19 @@ static USB_XIP_RODATA const uint8_t desc_configuration[] = {
   TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_HID, 4, HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, CFG_TUD_HID_EP_BUFSIZE, 1)};
 #endif
 
-extern "C" USB_XIP_TEXT uint8_t const* tud_descriptor_device_cb(void)
+extern "C" USB_XIP_TEXT uint8_t const *tud_descriptor_device_cb(void)
 {
-  return reinterpret_cast<uint8_t const*>(&desc_device);
+  return reinterpret_cast<uint8_t const *>(&desc_device);
 }
 
-extern "C" USB_XIP_TEXT uint8_t const* tud_descriptor_configuration_cb(uint8_t index)
+extern "C" USB_XIP_TEXT uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 {
   (void)index;
   return desc_configuration;
 }
 
 #if DM_MC02_USB_CLASS_HID
-extern "C" USB_XIP_TEXT uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance)
+extern "C" USB_XIP_TEXT uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
   (void)instance;
   return desc_hid_report;
@@ -369,7 +369,7 @@ extern "C" USB_XIP_TEXT uint16_t tud_hid_get_report_cb(
   uint8_t           instance,
   uint8_t           report_id,
   hid_report_type_t report_type,
-  uint8_t*          buffer,
+  uint8_t          *buffer,
   uint16_t          reqlen)
 {
   (void)instance;
@@ -384,7 +384,7 @@ extern "C" USB_XIP_TEXT void tud_hid_set_report_cb(
   uint8_t           instance,
   uint8_t           report_id,
   hid_report_type_t report_type,
-  uint8_t const*    buffer,
+  uint8_t const    *buffer,
   uint16_t          bufsize)
 {
   (void)instance;
@@ -417,7 +417,7 @@ static USB_XIP_RODATA const char string_product[] = "TY H723 TinyUSB HID";
 #endif
 static USB_XIP_RODATA const char string_serial[] = "0001";
 
-static USB_XIP_RODATA const char* const string_desc_arr[] = {
+static USB_XIP_RODATA const char *const string_desc_arr[] = {
   string_langid,
   string_manufacturer,
   string_product,
@@ -429,7 +429,7 @@ static USB_XIP_RODATA const char* const string_desc_arr[] = {
 
 static uint16_t desc_string[32];
 
-extern "C" USB_XIP_TEXT uint16_t const* tud_descriptor_string_cb(uint8_t  index,
+extern "C" USB_XIP_TEXT uint16_t const *tud_descriptor_string_cb(uint8_t  index,
                                                                  uint16_t langid)
 {
   (void)langid;
@@ -446,7 +446,7 @@ extern "C" USB_XIP_TEXT uint16_t const* tud_descriptor_string_cb(uint8_t  index,
     {
       return nullptr;
     }
-    const char* str = string_desc_arr[index];
+    const char *str = string_desc_arr[index];
     chr_count       = static_cast<uint8_t>(strlen(str));
     if (chr_count > 31U)
     {

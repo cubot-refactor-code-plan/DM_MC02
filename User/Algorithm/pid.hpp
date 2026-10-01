@@ -96,31 +96,28 @@ public:
     /**
      * @brief 按序构造配置（参数顺序 = 字段顺序）
      */
-    Config(float kp = 0.0f, float ki = 0.0f, float kd = 0.0f, float out_max = 0.0f, float p_max = 0.0f,
-           float i_max = 0.0f, float d_max = 0.0f, float f_max = 0.0f, float i_sep = 0.0f,
-           DiffMode diff_mode = DiffMode::DIFF_TARGET)
-      : kp(kp),
-        ki(ki),
-        kd(kd),
-        out_max(out_max),
-        p_max(p_max),
-        i_max(i_max),
-        d_max(d_max),
-        f_max(f_max),
-        i_sep(i_sep),
-        diff_mode(diff_mode)
+    Config(float kp = 0.0f, float ki = 0.0f, float kd = 0.0f, float out_max = 0.0f, float p_max = 0.0f, float i_max = 0.0f, float d_max = 0.0f, float f_max = 0.0f, float i_sep = 0.0f, DiffMode diff_mode = DiffMode::DIFF_TARGET) : kp(kp),
+                                                                                                                                                                                                                                      ki(ki),
+                                                                                                                                                                                                                                      kd(kd),
+                                                                                                                                                                                                                                      out_max(out_max),
+                                                                                                                                                                                                                                      p_max(p_max),
+                                                                                                                                                                                                                                      i_max(i_max),
+                                                                                                                                                                                                                                      d_max(d_max),
+                                                                                                                                                                                                                                      f_max(f_max),
+                                                                                                                                                                                                                                      i_sep(i_sep),
+                                                                                                                                                                                                                                      diff_mode(diff_mode)
     {
     }
 
-    float kp;       ///< 比例项系数
-    float ki;       ///< 积分项系数
-    float kd;       ///< 微分项系数
-    float out_max;  ///< 总输出限幅，0=不限
-    float p_max;    ///< 比例项限幅，0=不限
-    float i_max;    ///< 积分项限幅，0=跟随out_max
-    float d_max;    ///< 微分项限幅，0=不限
-    float f_max;    ///< 前馈项限幅，0=不限
-    float i_sep;    ///< 积分分离阈值，0=不分离
+    float    kp;        ///< 比例项系数
+    float    ki;        ///< 积分项系数
+    float    kd;        ///< 微分项系数
+    float    out_max;   ///< 总输出限幅，0=不限
+    float    p_max;     ///< 比例项限幅，0=不限
+    float    i_max;     ///< 积分项限幅，0=跟随out_max
+    float    d_max;     ///< 微分项限幅，0=不限
+    float    f_max;     ///< 前馈项限幅，0=不限
+    float    i_sep;     ///< 积分分离阈值，0=不分离
     DiffMode diff_mode; ///< 微分计算模式
   };
 
@@ -130,12 +127,12 @@ public:
    * @brief 用配置结构体构造
    * @param cfg PID 配置（可匿名按序传入）
    */
-  PID(const Config& cfg);
+  PID(const Config &cfg);
 
   /**
    * @brief 设置比例系数
    */
-  PID& kp(float value)
+  PID &kp(float value)
   {
     _config.kp = value;
     return *this;
@@ -144,7 +141,7 @@ public:
   /**
    * @brief 设置积分系数
    */
-  PID& ki(float value)
+  PID &ki(float value)
   {
     _config.ki = value;
     return *this;
@@ -153,7 +150,7 @@ public:
   /**
    * @brief 设置微分系数
    */
-  PID& kd(float value)
+  PID &kd(float value)
   {
     _config.kd = value;
     return *this;
@@ -162,7 +159,7 @@ public:
   /**
    * @brief 设置总输出限幅
    */
-  PID& limit_output(float value)
+  PID &limit_output(float value)
   {
     _config.out_max = value;
     return *this;
@@ -171,7 +168,7 @@ public:
   /**
    * @brief 设置比例项限幅
    */
-  PID& limit_p(float value)
+  PID &limit_p(float value)
   {
     _config.p_max = value;
     return *this;
@@ -180,7 +177,7 @@ public:
   /**
    * @brief 设置积分项限幅
    */
-  PID& limit_i(float value)
+  PID &limit_i(float value)
   {
     _config.i_max = value;
     return *this;
@@ -189,7 +186,7 @@ public:
   /**
    * @brief 设置微分项限幅
    */
-  PID& limit_d(float value)
+  PID &limit_d(float value)
   {
     _config.d_max = value;
     return *this;
@@ -198,7 +195,7 @@ public:
   /**
    * @brief 设置前馈项限幅
    */
-  PID& limit_f(float value)
+  PID &limit_f(float value)
   {
     _config.f_max = value;
     return *this;
@@ -207,7 +204,7 @@ public:
   /**
    * @brief 设置积分分离阈值
    */
-  PID& integral_sep(float value)
+  PID &integral_sep(float value)
   {
     _config.i_sep = value;
     return *this;
@@ -216,7 +213,7 @@ public:
   /**
    * @brief 切换微分项计算模式
    */
-  PID& diff_mode(DiffMode mode)
+  PID &diff_mode(DiffMode mode)
   {
     _diff_mode = mode;
     return *this;
@@ -290,9 +287,9 @@ private:
   // ----------------
   // ---------------- 私有成员变量 ----------------
 
-  Config _config;                                 ///< PID 配置
-  PidTerm   _term;                              ///< 各项计算值
-  DiffMode  _diff_mode = DiffMode::DIFF_TARGET; ///< 微分计算模式
+  Config   _config;                            ///< PID 配置
+  PidTerm  _term;                              ///< 各项计算值
+  DiffMode _diff_mode = DiffMode::DIFF_TARGET; ///< 微分计算模式
 
   // ----------------
 };

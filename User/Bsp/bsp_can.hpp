@@ -38,8 +38,8 @@
 #ifndef __BSP_CAN_HPP__
 #define __BSP_CAN_HPP__
 
-#include "fdcan.h"    // IWYU pragma: keep
 #include "FreeRTOS.h" // IWYU pragma: keep
+#include "fdcan.h"    // IWYU pragma: keep
 #include "message_buffer.h"
 #include "semphr.h"   // IWYU pragma: keep（_tx_lock）
 #include "status.hpp" // 统一状态码

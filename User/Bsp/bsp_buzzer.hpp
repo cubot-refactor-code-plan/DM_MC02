@@ -15,7 +15,7 @@
  * @note 没有 init()：构造时传入 Config，默认值即本板参数（TIM12 CH2 / PB15）
  *
  * @note beep 使用示例（内部用 vTaskDelay 阻塞等待，必须在任务上下文调用；传 0 表示用 Config 里的默认值）：
- *       
+ *
  *       bsp_buzzer.beep(2000, 100);      // 2 kHz 响 100 ms 后自动关闭
  *       bsp_buzzer.beep(2000, 100, 30);  // 同上，音量（占空比）30%
  *       bsp_buzzer.beep(2000, 0);        // 只给频率：时长用 Config::short_ms（默认 80 ms）
@@ -78,7 +78,7 @@ public:
   // ---------------- 公共接口 ----------------
 
   /** @brief 默认构造：全部使用 Config 的默认值（TIM12 CH2 / PB15，基频 6 MHz） */
-  BspBuzzer()  = default;
+  BspBuzzer() = default;
   /** @brief 默认析构 */
   ~BspBuzzer() = default;
 

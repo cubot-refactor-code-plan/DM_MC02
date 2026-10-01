@@ -17,10 +17,10 @@ AccessModifierOffset: -2
 # AlignAfterOpenBracket: Align
 
 # 连续赋值时，对齐所有等号
-AlignConsecutiveAssignments: true
+AlignConsecutiveAssignments: Consecutive
 
 # 连续声明时，对齐所有声明的变量名
-AlignConsecutiveDeclarations: true
+AlignConsecutiveDeclarations: Consecutive
 
 # 反斜杆换行的对齐方式
 # -- DontAlign - 不进行对齐
@@ -32,10 +32,12 @@ AlignConsecutiveDeclarations: true
 # -- DontAlign - 不进行对齐
 # -- Align - 从操作符开始对齐
 # -- AlignAfterOperator - 从操作数开始对齐
-AlignOperands:   true
+AlignOperands:   Align
 
 # # 是否对齐行尾注释
-AlignTrailingComments: true
+AlignTrailingComments:
+  Kind:           Always
+  OverEmptyLines: 0
 
 # # 函数声明的所有参数在放在下一行
 # AllowAllParametersOfDeclarationOnNextLine: false
@@ -68,7 +70,7 @@ AllowShortFunctionsOnASingleLine: InlineOnly
 # AlwaysBreakBeforeMultilineStrings: true
 
 # # 总是在template声明后换行
-AlwaysBreakTemplateDeclarations: true
+BreakTemplateDeclarations: Yes
 
 # # 函数调用时，参数的放置规则
 # -- false - 参数要么放在同一行，要么每个参数占用一行
@@ -76,9 +78,9 @@ AlwaysBreakTemplateDeclarations: true
 BinPackArguments: false
 
 # 函数声明、定义时，参数的放置规则
-# -- false - 参数要么放在同一行，要么每个参数占用一行
-# -- true - 不做强制要求
-BinPackParameters: false
+# -- OnePerLine - 参数要么放在同一行，要么每个参数占用一行
+# -- BinPack - 不做强制要求
+BinPackParameters: OnePerLine
 
 # 大括号放置风格
 # -- Attach - 大括号紧随前方内容，放在同一行
@@ -117,8 +119,6 @@ BraceWrapping:
   BeforeCatch: true
   # else之前
   BeforeElse: true
-  # 继续缩进大括号
-  IndentBraces: true
   # 分离空函数
   # # 当空白函数的"{}"和函数名称不需要放在同一行时，是否拆分函数体
   SplitEmptyFunction: true
@@ -164,10 +164,11 @@ ColumnLimit:     0
 # -- false - 每个命名空间位于新的一行
 CompactNamespaces: false
 
-# # 构造函数的初始化列表要么都在同一行，要么都各自一行
-# -- true - 如果可能，初始化列表放在同一行；如果不满足长度选择，则每个单独放一行
-# -- false - 初始化列表可以随意放置
-ConstructorInitializerAllOnOneLineOrOnePerLine: true
+# # 构造函数的初始化列表放置规则
+# -- NextLine - 能放在同一行就放在同一行，放不下则每个初始化项各自一行
+# -- Never - 总是每个初始化项各自一行
+# -- BinPack - 不做强制要求
+PackConstructorInitializers: NextLine
 
 # # 构造函数的初始化列表和基类集成列表的对齐宽度
 ConstructorInitializerIndentWidth: 2
@@ -180,9 +181,9 @@ Cpp11BracedListStyle: true
 
 # 是否自动分析指针的对齐方式
 # -- true - 自动分析并使用指针的对齐方式，若无法分析，则使用 PointerAlignment
-# -- false - 不自动分析
-DerivePointerAlignment: true
- 
+# -- false - 不自动分析，统一按 PointerAlignment
+DerivePointerAlignment: false
+
 # 是否禁用格式化
 DisableFormat:   false
 # ExperimentalAutoDetectBinPacking: false
@@ -291,6 +292,15 @@ ReflowComments:  true
 # -- CaseSensitive - 排序时大小写敏感
 # -- CaseInsensitive - 排序时大小写不敏感
 SortIncludes:    CaseInsensitive
+
+# # include 分类（用于固定必须靠前的头文件）
+# FreeRTOS 强制要求 FreeRTOS.h 出现在其它 FreeRTOS 头文件之前，
+# 否则 event_groups.h / task.h 等会直接 #error
+IncludeCategories:
+  - Regex:    '^"FreeRTOS\.h"$'
+    Priority: -1
+  - Regex:    '.*'
+    Priority: 0
 
 # java 中静态 import 的排序规则
 # -- Before - 静态放在非静态前方

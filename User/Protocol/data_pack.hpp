@@ -44,13 +44,12 @@ public:
     /**
      * @brief 按序构造配置（参数顺序 = 字段顺序）。
      */
-    Config(uint8_t header = 0xAA, DataFormat format = DataFormat::HEX)
-      : header(header),
-        format(format)
+    Config(uint8_t header = 0xAA, DataFormat format = DataFormat::HEX) : header(header),
+                                                                         format(format)
     {
     }
 
-    uint8_t   header; ///< 帧头字节。
+    uint8_t    header; ///< 帧头字节。
     DataFormat format; ///< 打包格式。
   };
 
@@ -89,7 +88,7 @@ private:
    */
   struct VarEntry
   {
-    void*   addr; /**< 变量地址。 */
+    void   *addr; /**< 变量地址。 */
     VarType type; /**< 变量类型。 */
   };
 
@@ -103,7 +102,7 @@ private:
   uint32_t _data_source_length;
 
   /** @brief 关联的数据包源数组。 */
-  DataPack* _data_pack_source[DATA_PACK_MAX_LENGTH];
+  DataPack *_data_pack_source[DATA_PACK_MAX_LENGTH];
 
   /** @brief 已关联的数据包源数量。 */
   uint8_t _data_pack_source_length;
@@ -120,46 +119,46 @@ private:
    * @param type 变量类型。
    * @return Status 添加结果。
    */
-  Status _link_data_entry(void* addr, VarType type);
+  Status _link_data_entry(void *addr, VarType type);
 
 public:
   /** @brief 析构函数。 */
   ~DataPack();
 
   /** @brief 绑定 uint8_t 变量地址。 */
-  Status link_data(uint8_t* data_source);
+  Status link_data(uint8_t *data_source);
   /** @brief 绑定 uint16_t 变量地址。 */
-  Status link_data(uint16_t* data_source);
+  Status link_data(uint16_t *data_source);
   /** @brief 绑定 uint32_t 变量地址。 */
-  Status link_data(uint32_t* data_source);
+  Status link_data(uint32_t *data_source);
   /** @brief 绑定 uint64_t 变量地址。 */
-  Status link_data(uint64_t* data_source);
+  Status link_data(uint64_t *data_source);
   /** @brief 绑定 int8_t 变量地址。 */
-  Status link_data(int8_t* data_source);
+  Status link_data(int8_t *data_source);
   /** @brief 绑定 int16_t 变量地址。 */
-  Status link_data(int16_t* data_source);
+  Status link_data(int16_t *data_source);
   /** @brief 绑定 int32_t 变量地址。 */
-  Status link_data(int32_t* data_source);
+  Status link_data(int32_t *data_source);
   /** @brief 绑定 int64_t 变量地址。 */
-  Status link_data(int64_t* data_source);
+  Status link_data(int64_t *data_source);
   /** @brief 绑定 float 变量地址。 */
-  Status link_data(float* data_source);
+  Status link_data(float *data_source);
   /** @brief 绑定 double 变量地址。 */
-  Status link_data(double* data_source);
+  Status link_data(double *data_source);
 
   /**
    * @brief 绑定字符串地址。
    * @param str 以 '\0' 结束的字符串地址。
    * @return Status 绑定结果。
    */
-  Status link_data(const char* str);
+  Status link_data(const char *str);
 
   /**
    * @brief 关联一个 DataPack，并复制其数据源条目到当前对象。
    * @param pack_source 源包对象。
    * @return Status 关联结果。
    */
-  Status link_data_pack(DataPack* pack_source);
+  Status link_data_pack(DataPack *pack_source);
 
   /**
    * @brief 从已绑定变量读取值并打包到内部缓存。

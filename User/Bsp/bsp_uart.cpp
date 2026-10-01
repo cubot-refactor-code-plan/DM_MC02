@@ -1,6 +1,6 @@
-#include "bsp_uart.hpp"
-#include "bsp_cfg.hpp" // 中断回调中直接引用 bsp_usartX / bsp_uartX 全局实例
 #include "FreeRTOS.h"  // IWYU pragma: keep
+#include "bsp_cfg.hpp" // 中断回调中直接引用 bsp_usartX / bsp_uartX 全局实例
+#include "bsp_uart.hpp"
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -195,7 +195,7 @@ Status BspUart<BUFFER_SIZE>::init()
   _rx_stream_buffer = xStreamBufferCreate(BUFFER_SIZE, 1);
   if (_rx_stream_buffer == nullptr)
   {
-    _cleanup_resources();     // 清理已创建的资源
+    _cleanup_resources();    // 清理已创建的资源
     return Status::IO_ERROR; // 流缓冲区创建失败
   }
 
@@ -205,7 +205,7 @@ Status BspUart<BUFFER_SIZE>::init()
     _tx_stream_buffer = xStreamBufferCreate(BUFFER_SIZE, 1);
     if (_tx_stream_buffer == nullptr)
     {
-      _cleanup_resources();     // 清理已创建的资源
+      _cleanup_resources();    // 清理已创建的资源
       return Status::IO_ERROR; // 发送流缓冲区创建失败
     }
   }
@@ -218,7 +218,7 @@ Status BspUart<BUFFER_SIZE>::init()
   _tx_lock = xSemaphoreCreateMutex();
   if (_tx_lock == nullptr)
   {
-    _cleanup_resources();     // 清理已创建的资源
+    _cleanup_resources();    // 清理已创建的资源
     return Status::IO_ERROR; // 互斥量创建失败
   }
 
@@ -238,8 +238,8 @@ Status BspUart<BUFFER_SIZE>::init()
   // 启动接收（HAL 内部会清 IDLE 标志并使能 IDLE 中断；失败则释放资源并上报）
   if (!_arm_reception())
   {
-    _abort_reception();       // 复位 RX 状态并关掉 IDLE 中断源
-    _cleanup_resources();     // 释放已创建的资源
+    _abort_reception();      // 复位 RX 状态并关掉 IDLE 中断源
+    _cleanup_resources();    // 释放已创建的资源
     return Status::IO_ERROR; // 接收启动失败
   }
 

@@ -4,23 +4,24 @@
 #include <stdint.h>
 
 #define FLASH_DEVICE_EXPECTED_MANUFACTURER_ID 0xEFU /**< Winbond 厂商 ID。 */
-#define FLASH_DEVICE_EXPECTED_MEMORY_TYPE     0x40U /**< W25Q 系列类型 ID。 */
-#define FLASH_DEVICE_EXPECTED_CAPACITY_ID     0x17U /**< 64 Mbit 容量 ID。 */
-#define FLASH_DEVICE_SR1_BUSY                 0x01U /**< SR1 写入/擦除忙标志。 */
-#define FLASH_DEVICE_SR1_WEL                  0x02U /**< SR1 写使能锁存标志。 */
-#define FLASH_DEVICE_SIZE                    0x00800000UL /**< 容量：8 MiB。 */
-#define FLASH_DEVICE_MAPPED_BASE             0x70000000UL /**< STM32H723 OCTOSPI2 映射基址。 */
-#define FLASH_DEVICE_PAGE_SIZE               256U /**< Page Program 页大小。 */
-#define FLASH_DEVICE_SECTOR_SIZE             4096U /**< 最小擦除扇区大小。 */
+#define FLASH_DEVICE_EXPECTED_MEMORY_TYPE 0x40U     /**< W25Q 系列类型 ID。 */
+#define FLASH_DEVICE_EXPECTED_CAPACITY_ID 0x17U     /**< 64 Mbit 容量 ID。 */
+#define FLASH_DEVICE_SR1_BUSY 0x01U                 /**< SR1 写入/擦除忙标志。 */
+#define FLASH_DEVICE_SR1_WEL 0x02U                  /**< SR1 写使能锁存标志。 */
+#define FLASH_DEVICE_SIZE 0x00800000UL              /**< 容量：8 MiB。 */
+#define FLASH_DEVICE_MAPPED_BASE 0x70000000UL       /**< STM32H723 OCTOSPI2 映射基址。 */
+#define FLASH_DEVICE_PAGE_SIZE 256U                 /**< Page Program 页大小。 */
+#define FLASH_DEVICE_SECTOR_SIZE 4096U              /**< 最小擦除扇区大小。 */
 
 /** @brief W25Q64JV JEDEC 标识和三个状态寄存器的快照。 */
-typedef struct {
-    uint8_t manufacturer_id; /**< JEDEC 厂商 ID，W25Q64JV 应为 0xEF。 */
-    uint8_t memory_type; /**< JEDEC 器件类型，W25Q64JV 应为 0x40。 */
-    uint8_t capacity_id; /**< JEDEC 容量码，W25Q64JV 应为 0x17。 */
-    uint8_t status_register_1; /**< SR1：BUSY、WEL、保护位等。 */
-    uint8_t status_register_2; /**< SR2：包含 Quad Enable 位。 */
-    uint8_t status_register_3; /**< SR3：驱动能力等配置。 */
+typedef struct
+{
+  uint8_t manufacturer_id;   /**< JEDEC 厂商 ID，W25Q64JV 应为 0xEF。 */
+  uint8_t memory_type;       /**< JEDEC 器件类型，W25Q64JV 应为 0x40。 */
+  uint8_t capacity_id;       /**< JEDEC 容量码，W25Q64JV 应为 0x17。 */
+  uint8_t status_register_1; /**< SR1：BUSY、WEL、保护位等。 */
+  uint8_t status_register_2; /**< SR2：包含 Quad Enable 位。 */
+  uint8_t status_register_3; /**< SR3：驱动能力等配置。 */
 } flash_device_info_t;
 
 /** @brief 依次发送 0x66/0x99，把器件复位到已知状态。 @return 0 成功，-1 失败。 */
