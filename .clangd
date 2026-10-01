@@ -17,3 +17,23 @@ Diagnostics:
     # - unused-includes       # too aggressive, generates many spurious warnings.
     - pp_file_not_found     # mitigate Eclipse/clangd limitation, don't report spurious errors
     # - -Wimplicit-function-declaration
+
+
+# 以下三个目录是上游代码，不由本工程维护。单独打开其中的头文件时 clangd 没有对应
+# 编译命令，会按默认方式解析并报错（例如 event_groups.h 会报必须先在源文件里
+# include FreeRTOS.h），因此按路径整体关闭这些文件的诊断。
+---
+If:
+  PathMatch: Middlewares/.*
+Diagnostics:
+  Suppress: '*'
+---
+If:
+  PathMatch: Drivers/.*
+Diagnostics:
+  Suppress: '*'
+---
+If:
+  PathMatch: tinyusb-0.20.0/.*
+Diagnostics:
+  Suppress: '*'

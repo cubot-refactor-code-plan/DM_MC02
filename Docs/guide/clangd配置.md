@@ -51,12 +51,30 @@ clangd 的 include-cleaner 会检查头文件是否被直接使用。间接使�
 
 用法：
 
-- 保存时自动格式化已开启（`[c]` / `[cpp]` → `ms-vscode.cpptools`）。
-- 提交前检查：`Tools/clang_format.sh check`（Windows 用 `Tools/clang_format.bat check`），不符合规范时列出文件并以退出码 1 结束。
-- 统一格式：把 `check` 换成 `format`。
-- VS Code 任务里对应 `Format_Check_linux` / `Format_Apply_linux` / `Format_Check_win` / `Format_Apply_win`。
+- 保存时自动格式化已开启（`[c]` / `[cpp]` → `ms-vscode.cpptools`），这是日常唯一需要的方式。
+- 需要手工整体统一时，直接用那份 clang-format 覆盖格式化：`"$CF" -i <文件...>`，范围 `User/` 与 `QSPI_Flash/`：
 
-范围是 `User/` 与 `QSPI_Flash/`。`Core/` 由 CubeMX 生成、第三方目录是上游代码，两者都不格式化。
+  ```bash
+  CF=~/.vscode/extensions/ms-vscode.cpptools-*/LLVM/bin/clang-format
+  "$CF" -i $(find User QSPI_Flash -type f \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' \))
+  ```
+
+`Core/` 由 CubeMX 生成、第三方目录是上游代码，两者都不格式化。
+
+## 抑制上游库的诊断
+
+`Middlewares/`、`Drivers/`、`tinyusb-0.20.0/` 是上游代码，不由本工程维护。单独打开这些目录下的头文件时，clangd 没有对应的编译命令，会按默认方式解析并报大量错误（例如直接打开 `event_groups.h` 会报 `include FreeRTOS.h must appear in source files before...`）。
+
+`.clangd` 用按路径生效的片段把这三个目录的诊断整体关掉：
+
+```yaml
+If:
+  PathMatch: Middlewares/.*
+Diagnostics:
+  Suppress: '*'
+```
+
+本工程自己的代码（`User/`、`QSPI_Flash/`、`Core/`）不受影响。
 
 ### 必须靠前的头文件
 
