@@ -2,6 +2,46 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "Format_Check_linux",
+            "type": "process",
+            "command": "Tools/clang_format.sh",
+            "args": [
+                "check"
+            ],
+            "problemMatcher": [],
+            "detail": "检查 User/ 与 QSPI_Flash 是否符合 .clang-format"
+        },
+        {
+            "label": "Format_Apply_linux",
+            "type": "process",
+            "command": "Tools/clang_format.sh",
+            "args": [
+                "format"
+            ],
+            "problemMatcher": [],
+            "detail": "按 .clang-format 格式化 User/ 与 QSPI_Flash"
+        },
+        {
+            "label": "Format_Check_win",
+            "type": "process",
+            "command": "Tools/clang_format.bat",
+            "args": [
+                "check"
+            ],
+            "problemMatcher": [],
+            "detail": "检查 User/ 与 QSPI_Flash 是否符合 .clang-format（Windows）"
+        },
+        {
+            "label": "Format_Apply_win",
+            "type": "process",
+            "command": "Tools/clang_format.bat",
+            "args": [
+                "format"
+            ],
+            "problemMatcher": [],
+            "detail": "按 .clang-format 格式化 User/ 与 QSPI_Flash（Windows）"
+        },
+        {
             "label": "OpenOCD_flash_win",
             "type": "process",
             "command": "Flash/OpenOCD_flash.bat",

@@ -53,5 +53,13 @@
     "cmake.configureArgs": [
         "-DCMAKE_COMMAND=cmake"
     ],
-    "editor.tabSize": 2
+    "editor.tabSize": 2,
+    "[c]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools",
+        "editor.formatOnSave": true
+    },
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools",
+        "editor.formatOnSave": true
+    }
 }
