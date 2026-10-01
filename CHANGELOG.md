@@ -1,8 +1,7 @@
-# 改动说明（`origin/main` 之后，共 12 个提交，尚未推送）
+# 改动说明（`origin/main` 之后，尚未推送）
 
 面向合作者：本文汇总 `origin/main` 之后本地的全部改动与验证状态，便于对比自己的分支。
-
-内容取自 `git log origin/main..HEAD`，推送后可并入正式历史。
+内容取自 `git log origin/main..HEAD`，推送后本文可并入正式历史。
 
 ## 1. 验证状态（先看这里）
 
@@ -22,6 +21,7 @@
 | `dji_motor` 改用 `CanBus` + `Config` 之后 | ❌ 未实机回归（历史提交里的"已测试通过"针对旧的总线系统，不适用于现在的分层） |
 | QSPI Flash / USB / Online | ❌ 本轮未跑，测试宏当前都是 0 |
 | `sys_task` 的 10 ms 节拍与 UART 巡检、`Online` 的毫秒超时 | ❌ 未实机验证（改动前 `sys_task` 为 1 ms，`Online` 阀值按调用次数计） |
+| `key_task`（按键事件与蜂鸣器提示） | ❌ 未实机验证 |
 
 结论：**这批改动只保证"能编译 + 宿主测试通过"，不保证硬件行为正确**。实机回归清单见第 5 节。
 
@@ -45,6 +45,7 @@
 - `sys_task`：周期由 1 ms 改为 **10 ms**，并把 UART 巡检（`tx_recover()` / `rx_recover()`，遍历 `bsp_cfg` 中全部串口实例）并入；CAN 的正常收发仍由 `can_rx_task` / `can_tx_task` 以 1 kHz 负责，`sys_task` 只做 10 ms 级的补救
 - `Online`：离线阈值改为**毫秒**语义（按 tick 差值判定，与 `update()` 的调用周期解耦），默认 30 ms 不变；`update()` 的调用周期只影响判定延迟
 - 新增 `User/Bsp/bsp_dwt.{hpp,cpp}`（内核 CYCCNT 计时）、`User/App/task/key_task.cpp`、`User/App/test/dwt/dwt_test.cpp`
+- `key_task` 接入 `all_init()`：任务名 `key`、256 words、`idle+2`，200 ms 轮询 `key_user`（对应 debounce 1 / long_press 5），按事件驱动蜂鸣器；轮询周期用 `pdMS_TO_TICKS(200U)` 表达
 
 ## 3. 命名与代码规范（改动面最大，合并分支时最容易冲突）
 
