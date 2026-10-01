@@ -1,0 +1,16 @@
+# 行尾统一：入库与检出都用 LF，避免同一文件在 Windows / Linux 之间来回变动。
+* text=auto eol=lf
+
+# 上游第三方库保持原样，不做行尾规范化（升级替换时减少无谓差异）。
+Drivers/**        -text
+Middlewares/**    -text
+tinyusb-0.20.0/** -text
+
+# 二进制资源不参与行尾转换。
+*.a    binary
+*.bin  binary
+*.docx binary
+*.elf  binary
+*.hex  binary
+*.pdf  binary
+*.png  binary
