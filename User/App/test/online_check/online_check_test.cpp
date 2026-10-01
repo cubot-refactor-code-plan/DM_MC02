@@ -24,17 +24,17 @@ extern "C" void online_check_test_task(void *argument)
   {
     Online probe(4U);
     online_check_test_stage = 1U;
-    online_check_test_initial_status = probe.isOnline();
+    online_check_test_initial_status = probe.is_online();
 
     online_check_test_refresh_status = probe.refresh_task();
     online_check_test_stage = 2U;
 
     vTaskDelay(pdMS_TO_TICKS(1U));
-    online_check_test_before_timeout_status = probe.isOnline();
+    online_check_test_before_timeout_status = probe.is_online();
     online_check_test_stage = 3U;
 
     vTaskDelay(pdMS_TO_TICKS(5U));
-    online_check_test_after_timeout_status = probe.isOnline();
+    online_check_test_after_timeout_status = probe.is_online();
     online_check_test_stage = 4U;
 
     online_check_test_passed =

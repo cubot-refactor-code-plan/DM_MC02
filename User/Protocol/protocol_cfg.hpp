@@ -20,7 +20,7 @@
 #ifndef __PROTOCOL_CFG_HPP__
 #define __PROTOCOL_CFG_HPP__
 
-/* ==================== 协议层初始化 ==================== */
+// ---------------- 协议层初始化 ----------------
 
 /**
  * @brief 协议层统一初始化
@@ -28,4 +28,6 @@
  */
 void protocol_init(void);
 
+
+// ----------------
 #endif // __PROTOCOL_CFG_HPP__

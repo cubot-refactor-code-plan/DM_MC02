@@ -33,7 +33,7 @@
 
 #include "status.hpp" // 统一状态码
 
-/* ==================== CAN接口参数定义 ==================== */
+// ---------------- CAN接口参数定义 ----------------
 
 #define ACCEL_CAN_MAX (235.2f)  ///< CAN接口加速度计最大值（单位：m/s²）
 #define ACCEL_CAN_MIN (-235.2f) ///< CAN接口加速度计最小值（单位：m/s²）
@@ -104,7 +104,8 @@ struct ImuData
 class DmImu
 {
 public:
-  /* ==================== 公共接口 ==================== */
+  // ----------------
+  // ---------------- 公共接口 ----------------
 
   /**
    * @brief 获取设备 ID
@@ -125,7 +126,8 @@ public:
   }
 
 
-  /* ==================== 构造与析构 ==================== */
+  // ----------------
+  // ---------------- 构造与析构 ----------------
 
   /**
    * @brief IMU 配置结构体（可匿名按序传入）
@@ -159,7 +161,8 @@ public:
   ~DmImu();
 
 
-  /* ==================== 公共接口 ==================== */
+  // ----------------
+  // ---------------- 公共接口 ----------------
 
   /**
    * @brief 初始化IMU（创建数据互斥锁）
@@ -262,7 +265,8 @@ public:
 
 
 private:
-  /* ==================== 寄存器ID枚举 ==================== */
+  // ----------------
+  // ---------------- 寄存器ID枚举 ----------------
 
   /**
    * @brief IMU寄存器ID
@@ -290,44 +294,46 @@ private:
   };
 
 
-  /* ==================== 私有成员函数 ==================== */
+  // ----------------
+  // ---------------- 私有成员函数 ----------------
 
   /**
    * @brief 写寄存器
    * @param reg_id 寄存器ID
    * @param data 写入数据
    */
-  void write_register(RegId reg_id, uint32_t data);
+  void _write_register(RegId reg_id, uint32_t data);
 
   /**
    * @brief 读寄存器
    * @param reg_id 寄存器ID
    */
-  void read_register(RegId reg_id);
+  void _read_register(RegId reg_id);
 
   /**
    * @brief 浮点数转整数
    */
-  int float_to_int(float value, float min, float max, int bits);
+  int _float_to_int(float value, float min, float max, int bits);
 
   /**
    * @brief 整数转浮点数
    */
-  float uint_to_float(int value, float min, float max, int bits);
+  float _uint_to_float(int value, float min, float max, int bits);
 
   /**
    * @brief 更新欧拉角数据
    * @param data 数据数组引用
    */
-  void update_euler(const uint8_t (&data)[8]);
+  void _update_euler(const uint8_t (&data)[8]);
 
   /**
    * @brief 更新四元数数据
    * @param data 数据数组引用
    */
-  void update_quaternion(const uint8_t (&data)[8]);
+  void _update_quaternion(const uint8_t (&data)[8]);
 
-  /* ==================== 私有成员变量 ==================== */
+  // ----------------
+  // ---------------- 私有成员变量 ----------------
 
   BspCan& _can_bus; ///< CAN总线接口引用
   ImuData _imu_data; ///< IMU数据
@@ -336,6 +342,8 @@ private:
   char    _name[32]; ///< 互斥锁名字
 
   SemaphoreHandle_t _data_mutex_handle; ///< 用于保护_imu_data的互斥锁
+
+  // ----------------
 };
 
 

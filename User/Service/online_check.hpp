@@ -75,7 +75,7 @@ public:
    * @brief 查询最近一次计算得到的在线状态
    * @return Status::OK 设备在线；Status::TIMEOUT 设备已超时离线。
    */
-  Status isOnline(void) const;
+  Status is_online(void) const;
 
   /**
    * @brief 推进全部在线检查节点的离线计时

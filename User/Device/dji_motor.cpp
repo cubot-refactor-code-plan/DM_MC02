@@ -1,51 +1,46 @@
 #include "dji_motor.hpp"
-#include <stdio.h>
-#include <string.h>
+
 #include <cmath>
 #include <cstdlib>
 
 template<MotorType type>
-DjiMotor<type>::DjiMotor(BspCan &can_item,
-        uint8_t motor_id,
-        float ratio,
-        float offset,
-        DjiMotorControlMode control_mode) : 
+DjiMotor<type>::DjiMotor(const Config &cfg) : 
 _data(),
 _raw_data(),
 _param(),
 _lvbo_data(),
-_can_item(&can_item),
-_motor_id(motor_id),
-_bus_slot((motor_id - 1U) % 4),
+_can_item(&cfg.can),
+_motor_id(cfg.motor_id),
+_bus_slot((cfg.motor_id - 1U) % 4),
 _tx_node(nullptr),
 _rx_node(nullptr),
-_control_mode(control_mode),
+_control_mode(cfg.control_mode),
 _statu(Status::NOT_INIT),
-data_mutex_headler(NULL),
-data_mutex_attr{},
+data_mutex_headler(nullptr),
 _total_ecd(0),
 _feedback_ready(false)
 {
-  if (sysEvent != nullptr && (osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0)  // 只允许在初始化期使用
+  if (sys_event != nullptr && sys_flag_running()) // 只允许在初始化期使用
   {
     return;
   }
   // 参数校验
-  if ( motor_id > 8 || motor_id == 0){
+  if ( _motor_id > 8 || _motor_id == 0){
     this->_statu = Status::BAD_ARG;
     return;
   }
-  else if ( motor_id == 8 && type == Motor6020 )  // 6020无ID8
+  else if ( _motor_id == 8 && type == Motor6020 )  // 6020无ID8
   {
     this->_statu = Status::BAD_ARG;
     return;
   }
   // 在默认减速比处理前拒绝非有限值，避免将负无穷误当作默认配置。
-  if (!std::isfinite(ratio) || !std::isfinite(offset))
+  if (!std::isfinite(cfg.ratio) || !std::isfinite(cfg.offset))
   {
     _statu = Status::BAD_ARG;
     return;
   }
+  float ratio = cfg.ratio;
   if (ratio <= 0)   // 按照说明书中的减速比配置默认减速比
   {
     switch (type) {
@@ -65,24 +60,19 @@ _feedback_ready(false)
   }
 
   _data.param.ratio = ratio;
-  _data.param.offset = offset;
+  _data.param.offset = cfg.offset;
   _param.ecd_full_range = 8192;
   switch (type) {
     case Motor3508:
       _param.current_limit = 16000;
-      snprintf(data_mutex_name, 24, "Mutex_DjiMotor_M3508_%d",motor_id);
       break;
     case Motor2006:
       _param.current_limit = 10000;
-      snprintf(data_mutex_name, 24, "Mutex_DjiMotor_M2006_%d",motor_id);
       break;
     case Motor6020:
       _param.current_limit = _control_mode == DjiMotorControlMode::CURRENT ? 16384 : 25000;
-      snprintf(data_mutex_name, 24, "Mutex_DjiMotor_GM6020_%d",motor_id);
       break;
   }
-
-  data_mutex_attr.name = data_mutex_name;
 }
 
 template <MotorType type>
@@ -106,7 +96,7 @@ DjiMotor<type>::~DjiMotor()
     configASSERT(result == Status::OK);
     if (result != Status::OK)
     {
-      SysFlagSet(result);
+      sys_flag_set(result);
     }
     _tx_node = nullptr;
   }
@@ -114,9 +104,7 @@ DjiMotor<type>::~DjiMotor()
   // 调用方须先停止本对象的收发和读取，避免销毁仍被使用的互斥量。
   if (data_mutex_headler != nullptr)
   {
-    const osStatus_t result = osMutexDelete(data_mutex_headler);
-    configASSERT(result == osOK);
-    (void)result;
+    vSemaphoreDelete(data_mutex_headler);
     data_mutex_headler = nullptr;
   }
   // _online 是成员对象，其析构函数会自动注销在线检查节点。
@@ -126,11 +114,11 @@ template<MotorType type>
 Status DjiMotor<type>::init()
 {
   // 系统事件未就绪时保留对象状态，允许初始化流程稍后重试。
-  if (sysEvent == nullptr)
+  if (sys_event == nullptr)
   {
     return Status::NOT_INIT;
   }
-  if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0)  // 只允许在初始化期使用
+  if (sys_flag_running()) // 只允许在初始化期使用
   {
     return Status::NOT_SUPPORTED;
   }
@@ -141,7 +129,7 @@ Status DjiMotor<type>::init()
   }
   if (_statu != Status::NOT_INIT)
   {
-    SysInitError(_statu);
+    sys_init_error(_statu);
     return _statu;
   }
 
@@ -191,7 +179,7 @@ Status DjiMotor<type>::init()
         default:
         {
           _statu = Status::BAD_ARG;
-          SysInitError(_statu);
+          sys_init_error(_statu);
           return _statu;
         }
       }
@@ -200,33 +188,33 @@ Status DjiMotor<type>::init()
     default:
     {
       _statu = Status::BAD_ARG;
-      SysInitError(_statu);
+      sys_init_error(_statu);
       return _statu;
     }
   }
 
   // 互斥量创建
-  data_mutex_headler = osMutexNew(&data_mutex_attr);
-  if (data_mutex_headler == NULL)
+  data_mutex_headler = xSemaphoreCreateMutex();
+  if (data_mutex_headler == nullptr)
   {
     _statu = Status::FULL;
-    SysInitError(_statu);
+    sys_init_error(_statu);
     return _statu;
   }
 
   // 注册
-  _tx_node = regist(*_can_item,tx_can_id,4,_bus_slot);
-  if ( _tx_node == nullptr )
+  _tx_node = regist({_can_item, tx_can_id, 4}, _bus_slot);
+  if (_tx_node == nullptr)
   {
-    osMutexDelete(data_mutex_headler);
+    vSemaphoreDelete(data_mutex_headler);
     data_mutex_headler = nullptr;
     _statu = Status::FULL;
-    SysInitError(_statu);
+    sys_init_error(_statu);
     return _statu;
   }
 
   const uint32_t feedback_id = (type == Motor6020 ? 0x204U : 0x200U) + _motor_id;
-  _rx_node = regist(*_can_item, feedback_id, &DjiMotor<type>::rx_callback, this);
+  _rx_node = regist({_can_item, feedback_id, &DjiMotor<type>::_rx_callback, this});
   if (_rx_node == nullptr)
   {
     // 注册器已记录具体冲突/资源错误；撤销本次初始化取得的发送槽位和锁。
@@ -234,7 +222,7 @@ Status DjiMotor<type>::init()
     configASSERT(result == Status::OK);
     (void)result;
     _tx_node = nullptr;
-    osMutexDelete(data_mutex_headler);
+    vSemaphoreDelete(data_mutex_headler);
     data_mutex_headler = nullptr;
     _statu = Status::IO_ERROR;
     return _statu;
@@ -245,13 +233,13 @@ Status DjiMotor<type>::init()
 }
 
 template <MotorType type>
-Status DjiMotor<type>::rx_callback(void *context, const CanRxMsg &rx)
+Status DjiMotor<type>::_rx_callback(void *context, const CanRxMsg &rx)
 {
-  return static_cast<DjiMotor<type> *>(context)->DataUnpack(rx);
+  return static_cast<DjiMotor<type> *>(context)->data_unpack(rx);
 }
 
 template <MotorType type>
-Status DjiMotor<type>::DataUnpack(const CanRxMsg &rx)
+Status DjiMotor<type>::data_unpack(const CanRxMsg &rx)
 {
   if (_tx_node == nullptr || data_mutex_headler == nullptr)
   {
@@ -268,7 +256,7 @@ Status DjiMotor<type>::DataUnpack(const CanRxMsg &rx)
     return Status::BAD_ARG;
   }
   // 接收队列在任务上下文中解析；不等待锁，避免阻塞 CAN 反馈处理。
-  if (osMutexAcquire(data_mutex_headler, 0U) != osOK)
+  if (xSemaphoreTake(data_mutex_headler, 0U) != pdTRUE)
   {
     return Status::BUSY;
   }
@@ -310,12 +298,12 @@ Status DjiMotor<type>::DataUnpack(const CanRxMsg &rx)
 
   _feedback_ready = true;
   _online.refresh_task();
-  osMutexRelease(data_mutex_headler);
+  xSemaphoreGive(data_mutex_headler);
   return Status::OK;
 }
 
 template<MotorType type>
-Status DjiMotor<type>::FillData(int16_t output)
+Status DjiMotor<type>::fill_data(int16_t output)
 {
   if (_statu != Status::OK )
   {
@@ -334,7 +322,7 @@ Status DjiMotor<type>::FillData(int16_t output)
   tx_data[0] = static_cast<uint8_t>(static_cast<uint16_t>(output)>>8);
   tx_data[1] = static_cast<uint8_t>(output);
 
-  return _tx_node->filldata(tx_data, _bus_slot);
+  return _tx_node->fill_data(tx_data, _bus_slot);
 
 }
 

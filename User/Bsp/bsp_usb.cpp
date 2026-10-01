@@ -127,7 +127,7 @@ void BspUsb::task()
     return;
   }
   tud_task_ext(0, false);
-  process_rx();
+  _process_rx();
 }
 
 BspUsb::DeviceClass BspUsb::active_class() const
@@ -297,7 +297,7 @@ void BspUsb::set_rx_callback(RxCallback cb, void* user_ctx)
   _rx_user_ctx = user_ctx;
 }
 
-void BspUsb::process_rx()
+void BspUsb::_process_rx()
 {
   if ((_rx_callback == nullptr) || !mounted())
   {

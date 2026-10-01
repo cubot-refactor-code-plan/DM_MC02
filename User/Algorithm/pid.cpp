@@ -26,7 +26,7 @@ void PID::calc_input(float target, float feedback)
   _input.delta_error  = _input.error - _input.last_error;
 }
 
-void PID::calc_d_term()
+void PID::_calc_d_term()
 {
   switch (_diff_mode)
   {
@@ -43,7 +43,7 @@ void PID::calc_d_term()
   }
 }
 
-float PID::apply_limits_and_output()
+float PID::_apply_limits_and_output()
 {
   // 对称限幅辅助 lambda：limit 为 0 表示不限制
   auto clamp_symmetric = [](float value, float limit)
@@ -73,7 +73,7 @@ float PID::apply_limits_and_output()
   // 积分项累加后立即钳位，防止积分无限累积（即使后续总输出有限幅）
   _term.i_term = clamp_symmetric(_term.i_term, _config.i_max);
 
-  calc_d_term();
+  _calc_d_term();
 
   // 各项独立限幅
   _term.p_term = clamp_symmetric(_term.p_term, _config.p_max);
@@ -99,7 +99,7 @@ float PID::feed_forward(float feedforward)
 float PID::calc(float target, float feedback)
 {
   calc_input(target, feedback);
-  return apply_limits_and_output();
+  return _apply_limits_and_output();
 }
 
 float PID::calc(float target, float feedback, float df_dt)
@@ -116,7 +116,7 @@ float PID::calc(float target, float feedback, float df_dt)
     _input.delta_error = df_dt;
   }
 
-  return apply_limits_and_output();
+  return _apply_limits_and_output();
 }
 
 void PID::print()

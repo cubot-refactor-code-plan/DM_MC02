@@ -6,17 +6,15 @@
  * @date 2026-09-01
  *
  * @details init() 将控制帧槽位注册到 CanTxNode，将反馈 ID 注册到 CanRxNode。
- *          can_rx_task 自动调用反馈解包，并在成功后刷新在线状态。
+ *          CanBus 的分发任务自动调用反馈解包，并在成功后刷新在线状态。
  * @note 构造阶段仅校验参数；成功初始化的对象必须存活至系统停止。
  */
 #ifndef __DJI_MOTOR_HPP__
 #define __DJI_MOTOR_HPP__
 
-#include "bsp_can.hpp"
+#include "can_bus.hpp"
 #include "motor_definition.hpp"
 #include "online_check.hpp"
-#include "can_tx_node.hpp"
-#include "can_rx_node.hpp"
 
 #include <stdint.h>
 
@@ -94,18 +92,16 @@ private:
   Online              _online;      ///< 由有效反馈帧刷新的在线检查对象
   LuenbergerMotorData _lvbo_data;   ///< 可选的 Luenberger 观测结果
 
-  BspCan            *_can_item;     ///< 接收反馈所用的物理 CAN
+  CanBus            *_can_item;     ///< 接收反馈、下发控制帧所用的 CAN 总线
   uint8_t            _motor_id;     ///< 电调配置的 DJI 协议 ID
   uint8_t            _bus_slot;     ///< 当前电机在控制帧中的槽位，范围 0~3
   CanTxNode       *_tx_node;
   CanRxNode       *_rx_node;
-  static Status rx_callback(void *context, const CanRxMsg &rx);
+  static Status _rx_callback(void *context, const CanRxMsg &rx);
   DjiMotorControlMode _control_mode; ///< GM6020 控制模式；其他型号忽略
   Status             _statu;        ///< 构造校验或初始化状态，运行期收发结果由函数返回
 
-  osMutexId_t       data_mutex_headler;
-  osMutexAttr_t     data_mutex_attr;
-  char              data_mutex_name[24];
+  SemaphoreHandle_t data_mutex_headler; ///< 保护解析结果与原始数据的互斥量
 
   int64_t _total_ecd;      ///< 跨零展开后的累计转子编码器计数
   bool    _feedback_ready; ///< 是否已接收过至少一帧有效反馈
@@ -115,14 +111,14 @@ public:
   /**
    * @brief 获取只读电机数据
    * @return 内部 MotorData 的常量引用。
-   * @warning 返回实时引用而非快照；调用方须保证读取期间不并发执行 DataUnpack()。
+   * @warning 返回实时引用而非快照；调用方须保证读取期间不并发执行 data_unpack()。
    */
   const MotorData &data(void) const;
 
   /**
    * @brief 获取 DJI 电调反馈协议原始数据
    * @return 内部 DjiMotorRawData 的常量引用。
-   * @warning 返回实时引用而非快照；调用方须保证读取期间不并发执行 DataUnpack()。
+   * @warning 返回实时引用而非快照；调用方须保证读取期间不并发执行 data_unpack()。
    */
   const DjiMotorRawData &raw_data(void) const;
 
@@ -134,7 +130,7 @@ public:
 
   /**
    * @brief 获取本电机的在线检查对象
-   * @return Online 的常量引用，可用于调用 isOnline() 查询状态。
+   * @return Online 的常量引用，可用于调用 is_online() 查询状态。
    */
   const Online &online(void) const;
 
@@ -148,29 +144,55 @@ public:
   /**
    * @brief 查询对象构造校验或初始化状态
    * @return Status::OK 表示初始化成功；其他值表示未初始化或初始化错误。
-   * @note 收发操作结果由 DataUnpack() 和 FillData() 的返回值提供，不更新此状态。
+   * @note 收发操作结果由 data_unpack() 和 fill_data() 的返回值提供，不更新此状态。
    * @warning 不得与 init() 并发调用。
    */
   Status statu(void) const;
 
   /**
+   * @brief 电机配置结构体（可匿名按序传入）
+   */
+  struct Config
+  {
+    /**
+     * @brief 按序构造配置（参数顺序 = 字段顺序）
+     *
+     * @param can          电机连接的物理 CAN 总线
+     * @param motor_id     电调设置的 DJI 协议 ID
+     * @param ratio        电机转子到最终机构输出轴的减速比；传 0 时按型号选择默认值：
+     *                     M3508 为 3591/187，GM6020 为 1，M2006 为 36
+     * @param offset       电机转子机械零位偏移，单位：rad
+     * @param control_mode GM6020 的控制模式；其他电机型号忽略该参数
+     */
+    Config(CanBus        &can,
+           uint8_t        motor_id,
+           float          ratio = 0.0f,
+           float          offset = 0.0f,
+           DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE)
+      : can(can),
+        motor_id(motor_id),
+        ratio(ratio),
+        offset(offset),
+        control_mode(control_mode)
+    {
+    }
+
+    CanBus              &can;          ///< 电机连接的物理 CAN 总线
+    uint8_t              motor_id;     ///< 电调设置的 DJI 协议 ID
+    float                ratio;        ///< 减速比；0 = 按型号取默认值
+    float                offset;       ///< 机械零位偏移，单位：rad
+    DjiMotorControlMode  control_mode; ///< GM6020 控制模式；其他型号忽略
+  };
+
+  /**
    * @brief 构造单个 DJI 电机对象并校验参数
    *
-   * @param can_item   电机连接的物理 CAN BSP 对象
-   * @param motor_id   电调设置的 DJI 协议 ID
-   * @param ratio      电机转子到最终机构输出轴的减速比；传 0 时按型号选择默认值：
-   *                  M3508 为 3591/187，GM6020 为 1，M2006 为 36
-   * @param offset     电机转子机械零位偏移，单位：rad
-   * @param control_mode GM6020 的控制模式；其他电机型号忽略该参数
+   * @param cfg 电机配置（总线 + ID + 减速比 + 零位 + 控制模式，可匿名按序传入）
    *
    * @note 构造后调用 init() 注册收发节点；错误可通过 statu() 查询。
-   * @note 构造阶段不会调用 BspCan::init() 或发送 CAN 帧。
+   * @note 构造阶段不会调用 CanBus / BspCan 的 init()，也不发送 CAN 帧。
    */
-  DjiMotor(BspCan &can_item,
-           uint8_t motor_id,
-           float ratio = 0,
-           float offset = 0.0f,
-           DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE);
+  DjiMotor(const Config &cfg);
 
   /**
    * @brief 初始化阶段注销收发节点并销毁电机对象。
@@ -195,7 +217,7 @@ public:
    * @note 首帧以绝对编码器位置初始化多圈角度；单圈角度为输出轴角度对 2π 取模。
    * @note 不计算角加速度；通用数据中的 acceleration 保持初始零值，不代表实际角加速度。
    */
-  Status DataUnpack(const CanRxMsg &rx);
+  Status data_unpack(const CanRxMsg &rx);
 
   /**
    * @brief 设置下一周期发送的原始控制量
@@ -204,9 +226,9 @@ public:
    * @return Status::OK 写入成功；Status::NOT_INIT 未成功初始化；
    *         Status::BAD_ARG 或其他状态表示参数或发送槽位操作失败。
    *
-   * @note 本函数只更新发送槽位，实际发送由 can_tx_task 统一完成。
+   * @note 本函数只更新发送槽位，实际发送由 can_tx_task（Service 层）统一完成。
    */
-  Status FillData(int16_t output);
+  Status fill_data(int16_t output);
 
   // 禁止复制/移动
   DjiMotor(const DjiMotor &) = delete;

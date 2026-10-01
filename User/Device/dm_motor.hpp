@@ -13,7 +13,7 @@
 #ifndef __DM_MOTOR_HPP__
 #define __DM_MOTOR_HPP__
 
-#include "bsp_can.hpp"
+#include "can_bus.hpp"
 #include "motor_definition.hpp"
 #include "online_check.hpp"
 
@@ -109,36 +109,76 @@ class DmMotor
 {
 public:
   /**
+   * @brief 电机配置结构体（可匿名按序传入）
+   */
+  struct Config
+  {
+    /**
+     * @brief 按序构造配置（参数顺序 = 字段顺序）
+     *
+     * @param can 电机连接的物理 CAN
+     * @param esc_id 电机接收 ID，范围及模式偏移后必须满足标准帧限制
+     * @param master_id 电机反馈 ID，范围 0~0x7FF
+     * @param mode 电机当前已经配置的普通固件控制模式
+     * @param position_max_rad PMAX，位置绝对值上限，单位：rad；传入 0 使用型号默认值
+     * @param velocity_max_rad_s VMAX，速度绝对值上限，单位：rad/s；传入 0 使用型号默认值
+     * @param torque_max_nm TMAX，扭矩绝对值上限，单位：N·m；传入 0 使用型号默认值
+     * @param ratio 达妙输出轴到最终机构输出轴的传动比
+     * @param offset 达妙输出轴机械零位偏移，单位：rad
+     * @param period_ticks 相邻两次发送之间的 MotorTxManager::update() 次数
+     * @param phase_ticks 周期内发送相位
+     * @param order 同一周期内的发送顺序，数值较小者优先
+     */
+    Config(CanBus         &can,
+           uint16_t        esc_id,
+           uint16_t        master_id,
+           DmControlMode   mode,
+           float           position_max_rad = 0.0f,
+           float           velocity_max_rad_s = 0.0f,
+           float           torque_max_nm = 0.0f,
+           float           ratio = 1.0f,
+           float           offset = 0.0f,
+           uint16_t        period_ticks = 1U,
+           uint16_t        phase_ticks = 0U,
+           uint16_t        order = 0U)
+      : can(can),
+        esc_id(esc_id),
+        master_id(master_id),
+        mode(mode),
+        position_max_rad(position_max_rad),
+        velocity_max_rad_s(velocity_max_rad_s),
+        torque_max_nm(torque_max_nm),
+        ratio(ratio),
+        offset(offset),
+        period_ticks(period_ticks),
+        phase_ticks(phase_ticks),
+        order(order)
+    {
+    }
+
+    CanBus       &can;               ///< 电机连接的物理 CAN
+    uint16_t      esc_id;            ///< 电机接收 ID
+    uint16_t      master_id;         ///< 电机反馈 ID
+    DmControlMode mode;              ///< 电机当前已配置的控制模式
+    float         position_max_rad;  ///< PMAX；0 = 型号默认值
+    float         velocity_max_rad_s; ///< VMAX；0 = 型号默认值
+    float         torque_max_nm;     ///< TMAX；0 = 型号默认值
+    float         ratio;             ///< 达妙输出轴到最终机构输出轴的传动比
+    float         offset;            ///< 机械零位偏移，单位：rad
+    uint16_t      period_ticks;      ///< 发送周期（MotorTxManager::update() 次数）
+    uint16_t      phase_ticks;       ///< 周期内发送相位
+    uint16_t      order;             ///< 同周期内发送顺序，数值较小者优先
+  };
+
+  /**
    * @brief 构造达妙电机软件对象
-   * @param can_item 电机连接的物理 CAN
-   * @param esc_id 电机接收 ID，范围及模式偏移后必须满足标准帧限制
-   * @param master_id 电机反馈 ID，范围 0~0x7FF
-   * @param mode 电机当前已经配置的普通固件控制模式
-   * @param position_max_rad PMAX，位置绝对值上限，单位：rad；传入 0 使用型号默认值
-   * @param velocity_max_rad_s VMAX，速度绝对值上限，单位：rad/s；传入 0 使用型号默认值
-   * @param torque_max_nm TMAX，扭矩绝对值上限，单位：N·m；传入 0 使用型号默认值
-   * @param ratio 达妙输出轴到最终机构输出轴的传动比
-   * @param offset 达妙输出轴机械零位偏移，单位：rad
-   * @param period_ticks 相邻两次发送之间的 MotorTxManager::update() 次数
-   * @param phase_ticks 周期内发送相位
-   * @param order 同一周期内的发送顺序，数值较小者优先
+   * @param cfg 电机配置（可匿名按序传入）
    * @note 构造函数只保存配置，不注册对象、不创建 RTOS 资源且不发送 CAN 帧。
    * @note ratio 默认为 1，表示直接使用达妙内置输出轴；若其后增加机械变速箱，
    *       ratio 设置为达妙输出轴转速与最终机构输出轴转速之比。
    * @note J4310-2EC 的型号默认值为 PMAX=12.5 rad、VMAX=30 rad/s、TMAX=10 N·m。
    */
-  DmMotor(BspCan &can_item,
-          uint16_t esc_id,
-          uint16_t master_id,
-          DmControlMode mode,
-          float position_max_rad = 0.0f,
-          float velocity_max_rad_s = 0.0f,
-          float torque_max_nm = 0.0f,
-          float ratio = 1.0f,
-          float offset = 0.0f,
-          uint16_t period_ticks = 1U,
-          uint16_t phase_ticks = 0U,
-          uint16_t order = 0U);
+  DmMotor(const Config &cfg);
 
   /**
    * @brief 注销反馈分发和统一发送端点
@@ -243,7 +283,7 @@ private:
   DmMotorFeedback           _feedback;       ///< 达妙普通协议特有反馈
   Online                    _online;         ///< 有效反馈在线检查
   LuenbergerMotorData       _lvbo_data;      ///< 可选状态观测结果
-  BspCan                   *_can_item;       ///< 接收和发送所用物理 CAN
+  CanBus                   *_can_item;       ///< 接收和发送所用的 CAN 总线
   uint16_t                  _esc_id;         ///< 电机接收 ID
   uint16_t                  _master_id;      ///< 电机反馈 ID
   DmControlMode             _mode;           ///< 当前配置的普通固件控制模式

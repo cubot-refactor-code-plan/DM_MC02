@@ -1,5 +1,5 @@
 #include "app_task.hpp"
-#include "bsp_cfg.hpp"
+#include "can_bus.hpp"
 
 #include "FreeRTOS.h" // IWYU pragma: keep
 #include "online_check.hpp"
@@ -21,10 +21,12 @@ extern "C" void sys_task(void *argument)
   TickType_t wake_time = xTaskGetTickCount();
   for (;;)
   {
-    // can硬件bus-off自恢复
-    bsp_can1.service_recovery();
-    bsp_can2.service_recovery();
-    bsp_can3.service_recovery();
+    // CAN 巡检：补丢唤醒的发送（tx_recover）+ Bus-Off 恢复（service_recovery）
+    for (uint32_t i = 0; i < CanBus::BUS_NUM; ++i)
+    {
+      CanBus::buses[i]->_can->tx_recover();
+      CanBus::buses[i]->_can->service_recovery();
+    }
     // 在线情况更新
     sys_task_online_status = Online::update();
     ++sys_task_loop_count;

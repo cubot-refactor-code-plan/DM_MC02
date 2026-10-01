@@ -151,5 +151,3 @@ add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     COMMENT "Generating internal Flash image and external USB XIP payload"
 )
 
-##### User #####
-

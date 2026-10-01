@@ -1,70 +1,67 @@
 #include "can_rx_node.hpp"
 
+#include "can_bus.hpp"
+
 #include <new>
 
+
 uint8_t CanRxNode::node_num = 0;
-bool CanRxNode::frozen = false;
 
-CanRxNode::CanRxNode(uint32_t can_id, Callback callback, void *context, uint32_t id_type) :
-  _can_id(can_id), _id_type(id_type), _callback(callback), _context(context), next(nullptr)
+CanRxNode::CanRxNode(const Config &cfg) :
+  _can_id(cfg.can_id),
+  _id_type(cfg.id_type),
+  _callback(cfg.callback),
+  _context(cfg.context),
+  next(nullptr)
 {
 }
 
-bool CanRxNode::is_frozen(void)
+CanRxNode *regist(const CanRxNode::Config &cfg)
 {
-  if (sysEvent != nullptr && (osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0U)
+  if (sys_event == nullptr || CanBus::frozen || sys_flag_running() || cfg.bus == nullptr)
   {
-    frozen = true;
+    return nullptr; // 事件组未就绪，或注册表已冻结
   }
-  return frozen;
-}
-
-CanRxNode *regist(BspCan &can_item, uint32_t can_id, CanRxNode::Callback callback, void *context, uint32_t id_type)
-{
-  if (sysEvent == nullptr || CanRxNode::is_frozen())
+  if (cfg.callback == nullptr || cfg.bus->_can == nullptr || cfg.bus->_can->_hfdcan == nullptr ||
+      (cfg.id_type != FDCAN_STANDARD_ID && cfg.id_type != FDCAN_EXTENDED_ID) ||
+      cfg.can_id > (cfg.id_type == FDCAN_STANDARD_ID ? 0x7FFU : 0x1FFFFFFFU))
   {
+    sys_init_error(Status::BAD_ARG);
     return nullptr;
   }
-  if (callback == nullptr || can_item._hfdcan == nullptr ||
-      (id_type != FDCAN_STANDARD_ID && id_type != FDCAN_EXTENDED_ID) ||
-      can_id > (id_type == FDCAN_STANDARD_ID ? 0x7FFU : 0x1FFFFFFFU))
+  for (CanRxNode *node = cfg.bus->rx_head; node != nullptr; node = node->next)
   {
-    SysInitError(Status::BAD_ARG);
-    return nullptr;
-  }
-  for (CanRxNode *node = can_item.rx_head; node != nullptr; node = node->next)
-  {
-    if (node->_can_id == can_id && node->_id_type == id_type)
+    if (node->_can_id == cfg.can_id && node->_id_type == cfg.id_type)
     {
-      SysInitError(Status::BUSY);
+      sys_init_error(Status::BUSY);
       return nullptr;
     }
   }
   if (CanRxNode::node_num >= 50U)
   {
-    SysInitError(Status::FULL);
+    sys_init_error(Status::FULL);
     return nullptr;
   }
-  CanRxNode *node = new (std::nothrow) CanRxNode(can_id, callback, context, id_type);
+  CanRxNode *node = new (std::nothrow) CanRxNode(cfg);
   if (node == nullptr)
   {
-    SysInitError(Status::FULL);
+    sys_init_error(Status::FULL);
     return nullptr;
   }
-  node->next = can_item.rx_head;
-  can_item.rx_head = node;
-  ++CanRxNode::node_num;
+  node->next        = cfg.bus->rx_head;
+  cfg.bus->rx_head  = node;
+  CanRxNode::node_num++;
   return node;
 }
 
-Status unregist(BspCan &can_item, CanRxNode *node)
+Status unregist(CanBus &bus, CanRxNode *node)
 {
-  if (CanRxNode::is_frozen())
+  if (CanBus::frozen || sys_flag_running())
   {
     return Status::NOT_SUPPORTED;
   }
   // 不解引用未知指针；只有确认归属后才删除。
-  for (CanRxNode **item = &can_item.rx_head; *item != nullptr; item = &(*item)->next)
+  for (CanRxNode **item = &bus.rx_head; *item != nullptr; item = &(*item)->next)
   {
     if (*item == node)
     {

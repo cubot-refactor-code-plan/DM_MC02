@@ -9,8 +9,6 @@
  *
  * @note 测试任务函数均以 extern "C" 声明（FreeRTOS 以 C 方式调用）。
  *       任务实现位于 User/App/test/，由 all_init() 统一创建。
- *       msg_task_task1/2/3：各阻塞等待 menu_sem[0/1/2]，
- *       由 menu 模块长按触发，触发后经 USART1 发送测试字节。
  */
 
 #ifndef __APP_TEST_HPP__
@@ -39,6 +37,9 @@
 
 /** @brief 编译并创建 W25Q64JV 擦写、映射与 XIP 实机测试；完成后应设回 0。 */
 #define APP_TEST_QSPI_FLASH_ENABLED 0
+
+/** @brief 编译并创建 DWT 计时标定测试；设为 0 可停用。 */
+#define APP_TEST_DWT_ENABLED 0
 
 #ifdef __cplusplus
 extern "C"
@@ -80,6 +81,14 @@ extern "C"
    * @warning 启用后会改写外置 Flash 最后两个扇区和 0x00100000 附近的 XIP 测试区。
    */
   void qspi_flash_test_task(void *argument);
+
+  /**
+   * @brief DWT 计时标定任务（USART1 每秒打印一次耗时对比）
+   * @param argument 任务参数（未使用，NULL）
+   * @note 仅在 APP_TEST_DWT_ENABLED 非零时创建；需要 PC 端接 USART1 才能看到输出。
+   * @note 校验 1 s 延时是否 ≈1.000 s（不符就是 CPU 频率算错）与 delay_ms(1) 是否 ≈0.001 s。
+   */
+  void dwt_test_task(void *argument);
 
   /**
    * @brief 当前 USB 类的非阻塞实机测试步骤，由 USB 服务任务每毫秒调用。

@@ -149,7 +149,7 @@ private:
   /**
    * @brief 处理当前 USB 类的接收轮询并分发回调。
    */
-  void process_rx();
+  void _process_rx();
 
   BspUsb() = default;
 
@@ -164,4 +164,4 @@ private:
   volatile uint16_t _hid_rx_tail = 0U;
 };
 
-#endif
+#endif // __BSP_USB_HPP__

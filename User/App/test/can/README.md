@@ -32,8 +32,9 @@ Bus-Off 且旧 TX 请求已取消；端到端恢复由测试的新反馈验证�
 ## 主机状态机测试
 
 运行 `python3 User/App/test/can/test_recovery_host.py`。
-它编译实际 `bsp_can_recovery.cpp`，使用模拟寄存器和 RTOS 时钟验证
-1001 次恢复循环、持续故障节流、TX 取消门控、tick 回绕和未初始化状态。
+它从 `User/Bsp/bsp_can.cpp` 中抽取 `service_recovery()` / `tx_available()` 的函数体，
+配上模拟寄存器和 RTOS 时钟，验证 1001 次恢复循环、持续故障节流、TX 取消门控、
+tick 回绕和未初始化状态。
 主机模拟不验证真实硬件的 TX 取消或 CAN 物理恢复时序；仍须执行实机测试。
 
 ## 生产行为与边界
@@ -64,6 +65,22 @@ CAN1 / C620 ID2 / M3508，电源限流 2 A，全程零电流指令。
 
 该测试验证错误位时序、持续/重复 BO、收发积压后的恢复。
 未进行物理短路、断线和电调断电测试，不将这些情况写为已验证。
+
+## CAN 分层重构（2026-10-01）
+
+- Bsp 层 `BspCan` 只保留硬件收发 / 恢复 / 诊断，去掉节点链表、`friend` 与回退缓冲；
+  按 ID 分发、槽位发送调度与回退缓冲移到 Service 层 `CanBus`（`bus_can1/2/3`）。
+- `can_rx_task` / `can_tx_task` 从 `User/App/task/` 移到 `User/Service/can_bus.cpp`。
+- 应用与设备层一律通过 `CanBus` 收发：`bus_can1.send()` / `bus_can1.receive()`；
+  直接调 `BspCan::receive()` 会与分发任务争抢同一个 MessageBuffer。
+- 恢复接口：`BspCan::service_recovery()`（Bus-Off）与 `BspCan::tx_recover()`（丢唤醒补发），
+  由 `sys_task` 每 1 ms 对三条总线各调一次。
+- 系统状态标志改用 FreeRTOS 原生事件组，函数更名为 `sys_flag_*(...)`；
+  CAN 相关 RTOS 资源统一用原生 API（`xSemaphore*` / `xMessageBuffer*`）。
+- 诊断量集中在 `BspCan::diagnostics`，新增 `rx_lost` / `rx_len_drop` / `tx_buf_full` /
+  `tx_stall_recover` / `tx_it_fail` / `err_passive` / `err_warning`。
+
+实机回归结果：待补充。
 
 ## 2026-10-01 发送链表重构后的实机回归
 

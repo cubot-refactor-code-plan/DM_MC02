@@ -1,16 +1,19 @@
 #include "app_test.hpp"
 
+
+#if APP_TEST_DM_MOTOR_ENABLED
+
+// 依赖只在测试启用时有意义：放进 #if，避免关闭时整个 TU 为空、被 include-cleaner 判成多余
 #include "FreeRTOS.h" // IWYU pragma: keep
 #include "bsp_cfg.hpp"
 #include "dm_motor.hpp"
+#include "service_cfg.hpp" // bus_can2
 #include "task.h"
 
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
 
-
-#if APP_TEST_DM_MOTOR_ENABLED
 
 volatile uint32_t dm_motor_test_stage             = 0U;
 volatile uint32_t dm_motor_test_passed            = 0U;
@@ -61,7 +64,7 @@ float make_position_target(float current_position, float position_limit)
 void drain_can2(void)
 {
   CanRxMsg rx = {};
-  while (bsp_can2.receive(&rx, 0U) == Status::OK)
+  while (bus_can2.receive(&rx, 0U) == Status::OK)
   {
   }
 }
@@ -71,7 +74,7 @@ bool wait_parameter_reply(uint8_t command, uint8_t register_id, uint8_t *value)
   for (uint32_t attempt = 0U; attempt < 20U; ++attempt)
   {
     CanRxMsg rx = {};
-    if (bsp_can2.receive(&rx, pdMS_TO_TICKS(5U)) != Status::OK)
+    if (bus_can2.receive(&rx, pdMS_TO_TICKS(5U)) != Status::OK)
     {
       continue;
     }
@@ -106,7 +109,7 @@ bool read_register(uint8_t register_id, uint8_t *value)
     0U,
   };
 
-  if (bsp_can2.send(PARAMETER_STD_ID, request) != Status::OK)
+  if (bus_can2.send(PARAMETER_STD_ID, request) != Status::OK)
   {
     return false;
   }
@@ -150,7 +153,7 @@ bool write_register_u32(uint8_t register_id, uint32_t value)
   };
   memcpy(&request[4], &value, sizeof(value));
 
-  if (bsp_can2.send(PARAMETER_STD_ID, request) != Status::OK)
+  if (bus_can2.send(PARAMETER_STD_ID, request) != Status::OK)
   {
     return false;
   }
@@ -171,7 +174,7 @@ bool wait_enabled(DmMotor<DmMotorType::J4310_2EC> &motor)
   for (uint32_t elapsed = 0U; elapsed < 300U; ++elapsed)
   {
     if ((motor.enable_state() == DmEnableState::ENABLED) &&
-        (motor.online().isOnline() == Status::OK))
+        (motor.online().is_online() == Status::OK))
     {
       return true;
     }
@@ -182,7 +185,7 @@ bool wait_enabled(DmMotor<DmMotorType::J4310_2EC> &motor)
 
 void sample_motor(DmMotor<DmMotorType::J4310_2EC> &motor)
 {
-  dm_motor_test_online_status    = motor.online().isOnline();
+  dm_motor_test_online_status    = motor.online().is_online();
   dm_motor_test_last_drive_state = static_cast<uint32_t>(motor.drive_state());
   dm_motor_test_last_position    = motor.data().radian_data.angle_multi_round;
   dm_motor_test_last_velocity    = motor.data().radian_data.velocity;
@@ -211,13 +214,13 @@ bool run_mode_test(DmControlMode mode, const DmProtocolLimits &limits)
   const float position_target =
     make_position_target(current_position, limits.position_max_rad);
 
-  DmMotor<DmMotorType::J4310_2EC> motor(bsp_can2,
-                                        DM_ESC_ID,
-                                        DM_MASTER_ID,
-                                        mode,
-                                        limits.position_max_rad,
-                                        limits.velocity_max_rad_s,
-                                        limits.torque_max_nm);
+  DmMotor<DmMotorType::J4310_2EC> motor({bus_can2,
+                                         DM_ESC_ID,
+                                         DM_MASTER_ID,
+                                         mode,
+                                         limits.position_max_rad,
+                                         limits.velocity_max_rad_s,
+                                         limits.torque_max_nm});
   dm_motor_test_last_status = motor.init();
   if (dm_motor_test_last_status != Status::OK)
   {
@@ -305,7 +308,7 @@ bool run_mode_test(DmControlMode mode, const DmProtocolLimits &limits)
     fabsf(motor.data().radian_data.angle_multi_round - start_position);
   const bool feedback_valid =
     (dm_motor_test_last_status == Status::OK) &&
-    (motor.online().isOnline() == Status::OK) &&
+    (motor.online().is_online() == Status::OK) &&
     (motor.drive_state() == DmDriveState::ENABLED) &&
     isfinite(position_delta);
 

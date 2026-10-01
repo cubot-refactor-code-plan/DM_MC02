@@ -13,18 +13,24 @@
 
 #include "bsp_buzzer.hpp"
 #include "bsp_can.hpp"
+#include "bsp_dwt.hpp"
 #include "bsp_gpio.hpp"
 #include "bsp_key.hpp"
 #include "bsp_uart.hpp"
 #include "bsp_usb.hpp"
 
 
-/* ==================== 函数　声明 ==================== */
+// ---------------- 函数声明 ----------------
 
 void bsp_init();
 
 
-/* ==================== 全局　声明 ==================== */
+// ----------------
+// ---------------- 全局声明 ----------------
+
+///< DWT 计时（内核 CYCCNT，无外设；bsp_init() 中最先初始化）
+extern BspDwt bsp_dwt;
+
 
 ///< CAN 一共三个 都初始化了
 extern BspCan bsp_can1;
@@ -67,4 +73,6 @@ extern BspKey key_user;
 extern BspUsb& bsp_usb;
 
 
+
+// ----------------
 #endif // __BSP_CFG_HPP__

@@ -1,51 +1,49 @@
 #include "can_tx_node.hpp"
+
+#include "can_bus.hpp"
+
 #include <new>
-#include <stdio.h>
 #include <string.h>
 
-uint8_t    CanTxNode::node_num = 0;
-bool       CanTxNode::frozen   = false;
 
-CanTxNode::CanTxNode(uint32_t can_id, uint8_t division) :
+uint8_t CanTxNode::node_num = 0;
+
+CanTxNode::CanTxNode(const Config &cfg) :
   txBuffer {},
-  division(division),
+  division(cfg.division),
   _statu(Status::NOT_INIT),
   bufferRegister(0),
   bufferUnsend(0),
   bufferMutex(nullptr),
-  bufferMutex_Attr {},
   _registered(false),
   next(nullptr),
   last_send_tick(0)
 {
-  if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0) // 只允许在初始化期使用
-  {
-    return;
-  }
-  // 参数校验
   if (division == 0 || division > 8 || 8 % division != 0)
   {
     this->division = 1;
     this->_statu   = Status::BAD_ARG;
-    SysInitError(this->_statu);
     return;
   }
-  if (can_id > 0x7FFU)
+  if (cfg.can_id > 0x7FFU)
   {
     this->_statu = Status::BAD_ARG;
-    SysInitError(this->_statu);
     return;
   }
 
-  txBuffer.std_id = can_id;
+  txBuffer.std_id = cfg.can_id;
 }
 
-Status CanTxNode::init(BspCan &can)
+Status CanTxNode::init(const Config &cfg)
 {
-  // 状态校验
-  if ((osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0) // 只允许在初始化期使用
+  // 状态校验（只允许在初始化期使用，且构造参数必须合法）
+  if (sys_flag_running())
   {
     return Status::NOT_SUPPORTED;
+  }
+  if (cfg.bus == nullptr)
+  {
+    return Status::BAD_ARG;
   }
   if (this->_statu == Status::OK)
   {
@@ -53,23 +51,21 @@ Status CanTxNode::init(BspCan &can)
   }
   if (this->_statu != Status::NOT_INIT)
   {
-    SysInitError(this->_statu);
+    sys_init_error(this->_statu);
     return this->_statu;
   }
 
-  snprintf(mutexName, 40, "Mutex_CanTxNode_%lx", static_cast<unsigned long>(this->txBuffer.std_id));
-  bufferMutex_Attr.name = mutexName;
-  bufferMutex           = osMutexNew(&bufferMutex_Attr);
-  if (bufferMutex == NULL)
+  bufferMutex = xSemaphoreCreateMutex();
+  if (bufferMutex == nullptr)
   {
-    SysInitError(Status::FULL);
+    sys_init_error(Status::FULL);
     return Status::FULL;
   }
 
   // 每条总线独立维护单向链表，仅初始化阶段修改。
-  next = can.tx_head;
-  can.tx_head = this;
-  _registered = true;
+  next           = cfg.bus->tx_head;
+  cfg.bus->tx_head = this;
+  _registered    = true;
 
   this->_statu = Status::OK;
   return Status::OK;
@@ -77,48 +73,51 @@ Status CanTxNode::init(BspCan &can)
 
 CanTxNode::~CanTxNode()
 {
-  // 仅 init() 失败的未注册节点会被删除；成功节点由 BSP 持有至系统停止。
+  // 仅 init() 失败的未注册节点会被删除；成功节点由 CanBus 持有至系统停止。
   if (bufferMutex != nullptr)
-    osMutexDelete(bufferMutex);
+  {
+    vSemaphoreDelete(bufferMutex);
+    bufferMutex = nullptr;
+  }
 }
 
-CanTxNode *regist(BspCan &can_item, uint32_t can_id)
+CanTxNode *regist(const CanTxNode::Config &cfg)
 {
-  return regist(can_item, can_id, 1U, 0U);
+  return regist(cfg, 0U);
 }
 
-CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t slot)
+CanTxNode *regist(const CanTxNode::Config &cfg, uint8_t slot)
 {
-  if (sysEvent == NULL)
+  if (sys_event == nullptr || cfg.bus == nullptr)
   {
     return nullptr;
   }
-  if (CanTxNode::frozen || (osEventFlagsGet(sysEvent) & SYS_FLAG_RUNNING_BIT) != 0U) // 只允许在初始化期注册
+  if (CanBus::frozen || sys_flag_running()) // 只允许在初始化期注册
   {
-    CanTxNode::frozen = true;
+    CanBus::frozen = true;
     return nullptr;
   }
-
   // 参数检查
-  if (can_id > 0x7FFU || division == 0U || division > 8U || (8U % division) != 0U || slot >= division)
+  if (cfg.can_id > 0x7FFU || cfg.division == 0U || cfg.division > 8U ||
+      (8U % cfg.division) != 0U || slot >= cfg.division)
   {
-    SysInitError(Status::BAD_ARG);
+    sys_init_error(Status::BAD_ARG);
     return nullptr;
   }
 
   // 从链表中查找有无符合条件的Node
-  for (CanTxNode *node = can_item.tx_head; node != nullptr; node = node->next)
+  for (CanTxNode *node = cfg.bus->tx_head; node != nullptr; node = node->next)
   {
-    if (node->txBuffer.std_id == can_id) // 有
+    if (node->txBuffer.std_id == cfg.can_id) // 有
     {
-      if (node->division == division && (node->bufferRegister & (1U << slot)) == 0U) // 校验
+      if (node->division == cfg.division && (node->bufferRegister & (1U << slot)) == 0U) // 校验
       {
         node->bufferRegister |= (1U << slot);
         return node; // 合法，返回已有的node
       }
       else // 非法
       {
-        SysInitError(Status::FULL);
+        sys_init_error(Status::FULL);
         return nullptr;
       }
     }
@@ -127,16 +126,16 @@ CanTxNode *regist(BspCan &can_item, uint32_t can_id, uint8_t division, uint8_t s
   // 无则创建一个新的Node
   if (CanTxNode::node_num >= 50U)
   {
-    SysInitError(Status::FULL);
+    sys_init_error(Status::FULL);
     return nullptr;
   }
-  CanTxNode *node = new (std::nothrow) CanTxNode(can_id, division);
+  CanTxNode *node = new (std::nothrow) CanTxNode(cfg);
   if (node == nullptr)
   {
-    SysInitError(Status::BUSY);
+    sys_init_error(Status::BUSY);
     return nullptr;
   }
-  const Status status = node->init(can_item);
+  const Status status = node->init(cfg);
   if (status != Status::OK)
   {
     delete node;
@@ -159,9 +158,9 @@ Status unregist(CanTxNode *node, uint8_t slot)
     return Status::NOT_INIT;
   }
 
-  // 启动前没有发送任务竞争，且 CMSIS 互斥量获取要求调度器已运行。
+  // 启动前没有发送任务竞争，且互斥量获取要求调度器已运行。
   const bool running = xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED;
-  if (running && osMutexAcquire(node->bufferMutex, osWaitForever) != osOK)
+  if (running && xSemaphoreTake(node->bufferMutex, portMAX_DELAY) != pdTRUE)
   {
     return Status::BUSY;
   }
@@ -177,12 +176,12 @@ Status unregist(CanTxNode *node, uint8_t slot)
   }
   if (running)
   {
-    osMutexRelease(node->bufferMutex);
+    xSemaphoreGive(node->bufferMutex);
   }
   return result;
 }
 
-Status CanTxNode::filldata(uint8_t data[], uint8_t slot)
+Status CanTxNode::fill_data(uint8_t data[], uint8_t slot)
 {
   if (_statu != Status::OK)
   {
@@ -198,19 +197,19 @@ Status CanTxNode::filldata(uint8_t data[], uint8_t slot)
     return Status::BAD_ARG;
   }
 
-  if (osMutexAcquire(bufferMutex, pdMS_TO_TICKS(3U)) != osOK)
+  if (xSemaphoreTake(bufferMutex, pdMS_TO_TICKS(3U)) != pdTRUE)
   {
     return Status::BUSY;
   }
   // 槽位占用位图会在其他电机析构时修改，必须在节点锁内读取。
   if ((bufferRegister & (1U << slot)) == 0U)
   {
-    osMutexRelease(bufferMutex);
+    xSemaphoreGive(bufferMutex);
     return Status::BAD_ARG;
   }
   memcpy(txBuffer.data + slot * 8 / division, data, 8 / division);
   bufferUnsend |= (1U << slot);
-  osMutexRelease(bufferMutex);
+  xSemaphoreGive(bufferMutex);
 
   return Status::OK;
 }

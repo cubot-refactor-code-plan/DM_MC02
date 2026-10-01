@@ -1,9 +1,14 @@
 #include "app_test.hpp"
-#include "bsp_cfg.hpp"
-#include "can_rx_node.hpp"
-#include "task.h"
+
 
 #if APP_TEST_CAN_RECOVERY_ENABLED
+
+// 依赖只在测试启用时有意义：放进 #if，避免关闭时整个 TU 为空、被 include-cleaner 判成多余
+#include "bsp_cfg.hpp"
+#include "can_bus.hpp"
+#include "service_cfg.hpp" // bus_can1
+#include "task.h"
+
 #if APP_TEST_DJI_MOTOR_ENABLED
 #error "CAN recovery test and motor motion test cannot share CAN1"
 #endif
@@ -37,7 +42,7 @@ Status feedback(void *, const CanRxMsg &rx)
 void zero()
 {
   uint8_t data[8] = {};
-  const Status status = bsp_can1.send(0x200, data);
+  const Status status = bus_can1.send(0x200, data);
   if (status == Status::FULL) ++can_recovery_test_send_full;
   if (status == Status::BUSY) ++can_recovery_test_send_busy;
 }
@@ -144,11 +149,11 @@ bool physical()
 
 extern "C" void can_recovery_test_init()
 {
-  can_recovery_test_init_status = regist(bsp_can1, 0x202, feedback) ? Status::OK : Status::IO_ERROR;
+  can_recovery_test_init_status = regist({&bus_can1, 0x202, feedback}) ? Status::OK : Status::IO_ERROR;
 }
 extern "C" void can_recovery_test_task(void *)
 {
-  SysFlagWaitRunning();
+  sys_flag_wait_running();
   can_recovery_test_stage = 1;
   while (can_recovery_test_arm == 0) { zero(); vTaskDelay(pdMS_TO_TICKS(1)); }
   const uint32_t arm = can_recovery_test_arm;

@@ -1,74 +1,76 @@
 #include "status.hpp"
 
-osEventFlagsId_t sysEvent = NULL;
-const osEventFlagsAttr_t sysEvent_Attr = {
-    .name = "SysEvent"
-};
+#include "task.h" // IWYU pragma: keep（vTaskDelete）
 
-Status SysFlagInit(void)
+EventGroupHandle_t sys_event = nullptr; ///< 系统状态事件组
+
+Status sys_flag_init(void)
 {
-    sysEvent = osEventFlagsNew(&sysEvent_Attr);
-    if (sysEvent == NULL)
-    {
-        return Status::FULL;
-    }
-    osEventFlagsSet(sysEvent, (1U << (uint8_t)Status::OK));
-    return Status::OK;
+  sys_event = xEventGroupCreate();
+  if (sys_event == nullptr)
+  {
+    return Status::FULL;
+  }
+  xEventGroupSetBits(sys_event, (1U << (uint8_t)Status::OK));
+  return Status::OK;
 }
 
-Status SysFlagSet(Status statu)
+Status sys_flag_set(Status statu)
 {
-    if (sysEvent == NULL)
-    {
-        return Status::NOT_INIT;
-    }
-    if (statu == Status::OK)
-    {
-        return Status::BAD_ARG;
-    }
-    osEventFlagsSet(sysEvent, (1U << (uint8_t)statu));
-    osEventFlagsClear(sysEvent, (1U << (uint8_t)Status::OK));
-    return Status::OK;
+  if (sys_event == nullptr)
+  {
+    return Status::NOT_INIT;
+  }
+  if (statu == Status::OK)
+  {
+    return Status::BAD_ARG;
+  }
+  xEventGroupSetBits(sys_event, (1U << (uint8_t)statu));
+  xEventGroupClearBits(sys_event, (1U << (uint8_t)Status::OK));
+  return Status::OK;
 }
 
-void SysCompleteInit(void)
+void sys_complete_init(void)
 {
-    if ( (osEventFlagsGet(sysEvent) & SYS_FLAG_INIT_FAIL_BIT) == 0 )
-    {
-        osEventFlagsSet(sysEvent, SYS_FLAG_RUNNING_BIT);
-    }
+  if ((xEventGroupGetBits(sys_event) & SYS_FLAG_INIT_FAIL_BIT) == 0U)
+  {
+    xEventGroupSetBits(sys_event, SYS_FLAG_RUNNING_BIT);
+  }
 }
 
-void SysInitError(void)
+void sys_init_error(void)
 {
-    osEventFlagsSet(sysEvent, SYS_FLAG_INIT_FAIL_BIT);
-    osEventFlagsClear(sysEvent, SYS_FLAG_RUNNING_BIT);
+  xEventGroupSetBits(sys_event, SYS_FLAG_INIT_FAIL_BIT);
+  xEventGroupClearBits(sys_event, SYS_FLAG_RUNNING_BIT);
 }
 
-Status SysInitError(Status statu)
+Status sys_init_error(Status statu)
 {
-    SysInitError();
-    return SysFlagSet(statu);
+  sys_init_error();
+  return sys_flag_set(statu);
 }
 
-uint32_t SysFlagWait(Status statu, uint32_t timeout)
+uint32_t sys_flag_wait(Status statu, uint32_t timeout)
 {
-    return osEventFlagsWait(sysEvent, (1U << (uint8_t)statu), osFlagsWaitAll | osFlagsNoClear, timeout);
+  // pdFALSE=退出时不清标志，pdTRUE=等到所有指定位都置位
+  return xEventGroupWaitBits(sys_event, (1U << (uint8_t)statu), pdFALSE, pdTRUE, timeout);
 }
 
-void SysFlagWaitRunning(void)
+bool sys_flag_running(void)
 {
-    if (sysEvent == NULL)   // 连事件本身都挂了那就别运行了，当然这个可能性还是太低了
-    {
-        osThreadExit();
-    }
+  return sys_event != nullptr && (xEventGroupGetBits(sys_event) & SYS_FLAG_RUNNING_BIT) != 0U;
+}
 
-    const uint32_t flags = osEventFlagsWait(sysEvent,
-                                            SYS_FLAG_RUNNING_BIT,
-                                            osFlagsWaitAll | osFlagsNoClear,
-                                            osWaitForever);
-    if ((flags & osFlagsError) != 0U)
-    {
-        osThreadExit();
-    }
+void sys_flag_wait_running(void)
+{
+  if (sys_event == nullptr) // 连事件组都建不起来，那就别运行了
+  {
+    vTaskDelete(NULL);
+  }
+
+  (void)xEventGroupWaitBits(sys_event, SYS_FLAG_RUNNING_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+  if (!sys_flag_running())
+  {
+    vTaskDelete(NULL);
+  }
 }

@@ -6,13 +6,14 @@
 #include <string.h> // memmove
 
 
-/* ==================== 静态成员初始化 ==================== */
+// ---------------- 静态成员初始化 ----------------
 
 DeviceEmmV5 *DeviceEmmV5::_instances[DeviceEmmV5::MAX_INSTANCES] = {};
 size_t       DeviceEmmV5::_instance_count                        = 0;
 
 
-/* ==================== 系统参数表（表驱动） ==================== */
+// ----------------
+// ---------------- 系统参数表（表驱动） ----------------
 
 struct SysParamDef
 {
@@ -57,7 +58,8 @@ static uint8_t sys_param_code(EmmSysParam s)
 }
 
 
-/* ==================== 构造函数与析构函数 ==================== */
+// ----------------
+// ---------------- 构造函数与析构函数 ----------------
 
 /**
  * @brief 构造函数
@@ -80,7 +82,8 @@ DeviceEmmV5::~DeviceEmmV5()
 }
 
 
-/* ==================== 初始化 ==================== */
+// ----------------
+// ---------------- 初始化 ----------------
 
 /**
  * @brief 初始化电机驱动
@@ -88,14 +91,15 @@ DeviceEmmV5::~DeviceEmmV5()
 Status DeviceEmmV5::init()
 {
   // 注册到静态实例注册表（统一到位接收任务使用）
-  register_instance();
+  _register_instance();
 
   mmcl_clear();
   return Status::OK;
 }
 
 
-/* ==================== 底层发送 ==================== */
+// ----------------
+// ---------------- 底层发送 ----------------
 
 /**
  * @brief 通过 bsp_uart 发送命令
@@ -104,7 +108,7 @@ Status DeviceEmmV5::init()
  */
 Status DeviceEmmV5::_send_cmd(const uint8_t *cmd, size_t len)
 {
-  return _uart.send(cmd, len, nullptr, 0);
+  return _uart.send(cmd, len, 0, nullptr);
 }
 
 
@@ -126,7 +130,8 @@ void DeviceEmmV5::_mmcl_append(const uint8_t *cmd, size_t len)
 }
 
 
-/* ==================== 触发动作命令 ==================== */
+// ----------------
+// ---------------- 触发动作命令 ----------------
 
 /**
  * @brief 触发编码器校准
@@ -198,7 +203,8 @@ void DeviceEmmV5::restore_motor()
 }
 
 
-/* ==================== 运动控制命令 ==================== */
+// ----------------
+// ---------------- 运动控制命令 ----------------
 
 /**
  * @brief 电机使能控制
@@ -330,7 +336,8 @@ void DeviceEmmV5::synchronous_motion()
 }
 
 
-/* ==================== 原点回零命令 ==================== */
+// ----------------
+// ---------------- 原点回零命令 ----------------
 
 /**
  * @brief 设置单圈回零的零点位置
@@ -446,7 +453,8 @@ void DeviceEmmV5::origin_modify_sl_rp(bool svF, uint16_t sl_rp)
 }
 
 
-/* ==================== 读取系统参数命令 ==================== */
+// ----------------
+// ---------------- 读取系统参数命令 ----------------
 
 /**
  * @brief 定时返回系统参数（Y42）
@@ -482,18 +490,20 @@ void DeviceEmmV5::read_sys_params(EmmSysParam s)
 }
 
 
-/* ==================== 数据获取 ==================== */
+// ----------------
+// ---------------- 数据获取 ----------------
 
 /**
  * @brief 读取电机返回的原始响应数据
  */
 Status DeviceEmmV5::receive_raw(uint8_t *buffer, size_t size, size_t *received, uint32_t timeout)
 {
-  return _uart.receive(buffer, size, received, timeout);
+  return _uart.receive(buffer, size, timeout, received);
 }
 
 
-/* ==================== 读写驱动参数命令 ==================== */
+// ----------------
+// ---------------- 读写驱动参数命令 ----------------
 
 /**
  * @brief 修改电机ID地址
@@ -868,7 +878,8 @@ void DeviceEmmV5::modify_integral_limit(bool svF, uint32_t il)
 }
 
 
-/* ==================== 读取所有驱动参数命令 ==================== */
+// ----------------
+// ---------------- 读取所有驱动参数命令 ----------------
 
 /**
  * @brief 读取系统状态参数
@@ -898,7 +909,8 @@ void DeviceEmmV5::read_motor_conf_params()
 }
 
 
-/* ==================== 多电机命令（MMCL）成员方法 ==================== */
+// ----------------
+// ---------------- 多电机命令（MMCL）成员方法 ----------------
 
 /**
  * @brief 发送多电机命令（Y42）（实例方法）
@@ -928,7 +940,7 @@ void DeviceEmmV5::send_multi_motor_cmd(uint8_t addr)
   _mmcl_buf[4 + _mmcl_count] = EMMV5_CHECKSUM;
 
   // 通过本实例的 UART 发送
-  _uart.send(_mmcl_buf, len, nullptr, 0);
+  _uart.send(_mmcl_buf, len, 0, nullptr);
 
   _mmcl_count = 0; // 发送后清空缓冲区
 }
@@ -943,7 +955,8 @@ void DeviceEmmV5::mmcl_clear()
 }
 
 
-/* ==================== MMCL 触发动作命令 ==================== */
+// ----------------
+// ---------------- MMCL 触发动作命令 ----------------
 
 void DeviceEmmV5::mmcl_trig_encoder_cal()
 {
@@ -1000,7 +1013,8 @@ void DeviceEmmV5::mmcl_restore_motor()
 }
 
 
-/* ==================== MMCL 运动控制命令 ==================== */
+// ----------------
+// ---------------- MMCL 运动控制命令 ----------------
 
 void DeviceEmmV5::mmcl_en_control(bool state, bool snF)
 {
@@ -1093,7 +1107,8 @@ void DeviceEmmV5::mmcl_synchronous_motion()
 }
 
 
-/* ==================== MMCL 原点回零命令 ==================== */
+// ----------------
+// ---------------- MMCL 原点回零命令 ----------------
 
 void DeviceEmmV5::mmcl_origin_set_o(bool svF)
 {
@@ -1173,7 +1188,8 @@ void DeviceEmmV5::mmcl_origin_modify_sl_rp(bool svF, uint16_t sl_rp)
 }
 
 
-/* ==================== MMCL 读取系统参数命令 ==================== */
+// ----------------
+// ---------------- MMCL 读取系统参数命令 ----------------
 
 void DeviceEmmV5::mmcl_auto_return_sys_params_timed(EmmSysParam s, uint16_t time_ms)
 {
@@ -1200,9 +1216,8 @@ void DeviceEmmV5::mmcl_read_sys_params(EmmSysParam s)
 }
 
 
-/* ==================================================================
- *  接收与到位检测
- * ================================================================== */
+// ----------------
+// ---------------- 接收与到位检测 ----------------
 
 /**
  * @brief 扫描缓冲中是否存在"到位返回帧"（地址 + 0xFD 0x9F 0x6B）
@@ -1252,9 +1267,8 @@ bool DeviceEmmV5::feed_rx(const uint8_t *data, size_t n)
 }
 
 
-/* ==================================================================
- *  到位信号量绑定
- * ================================================================== */
+// ----------------
+// ---------------- 到位信号量绑定 ----------------
 
 /**
  * @brief 绑定到位信号量（device_cfg 初始化时调用）
@@ -1266,14 +1280,13 @@ void DeviceEmmV5::set_in_pos_sem(SemaphoreHandle_t sem)
 }
 
 
-/* ==================================================================
- *  静态实例注册表（仿 BspUart）
- * ================================================================== */
+// ----------------
+// ---------------- 静态实例注册表（仿 BspUart） ----------------
 
 /**
  * @brief 构造时注册实例到注册表
  */
-Status DeviceEmmV5::register_instance()
+Status DeviceEmmV5::_register_instance()
 {
   if (_instance_count >= MAX_INSTANCES)
   {
@@ -1295,12 +1308,11 @@ DeviceEmmV5 *DeviceEmmV5::get_instance_by_index(size_t i)
 }
 
 
-/* ==================================================================
- *  统一到位接收任务 —— 每路电机一个任务，统一入口（arg = this）
- *
- *  到位返回帧: 地址 + 0xFD 0x9F 0x6B（4 字节）
- *  检测到后 give 本实例绑定的到位信号量（device_cfg 中 set_in_pos_sem）
- * ================================================================== */
+// ----------------
+// ---------------- 统一到位接收任务 ----------------
+//  每路电机一个任务，统一入口（arg = this）
+//  到位返回帧: 地址 + 0xFD 0x9F 0x6B（4 字节）
+//  检测到后 give 本实例绑定的到位信号量（device_cfg 中 set_in_pos_sem）
 
 void DeviceEmmV5::rx_task_entry(void *arg)
 {
@@ -1321,11 +1333,9 @@ void DeviceEmmV5::rx_task_entry(void *arg)
 }
 
 
-/* ==================================================================
- *  创建到位接收任务（device_init 调用）
- *
- *  任务栈 256 words (1KB)，优先级 idle+5（与电机搬运任务同级）
- * ================================================================== */
+// ----------------
+// ---------------- 创建到位接收任务（device_init 调用） ----------------
+//  任务栈 256 words (1KB)，优先级 idle+5（与电机搬运任务同级）
 
 void DeviceEmmV5::create_rx_tasks()
 {
@@ -1336,3 +1346,5 @@ void DeviceEmmV5::create_rx_tasks()
     xTaskCreate(rx_task_entry, name, 256, _instances[i], tskIDLE_PRIORITY + 5, NULL);
   }
 }
+
+// ----------------

@@ -16,7 +16,7 @@
 #include "protocol_cfg.hpp"
 
 /* Service */
-#include "can_tx_node.hpp"
+#include "can_bus.hpp"
 #include "status.hpp"
 
 /* 任务声明 */
@@ -24,10 +24,7 @@
 #include "app_test.hpp"
 
 
-/* ==================== 全局变量定义 ==================== */
-
-///< 菜单信号量数组（3 个，menu 模块长按触发，由 api_main 统一创建）
-SemaphoreHandle_t menu_sem[3];
+// ---------------- 全局变量定义 ----------------
 
 /* C620/M3508 CAN1 实机测试诊断量（可在调试器 Live Watch 中查看） */
 volatile Status   can1_statu                = Status::NOT_INIT;
@@ -53,27 +50,23 @@ volatile uint32_t can1_bus_off              = 0;
  *       用于创建FreeRTOS任务和初始化外设驱动
  *
  *       初始化顺序：
- *         1. 统一创建信号量（必须在创建任何任务之前！）
+ *         1. 初始化系统状态标志
  *         2. bsp_init()     —— 外设 BSP 初始化
- *         3. device_init()  —— 设备层初始化
- *         4. protocol_init()—— 协议层初始化
- *         5. ...
+ *         3. can_bus_init() —— CAN 总线初始化（回退缓冲）
+ *         4. device_init()  —— 设备层初始化
+ *         5. protocol_init()—— 协议层初始化
+ *         6. ...
  */
 void all_init()
 {
-  // 初始化错误记录信号量
-  configASSERT(SysFlagInit() == Status::OK);
-
-  // 创建信号量
-  for (int i = 0; i < 3; i++)
-  {
-    // 菜单信号量
-    menu_sem[i] = xSemaphoreCreateBinary();
-    configASSERT(menu_sem[i] != nullptr);
-  }
+  // 初始化系统状态标志
+  configASSERT(sys_flag_init() == Status::OK);
 
   /* 初始化BSP设备 */
   bsp_init();
+
+  /* 初始化 CAN 总线（须在 bsp_init() 之后） */
+  configASSERT(can_bus_init() == Status::OK);
 
   /* 初始化设备 */
   device_init();
@@ -84,6 +77,8 @@ void all_init()
 #if APP_TEST_DJI_MOTOR_ENABLED
   // 注册必须早于运行标志，接收任务等待初始化完成后开始轮询。
   dji_motor_test_init();
+
+// ----------------
 #endif
 
 #if APP_TEST_CAN_RECOVERY_ENABLED
@@ -94,14 +89,6 @@ void all_init()
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
   configASSERT(xTaskCreate(can_rx_task, "can_rx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
   configASSERT(xTaskCreate(can_tx_task, "can_tx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
-
-  /* 菜单任务（LCD 菜单 + 按键，事件转发给 menu 模块；优先级最高） */
-  configASSERT(xTaskCreate(task_menu, "t_menu", 2048, NULL, tskIDLE_PRIORITY + 6, NULL) == pdPASS);
-
-  /* 菜单消息测试任务（3 个，各阻塞等待 menu_sem） */
-  configASSERT(xTaskCreate(msg_task_task1, "m_tsk1", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
-  configASSERT(xTaskCreate(msg_task_task2, "m_tsk2", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
-  configASSERT(xTaskCreate(msg_task_task3, "m_tsk3", 256, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
 
 #if APP_TEST_CAN_RECOVERY_ENABLED
   configASSERT(xTaskCreate(can_recovery_test_task, "can_fault", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
@@ -143,7 +130,11 @@ void all_init()
                            NULL) == pdPASS);
 #endif
 
-  SysCompleteInit();
+#if APP_TEST_DWT_ENABLED
+  configASSERT(xTaskCreate(dwt_test_task, "dwt_test", 512, NULL, tskIDLE_PRIORITY + 3, NULL) == pdPASS);
+#endif
+
+  sys_complete_init();
 
 }
 
@@ -177,6 +168,6 @@ extern "C" void StartDefaultTask(void *argument)
     uart_transport_test_step(); // USART1 收发测试：回显 + 周期心跳
 #endif
 
-    osDelay(1);
+    vTaskDelay(pdMS_TO_TICKS(1U));
   }
 }

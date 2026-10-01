@@ -7,6 +7,7 @@
  *        目前除了串口的模板实例化需要在 bsp_uart.cpp 中定义，其他 BSP 全局实例化都在 bsp_cfg.cpp 中定义。
  *        当前已初始化的外设一览：
  *
+ *        ✅ DWT        → bsp_dwt.init()       [内核 CYCCNT 计时，无外设；供其它驱动记时间戳]
  *        ✅ CAN1/2/3   → bsp_can1/2/3.init()  [Message Buffer 收发]
  *        ✅ USART1     → bsp_uart1.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ USART3     → bsp_uart3.init()     [IDLE RX DMA + FreeRTOS stream buffer]
@@ -23,6 +24,9 @@
  */
 void bsp_init()
 {
+  // ── DWT 计时（内核 CYCCNT，不依赖 FreeRTOS/中断）：最先初始化，供其它驱动记时间戳 ──
+  bsp_dwt.init();
+
   // ── FreeRTOS 驱动的 CAN ──
   bsp_can1.init();
   bsp_can2.init();
@@ -42,11 +46,23 @@ void bsp_init()
   key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U}); // 200ms×1 消抖, 200ms×5=1s 长按
 
   // ── 蜂鸣器（TIM12 CH2 PB15 PWM 无源蜂鸣器）──
-  bsp_buzzer.init({&htim12, TIM_CHANNEL_2, 6000000UL, 3000UL, 50, 20000, 80, 400, 100});
+  // 构造时已完成配置（BspBuzzer::Config 默认值即本板参数），没有 init()
 }
 
 
-/* ==================== CAN ==================== */
+// ---------------- DWT ----------------
+
+/**
+ * @brief 全局实例化
+ *
+ * @note 无配置项（CPU 频率由 init() 从 RCC 读出），全局只需要一个实例；
+ *       供 delta_s()/time_s()/delay_us() 等使用，详见 bsp_dwt.hpp。
+ */
+BspDwt bsp_dwt;
+
+
+// ----------------
+// ---------------- CAN ----------------
 
 /**
  * @brief 全局实例化
@@ -59,7 +75,8 @@ BspCan bsp_can2({&hfdcan2, "CAN2"});
 BspCan bsp_can3({&hfdcan3, "CAN3"});
 
 
-/* ==================== UART 但模板实例化需要在BspUart中实现 ==================== */
+// ----------------
+// ---------------- UART 但模板实例化需要在BspUart中实现 ----------------
 
 /**
  * @brief 全局实例化
@@ -79,7 +96,8 @@ __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true});
 
 
-/* ==================== GPIO 输出引脚 ==================== */
+// ----------------
+// ---------------- GPIO 输出引脚 ----------------
 
 ///< 电源控制
 BspGpio power_24v_2({POWER_24V_2_GPIO_Port, POWER_24V_2_Pin}); // PC13
@@ -100,22 +118,27 @@ BspGpio lcd_res({LCD_RES_GPIO_Port, LCD_RES_Pin}); // PB11
 BspGpio lcd_dc({LCD_DC_GPIO_Port, LCD_DC_Pin});    // PD10
 
 
-/* ==================== 蜂鸣器 ==================== */
+// ----------------
+// ---------------- 蜂鸣器 ----------------
 
 ///< TIM12 CH2 (PB15) PWM 无源蜂鸣器
 BspBuzzer bsp_buzzer;
 
 
-/* ==================== 按键 ==================== */
+// ----------------
+// ---------------- 按键 ----------------
 
 ///< 用户按键 PA15, 低有效
 BspKey key_user;
 
 
-/* ==================== USB ==================== */
+// ----------------
+// ---------------- USB ----------------
 
 /**
  * @brief USB BSP 全局单例引用定义。
  *
  */
 BspUsb &bsp_usb = BspUsb::instance();
+
+// ----------------

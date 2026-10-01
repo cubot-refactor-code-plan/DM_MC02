@@ -74,7 +74,7 @@ DataPack::DataPack(const Config& cfg) :
  */
 DataPack::~DataPack()
 {
-  clear_data();
+  _clear_data();
   _data_source_length      = 0;
   _data_pack_source_length = 0;
 }
@@ -82,7 +82,7 @@ DataPack::~DataPack()
 /**
  * @brief 清空内部缓存数据。
  */
-void DataPack::clear_data()
+void DataPack::_clear_data()
 {
   memset(_data, 0, sizeof(_data));
   _data_length          = 0;
@@ -95,7 +95,7 @@ void DataPack::clear_data()
  * @param type 变量类型。
  * @return Status 添加结果。
  */
-Status DataPack::link_data_entry(void* addr, VarType type)
+Status DataPack::_link_data_entry(void* addr, VarType type)
 {
   if (addr == nullptr)
   {
@@ -114,7 +114,7 @@ Status DataPack::link_data_entry(void* addr, VarType type)
 #define DATA_PACK_LINK_IMPL(_ctype, _vartype)      \
   Status DataPack::link_data(_ctype* data_source)  \
   {                                                \
-    return link_data_entry(data_source, _vartype); \
+    return _link_data_entry(data_source, _vartype); \
   }
 
 DATA_PACK_LINK_IMPL(uint8_t, VarType::UINT8)
@@ -132,7 +132,7 @@ DATA_PACK_LINK_IMPL(double, VarType::DOUBLE)
 
 Status DataPack::link_data(const char* str)
 {
-  return link_data_entry(const_cast<char*>(str), VarType::STRING);
+  return _link_data_entry(const_cast<char*>(str), VarType::STRING);
 }
 
 /**
@@ -173,7 +173,7 @@ Status DataPack::link_data_pack(DataPack* pack_source)
  */
 Status DataPack::get_data()
 {
-  clear_data();
+  _clear_data();
 
   for (uint32_t i = 0; i < _data_source_length; ++i)
   {

@@ -5,7 +5,7 @@
 #include <string.h>
 
 
-/* ==================== 构造函数与析构函数 ==================== */
+// ---------------- 构造函数与析构函数 ----------------
 
 /**
  * @brief 构造函数
@@ -35,7 +35,8 @@ DmImu::~DmImu()
 }
 
 
-/* ==================== 公共接口实现 ==================== */
+// ----------------
+// ---------------- 公共接口实现 ----------------
 
 /**
  * @brief 初始化IMU
@@ -61,7 +62,7 @@ Status DmImu::init()
  * @param reg_id 寄存器ID
  * @param data 写入数据
  */
-void DmImu::write_register(RegId reg_id, uint32_t data)
+void DmImu::_write_register(RegId reg_id, uint32_t data)
 {
   uint8_t buf[8] = {0xCC, static_cast<uint8_t>(reg_id), CMD_WRITE, 0xDD, 0, 0, 0, 0};
   memcpy(buf + 4, &data, 4);
@@ -74,7 +75,7 @@ void DmImu::write_register(RegId reg_id, uint32_t data)
  * @brief 读寄存器
  * @param reg_id 寄存器ID
  */
-void DmImu::read_register(RegId reg_id)
+void DmImu::_read_register(RegId reg_id)
 {
   uint8_t buf[8] = {0xCC, static_cast<uint8_t>(reg_id), CMD_READ, 0xDD, 0, 0, 0, 0};
 
@@ -87,7 +88,7 @@ void DmImu::read_register(RegId reg_id)
  */
 void DmImu::reboot()
 {
-  write_register(RegId::REBOOT_IMU, 0);
+  _write_register(RegId::REBOOT_IMU, 0);
 }
 
 
@@ -96,7 +97,7 @@ void DmImu::reboot()
  */
 void DmImu::accel_calibration()
 {
-  write_register(RegId::ACCEL_CALI, 0);
+  _write_register(RegId::ACCEL_CALI, 0);
 }
 
 
@@ -105,7 +106,7 @@ void DmImu::accel_calibration()
  */
 void DmImu::gyro_calibration()
 {
-  write_register(RegId::GYRO_CALI, 0);
+  _write_register(RegId::GYRO_CALI, 0);
 }
 
 
@@ -115,7 +116,7 @@ void DmImu::gyro_calibration()
  */
 void DmImu::change_com_port(ImuComPort port)
 {
-  write_register(RegId::CHANGE_COM, static_cast<uint8_t>(port));
+  _write_register(RegId::CHANGE_COM, static_cast<uint8_t>(port));
 }
 
 
@@ -125,7 +126,7 @@ void DmImu::change_com_port(ImuComPort port)
  */
 void DmImu::set_active_mode_delay(uint32_t delay)
 {
-  write_register(RegId::SET_DELAY, delay);
+  _write_register(RegId::SET_DELAY, delay);
 }
 
 
@@ -134,7 +135,7 @@ void DmImu::set_active_mode_delay(uint32_t delay)
  */
 void DmImu::change_to_active()
 {
-  write_register(RegId::CHANGE_ACTIVE, 1);
+  _write_register(RegId::CHANGE_ACTIVE, 1);
 }
 
 
@@ -143,7 +144,7 @@ void DmImu::change_to_active()
  */
 void DmImu::change_to_request()
 {
-  write_register(RegId::CHANGE_ACTIVE, 0);
+  _write_register(RegId::CHANGE_ACTIVE, 0);
 }
 
 
@@ -153,7 +154,7 @@ void DmImu::change_to_request()
  */
 void DmImu::set_baud(ImuBaudrate baud)
 {
-  write_register(RegId::SET_BAUD, static_cast<uint8_t>(baud));
+  _write_register(RegId::SET_BAUD, static_cast<uint8_t>(baud));
 }
 
 
@@ -163,7 +164,7 @@ void DmImu::set_baud(ImuBaudrate baud)
  */
 void DmImu::set_can_id(uint8_t can_id)
 {
-  write_register(RegId::SET_CAN_ID, can_id);
+  _write_register(RegId::SET_CAN_ID, can_id);
 }
 
 
@@ -173,7 +174,7 @@ void DmImu::set_can_id(uint8_t can_id)
  */
 void DmImu::set_mst_id(uint8_t mst_id)
 {
-  write_register(RegId::SET_MST_ID, mst_id);
+  _write_register(RegId::SET_MST_ID, mst_id);
 }
 
 
@@ -182,7 +183,7 @@ void DmImu::set_mst_id(uint8_t mst_id)
  */
 void DmImu::save_parameters()
 {
-  write_register(RegId::SAVE_PARAM, 0);
+  _write_register(RegId::SAVE_PARAM, 0);
 }
 
 
@@ -191,7 +192,7 @@ void DmImu::save_parameters()
  */
 void DmImu::restore_settings()
 {
-  write_register(RegId::RESTORE_SETTING, 0);
+  _write_register(RegId::RESTORE_SETTING, 0);
 }
 
 
@@ -200,7 +201,7 @@ void DmImu::restore_settings()
  */
 void DmImu::request_euler()
 {
-  read_register(RegId::EULER_DATA);
+  _read_register(RegId::EULER_DATA);
 }
 
 
@@ -209,7 +210,7 @@ void DmImu::request_euler()
  */
 void DmImu::request_quat()
 {
-  read_register(RegId::QUAT_DATA);
+  _read_register(RegId::QUAT_DATA);
 }
 
 
@@ -261,7 +262,8 @@ void DmImu::set_imu_data(const ImuData& data)
 }
 
 
-/* ==================== 私有辅助函数实现 ==================== */
+// ----------------
+// ---------------- 私有辅助函数实现 ----------------
 
 /**
  * @brief 浮点数转整数
@@ -272,7 +274,7 @@ void DmImu::set_imu_data(const ImuData& data)
  * @param bits 位数
  * @return int 转换后的整数
  */
-int DmImu::float_to_int(float value, float min, float max, int bits)
+int DmImu::_float_to_int(float value, float min, float max, int bits)
 {
   /* 将浮点数按给定范围与位数映射到整数 */
   float span   = max - min;
@@ -290,7 +292,7 @@ int DmImu::float_to_int(float value, float min, float max, int bits)
  * @param bits 位数
  * @return float 转换后的浮点数
  */
-float DmImu::uint_to_float(int value, float min, float max, int bits)
+float DmImu::_uint_to_float(int value, float min, float max, int bits)
 {
   /* 将整数按给定范围与位数映射回浮点数 */
   float span   = max - min;
@@ -303,7 +305,7 @@ float DmImu::uint_to_float(int value, float min, float max, int bits)
  * @brief 更新欧拉角数据
  * @param data 数据数组引用
  */
-void DmImu::update_euler(const uint8_t (&data)[8])
+void DmImu::_update_euler(const uint8_t (&data)[8])
 {
   int16_t euler[3];
 
@@ -316,9 +318,9 @@ void DmImu::update_euler(const uint8_t (&data)[8])
     xSemaphoreTake(_data_mutex_handle, portMAX_DELAY);
   }
 
-  _imu_data.pitch = uint_to_float(euler[0], PITCH_CAN_MIN, PITCH_CAN_MAX, 16);
-  _imu_data.yaw   = uint_to_float(euler[1], YAW_CAN_MIN, YAW_CAN_MAX, 16);
-  _imu_data.roll  = uint_to_float(euler[2], ROLL_CAN_MIN, ROLL_CAN_MAX, 16);
+  _imu_data.pitch = _uint_to_float(euler[0], PITCH_CAN_MIN, PITCH_CAN_MAX, 16);
+  _imu_data.yaw   = _uint_to_float(euler[1], YAW_CAN_MIN, YAW_CAN_MAX, 16);
+  _imu_data.roll  = _uint_to_float(euler[2], ROLL_CAN_MIN, ROLL_CAN_MAX, 16);
 
   /* 退出临界区：释放互斥锁并恢复中断 */
   if (_data_mutex_handle != nullptr)
@@ -332,7 +334,7 @@ void DmImu::update_euler(const uint8_t (&data)[8])
  * @brief 更新四元数数据
  * @param data 数据数组引用
  */
-void DmImu::update_quaternion(const uint8_t (&data)[8])
+void DmImu::_update_quaternion(const uint8_t (&data)[8])
 {
   int w = data[1] << 6 | ((data[2] & 0xF8) >> 2);
   int x = (data[2] & 0x03) << 12 | (data[3] << 4) | ((data[4] & 0xF0) >> 4);
@@ -344,10 +346,10 @@ void DmImu::update_quaternion(const uint8_t (&data)[8])
     xSemaphoreTake(_data_mutex_handle, portMAX_DELAY);
   }
 
-  _imu_data.q[0] = uint_to_float(w, QUATERNION_MIN, QUATERNION_MAX, 14);
-  _imu_data.q[1] = uint_to_float(x, QUATERNION_MIN, QUATERNION_MAX, 14);
-  _imu_data.q[2] = uint_to_float(y, QUATERNION_MIN, QUATERNION_MAX, 14);
-  _imu_data.q[3] = uint_to_float(z, QUATERNION_MIN, QUATERNION_MAX, 14);
+  _imu_data.q[0] = _uint_to_float(w, QUATERNION_MIN, QUATERNION_MAX, 14);
+  _imu_data.q[1] = _uint_to_float(x, QUATERNION_MIN, QUATERNION_MAX, 14);
+  _imu_data.q[2] = _uint_to_float(y, QUATERNION_MIN, QUATERNION_MAX, 14);
+  _imu_data.q[3] = _uint_to_float(z, QUATERNION_MIN, QUATERNION_MAX, 14);
 
   /* 退出临界区：释放互斥锁并恢复中断 */
   if (_data_mutex_handle != nullptr)
@@ -368,10 +370,12 @@ void DmImu::on_can_message(const CanRxMsg& rx_msg)
 {
   if (rx_msg.data[0] == 0x03)
   {
-    update_euler(rx_msg.data);
+    _update_euler(rx_msg.data);
   }
   else if (rx_msg.data[0] == 0x04)
   {
-    update_quaternion(rx_msg.data);
+    _update_quaternion(rx_msg.data);
   }
 }
+
+// ----------------

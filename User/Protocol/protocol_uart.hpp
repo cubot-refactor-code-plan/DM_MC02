@@ -32,7 +32,7 @@
 
 /* USER CODE BEGIN */
 
-/* ==================== 外部声明 ==================== */
+// ---------------- 外部声明 ----------------
 
 template <size_t BUFFER_SIZE>
 class BspUart;
@@ -41,7 +41,7 @@ class ProtocolUart;
 /**
  * @brief 全局串口协议实例
  */
-extern ProtocolUart protocol_usart_1;
+extern ProtocolUart protocol_uart_1;
 
 /* USER CODE END */
 
@@ -71,7 +71,8 @@ typedef struct
 class ProtocolUart
 {
 private:
-  /* ==================== 私有成员变量 ==================== */
+  // ----------------
+  // ---------------- 私有成员变量 ----------------
 
   ProtocolFrame    _rx_frame;      ///< 接收用结构体
   BspUart<128>& _uart_instance; ///< 使用的串口驱动实例
@@ -83,12 +84,8 @@ private:
   uint32_t         _stack_size;    ///< 堆栈大小
   uint32_t         _priority;      ///< 任务优先级
 
-  /* ==================== 友元声明 ==================== */
-
-  friend void uart_protocol_task_entry(void* argument); ///< 友元函数，可访问私有成员
-
-
-  /* ==================== 私有成员函数 ==================== */
+  // ----------------
+  // ---------------- 私有成员函数 ----------------
 
   /**
    * @brief 计算校验和
@@ -96,16 +93,17 @@ private:
    * @param len 长度
    * @return uint8_t 校验结果
    */
-  uint8_t calculate_checksum(uint8_t* data, uint8_t len);
+  uint8_t _calculate_checksum(uint8_t* data, uint8_t len);
 
   /**
    * @brief 逻辑分发：根据指令执行具体动作
    */
-  void protocol_handle_cmd();
+  void _protocol_handle_cmd();
 
 
 public:
-  /* ==================== 构造函数与析构函数 ==================== */
+  // ----------------
+  // ---------------- 构造函数与析构函数 ----------------
 
   /**
    * @brief 协议配置结构体（可匿名按序传入）
@@ -138,13 +136,23 @@ public:
   ProtocolUart(const Config &cfg);
 
 
-  /* ==================== 公共接口 ==================== */
+  // ----------------
+  // ---------------- 公共接口 ----------------
 
   /**
    * @brief 协议处理初始化（创建协议解析任务）
    * @return Status OK=任务创建成功，IO_ERROR=任务创建失败
    */
   Status init();
+
+  /**
+   * @brief 协议解析任务主体：按帧头帧尾同步、校验和验证，通过后分发指令
+   *
+   * @note 内部是死循环（阻塞在串口读上），且不返回；只由 init() 创建出来的
+   *       协议任务调用（C 入口 uart_protocol_task_entry 做一次类型转换后转发）。
+   *       类外代码请用 send() / get_rx_*() 交互，无需也不可能直接碰私有成员。
+   */
+  void task();
 
   /**
    * @brief 发送协议数据包给上位机
@@ -181,7 +189,9 @@ public:
   {
     return _rx_frame.data;
   }
+
+  // ----------------
 };
 
 
-#endif // __PROTOCOL_USART_HPP__
+#endif // __PROTOCOL_UART_HPP__

@@ -112,7 +112,7 @@ private:
   static DataFormat _data_format;
 
   /** @brief 清空缓存数据并复位长度。 */
-  void clear_data();
+  void _clear_data();
 
   /**
    * @brief 添加一个数据源条目。
@@ -120,7 +120,7 @@ private:
    * @param type 变量类型。
    * @return Status 添加结果。
    */
-  Status link_data_entry(void* addr, VarType type);
+  Status _link_data_entry(void* addr, VarType type);
 
 public:
   /** @brief 析构函数。 */
