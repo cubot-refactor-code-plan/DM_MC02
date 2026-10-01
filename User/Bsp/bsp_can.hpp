@@ -166,7 +166,7 @@ public:
    *
    * @note Bus-Off 期间直接返回：此时帧只能写进硬件 FIFO、发不到总线上，
    *       计入恢复次数会让诊断量虚高并堆满 FIFO；总线恢复交给 service_recovery()。
-   * @note 非阻塞（取锁等待为 0），可在周期任务中调用（sys_task 1 ms）。
+   * @note 非阻塞（取锁等待为 0），可在周期任务中调用（sys_task 10 ms）。
    */
   bool tx_recover();
 
@@ -178,7 +178,7 @@ public:
    * @note 不重新初始化外设、不清 message RAM，也不动软件收发缓冲：
    *       先请硬件自行恢复（清 CCCR.INIT 后等 129×11 个隐性位），
    *       同时请求取消硬件里未发出的旧帧，避免恢复瞬间把过期控制帧发出去。
-   * @note 由 sys_task 周期调用，1 ms 一次。
+   * @note 由 sys_task 周期调用，10 ms 一次。
    */
   Status service_recovery();
 

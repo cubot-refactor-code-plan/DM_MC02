@@ -38,10 +38,11 @@ Online *Online::_head = nullptr;
 Online *Online::_tail = nullptr;
 
 
-Online::Online(uint16_t timeout_gap) : _cnt(timeout_gap == 0U ? 1U : timeout_gap),
-                                       _timeout_gap(timeout_gap == 0U ? 1U : timeout_gap),
-                                       _statu(Status::TIMEOUT),
-                                       _next(nullptr)
+Online::Online(uint16_t timeout_gap) :
+  _last_refresh_tick(xTaskGetTickCount() - pdMS_TO_TICKS(timeout_gap == 0U ? 1U : timeout_gap)),
+  _timeout_gap(timeout_gap == 0U ? 1U : timeout_gap),
+  _statu(Status::TIMEOUT),
+  _next(nullptr)
 {
   const ScopedTaskCritical lock;
   if (_tail == nullptr)
@@ -93,8 +94,8 @@ Online::~Online()
 Status Online::refresh_task(void)
 {
   const ScopedTaskCritical lock;
-  _cnt   = 0U;
-  _statu = Status::OK;
+  _last_refresh_tick = xTaskGetTickCount();
+  _statu             = Status::OK;
   return Status::OK;
 }
 
@@ -102,7 +103,7 @@ Status Online::refresh_task(void)
 Status Online::refresh_isr(void)
 {
   const UBaseType_t interrupt_mask = taskENTER_CRITICAL_FROM_ISR();
-  _cnt                             = 0U;
+  _last_refresh_tick               = xTaskGetTickCountFromISR();
   _statu                           = Status::OK;
   taskEXIT_CRITICAL_FROM_ISR(interrupt_mask);
   return Status::OK;
@@ -120,15 +121,14 @@ Status Online::is_online(void) const
 Status Online::update(void)
 {
   const ScopedTaskCritical lock;
+  const TickType_t        now = xTaskGetTickCount();
 
   for (Online *item = _head; item != nullptr; item = item->_next)
   {
-    if (item->_cnt < UINT16_MAX)
-    {
-      ++item->_cnt;
-    }
-
-    item->_statu = (item->_cnt >= item->_timeout_gap) ? Status::TIMEOUT : Status::OK;
+    // 无符号差值，tick 回绕安全
+    const bool timed_out =
+      (now - item->_last_refresh_tick) >= pdMS_TO_TICKS(item->_timeout_gap);
+    item->_statu = timed_out ? Status::TIMEOUT : Status::OK;
   }
 
   return Status::OK;

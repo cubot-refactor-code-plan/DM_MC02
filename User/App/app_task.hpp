@@ -20,8 +20,10 @@ extern "C"
 #endif
 
   /**
-   * @brief 系统级 1 kHz 维护任务，当前负责推进全部 Online 对象的离线计时
+   * @brief 系统级周期维护任务（10 ms）：CAN / UART 的补救巡检 + Online 离线计时
    * @param argument 任务参数（未使用，NULL）
+   * @note CAN 的正常收发由 can_rx_task / can_tx_task 以 1 kHz 负责，本任务只做 10 ms
+   *       级的补救：补丢唤醒的发送、Bus-Off 恢复、串口收发通道重建。
    * @note 由 all_init() 创建，不应由业务代码直接调用。
    */
   void sys_task(void *argument);

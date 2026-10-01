@@ -22,18 +22,20 @@ extern "C" void online_check_test_task(void *argument)
   (void)argument; // 测试任务不需要外部参数。
 
   {
-    Online probe(4U);
+    // 阈值 20 ms。状态由 sys_task（10 ms 一拍）锁存，所以等待时间取
+    // "阈值 + 2 个任务周期"，保证至少有一次 update() 能覆盖到超时时刻。
+    Online probe(20U);
     online_check_test_stage          = 1U;
     online_check_test_initial_status = probe.is_online();
 
     online_check_test_refresh_status = probe.refresh_task();
     online_check_test_stage          = 2U;
 
-    vTaskDelay(pdMS_TO_TICKS(1U));
+    vTaskDelay(pdMS_TO_TICKS(5U)); // 5 ms < 20 ms，仍在线
     online_check_test_before_timeout_status = probe.is_online();
     online_check_test_stage                 = 3U;
 
-    vTaskDelay(pdMS_TO_TICKS(5U));
+    vTaskDelay(pdMS_TO_TICKS(40U)); // 累计 45 ms > 20 ms，且跨越多次 update()
     online_check_test_after_timeout_status = probe.is_online();
     online_check_test_stage                = 4U;
 

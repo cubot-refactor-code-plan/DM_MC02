@@ -8,10 +8,11 @@
  * @copyright Copyright (c) 2026
  *
  * @details 每个 Online 对象作为一个节点自动注册到内部链表。设备收到有效数据时，
- *          根据调用上下文执行 refresh_task() 或 refresh_isr()；系统以固定 1 kHz
- *          调用 update()，累计各对象距上次刷新的时间并更新在线状态。
+ *          根据调用上下文执行 refresh_task() 或 refresh_isr()；周期任务调用
+ *          update()（当前为 sys_task，10 ms 一次），按 tick 差值更新在线状态。
  *
- * @note timeout_gap 的单位是 update() 调用次数；在 1 kHz 更新频率下等价于毫秒。
+ * @note timeout_gap 的单位是毫秒，与 update() 的调用周期无关；调用周期只决定
+ *       离线判定的延迟上限，应不大于最小的 timeout_gap。
  * @warning refresh_isr()、update() 及对象构造/析构可能并发访问状态或链表，
  *          实现时必须使用与调用上下文匹配的临界区保护。
  * @note 饱和离线计时、链表维护及任务/ISR 同步逻辑实现在 online_check.cpp。
@@ -19,6 +20,7 @@
 #ifndef __SERVICE_ONLINE_CHECK_HPP__
 #define __SERVICE_ONLINE_CHECK_HPP__
 
+#include "FreeRTOS.h" // IWYU pragma: keep (TickType_t / pdMS_TO_TICKS)
 #include "status.hpp"
 
 #include <stdint.h>
@@ -32,9 +34,9 @@
 class Online
 {
 private:
-  uint16_t _cnt;         ///< 距上次有效刷新的 update() 次数；实现时必须饱和递增
-  uint16_t _timeout_gap; ///< 离线判定阈值，单位为 update() 调用次数
-  Status   _statu;       ///< Status::OK 表示在线，Status::TIMEOUT 表示离线
+  TickType_t _last_refresh_tick; ///< 上次有效刷新的 tick；更新时间点见 update()
+  uint16_t   _timeout_gap;       ///< 离线判定阈值，单位：毫秒
+  Status     _statu;             ///< Status::OK 表示在线，Status::TIMEOUT 表示离线
 
   Online        *_next; ///< 内部单向链表的后继节点
   static Online *_head; ///< 在线检查链表头
@@ -44,10 +46,9 @@ public:
   /**
    * @brief 构造在线检查节点并注册到内部链表
    *
-   * @param timeout_gap 连续多少次 update() 未刷新后判定离线，默认 30；
-   *                    在 1 kHz 更新频率下即 30 ms
+   * @param timeout_gap 距上次有效刷新超过多少毫秒判定离线，默认 30
    *
-   * @note 新对象初始状态为 Status::TIMEOUT。
+   * @note 新对象初始状态为 Status::TIMEOUT，视为已超时；收到第一帧有效数据后转为在线。
    */
   Online(uint16_t timeout_gap = 30);
 
@@ -80,7 +81,8 @@ public:
   /**
    * @brief 推进全部在线检查节点的离线计时
    * @return Status::OK 遍历完成；其他状态表示内部链表异常。
-   * @note 应由单一任务以固定 1 kHz 频率调用，不能在 ISR 中调用。
+   * @note 应由单一周期任务调用（当前为 sys_task，10 ms 一次），不能在 ISR 中调用；
+   *       判据是距上次刷新的毫秒数，因此调用周期只影响判定的延迟。
    */
   static Status update(void);
 

@@ -85,7 +85,7 @@ void all_init()
   can_recovery_test_init();
 #endif
 
-  /* 系统维护与 CAN 发送任务（均为 1 kHz，CAN 发送优先级更高） */
+  /* 系统维护任务（10 ms）与 CAN 收发任务（1 kHz，优先级更高） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
   configASSERT(xTaskCreate(can_rx_task, "can_rx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
   configASSERT(xTaskCreate(can_tx_task, "can_tx", 512, NULL, tskIDLE_PRIORITY + 8, NULL) == pdPASS);
