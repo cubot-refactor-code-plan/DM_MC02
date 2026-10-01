@@ -42,6 +42,8 @@ TODO：实机测试部分已存在，但不完善、可读性不足。
 
 开发文档总入口（AI 开发必读）：[Docs/README.md](Docs/README.md)
 
+`origin/main` 之后尚未推送的改动汇总（含验证状态与实机回归清单）：[CHANGELOG.md](CHANGELOG.md)
+
 | 文档 | 内容 |
 | --- | --- |
 | [项目结构](Docs/guide/项目结构.md) | 目录结构与各层职责 |
