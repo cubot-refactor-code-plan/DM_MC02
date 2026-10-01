@@ -1,6 +1,7 @@
-# 改动说明（`origin/main` 之后，共 11 个提交，尚未推送）
+# 改动说明（`origin/main` 之后，共 12 个提交，尚未推送）
 
 面向合作者：本文汇总 `origin/main` 之后本地的全部改动与验证状态，便于对比自己的分支。
+
 内容取自 `git log origin/main..HEAD`，推送后可并入正式历史。
 
 ## 1. 验证状态（先看这里）
@@ -19,7 +20,8 @@
 | **`Service/can_bus`（`CanBus` / `CanRxNode` / `CanTxNode` / `service_cfg`）** | **❌ 完全没有测试**——既没有实机测试也没有单元测试；三路 CAN 收发、按 ID 分发、回退缓冲、发送槽位调度全部未验证 |
 | Bus-Off 自动恢复的实机表现 | ❌ 未验证（只有上面的 PC 状态机测试） |
 | `dji_motor` 改用 `CanBus` + `Config` 之后 | ❌ 未实机回归（历史提交里的"已测试通过"针对旧的总线系统，不适用于现在的分层） |
-| DWT / QSPI Flash / USB / UART / Online | ❌ 本轮未跑，测试宏当前都是 0 |
+| QSPI Flash / USB / Online | ❌ 本轮未跑，测试宏当前都是 0 |
+| `sys_task` 的 10 ms 节拍与 UART 巡检、`Online` 的毫秒超时 | ❌ 未实机验证（改动前 `sys_task` 为 1 ms，`Online` 阀值按调用次数计） |
 
 结论：**这批改动只保证"能编译 + 宿主测试通过"，不保证硬件行为正确**。实机回归清单见第 5 节。
 
@@ -40,6 +42,8 @@
 
 - `dji_motor`：接收 `CanBus&` 而不是 `BspCan&`，构造参数收进 `Config`
 - `Service/status.*`：去掉 CMSIS-RTOS2，改用原生 FreeRTOS EventGroup（全工程已无 `cmsis_os2` 引用）
+- `sys_task`：周期由 1 ms 改为 **10 ms**，并把 UART 巡检（`tx_recover()` / `rx_recover()`，遍历 `bsp_cfg` 中全部串口实例）并入；CAN 的正常收发仍由 `can_rx_task` / `can_tx_task` 以 1 kHz 负责，`sys_task` 只做 10 ms 级的补救
+- `Online`：离线阈值改为**毫秒**语义（按 tick 差值判定，与 `update()` 的调用周期解耦），默认 30 ms 不变；`update()` 的调用周期只影响判定延迟
 - 新增 `User/Bsp/bsp_dwt.{hpp,cpp}`（内核 CYCCNT 计时）、`User/App/task/key_task.cpp`、`User/App/test/dwt/dwt_test.cpp`
 
 ## 3. 命名与代码规范（改动面最大，合并分支时最容易冲突）
@@ -71,7 +75,7 @@
 3. 未命中 → `CanBus::receive()` 取到
 4. 突发 256 帧 → 触发 `Status::FULL`，`diagnostics.tx_dropped` 计数
 5. 断连 → Bus-Off → `service_recovery()` 自动恢复，`bus_off_events` / `recovery_successes` 增长
-6. `sys_task` 1 kHz 不阻塞（`sys_task_loop_count` 持续推进）
+6. `sys_task` 10 ms 周期不阻塞（`sys_task_loop_count` 持续推进）
 7. Live Watch 可读 `diagnostics` 全字段
 8. `can_tx_task` 无节点时正常退出
 9. `dji_motor` 析构期 `unregist` 返回 `NOT_SUPPORTED` 的路径不变

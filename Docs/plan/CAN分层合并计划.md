@@ -228,7 +228,7 @@ extern "C" void can_tx_task(void *argument);
 3. 未命中 → `CanBus::receive()` 取到
 4. 突发 256 帧 → 触发 `Status::FULL`，`diagnostics.tx_dropped` 计数
 5. 断连 → Bus-Off → `service_recovery()` 自动恢复，`bus_off_events` / `recovery_successes` 增长
-6. `sys_task` 1 kHz 不阻塞（`sys_task_loop_count` 持续推进）
+6. `sys_task` 10 ms 周期不阻塞（`sys_task_loop_count` 持续推进）
 7. Live Watch 可读 `diagnostics` 全字段
 8. `can_tx_task` 无节点时正常退出
 9. `dji_motor` 析构运行期 `unregist` 返回 `NOT_SUPPORTED` 的路径不变

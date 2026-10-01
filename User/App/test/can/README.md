@@ -39,7 +39,8 @@ tick 回绕和未初始化状态。
 
 ## 生产行为与边界
 
-sys_task 每毫秒服务三条总线。Bus-Off 后清软件 TX/原始 RX 缓冲，取消
+sys_task 每 10 ms 服务三条总线（下面列出的实测数据是 1 ms 节拍下测得的，
+节拍放宽后恢复耗时上限会相应变大）。Bus-Off 后清软件 TX/原始 RX 缓冲，取消
 硬件 TXBRP 中的旧请求，清 CCCR.INIT 启动硬件恢复。若再次 Bus-Off，
 最短 100 ms 再尝试；没有忙等、动态分配或共享外设 RCC 复位。
 恢复过程禁止新的发送；退出 BO 且 TXBRP 清零后重新允许发送。
@@ -57,7 +58,7 @@ CAN1 / C620 ID2 / M3508，电源限流 2 A，全程零电流指令。
 - stage=8、passed=1、failure=0。
 - 29 次故障注入，完成 20 轮真实 Bus-Off 及端到端反馈恢复。
 - 共发生 259 次 Bus-Off，259 次恢复成功，271 次恢复尝试。
-- 最长恢复耗时 295 个 1 ms tick；持续故障阶段会多次重新进入 BO。
+- 最长恢复耗时 295 个 1 ms tick（当时 sys_task 为 1 ms 节拍）；持续故障阶段会多次重新进入 BO。
 - 接收积压测试产生 9 次软件溢出丢帧，然后反馈正常恢复。
 - 发送 FULL 累计 2714 次（含故障阶段积压），突发满载后反馈恢复。
 - 最终 recovering=false、CCCR.INIT=0，CAN2/3 没有恢复事件。
@@ -74,7 +75,7 @@ CAN1 / C620 ID2 / M3508，电源限流 2 A，全程零电流指令。
 - 应用与设备层一律通过 `CanBus` 收发：`bus_can1.send()` / `bus_can1.receive()`；
   直接调 `BspCan::receive()` 会与分发任务争抢同一个 MessageBuffer。
 - 恢复接口：`BspCan::service_recovery()`（Bus-Off）与 `BspCan::tx_recover()`（丢唤醒补发），
-  由 `sys_task` 每 1 ms 对三条总线各调一次。
+  由 `sys_task` 每 10 ms 对三条总线各调一次。
 - 系统状态标志改用 FreeRTOS 原生事件组，函数更名为 `sys_flag_*(...)`；
   CAN 相关 RTOS 资源统一用原生 API（`xSemaphore*` / `xMessageBuffer*`）。
 - 诊断量集中在 `BspCan::diagnostics`，新增 `rx_lost` / `rx_len_drop` / `tx_buf_full` /
