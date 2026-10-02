@@ -21,6 +21,8 @@
  *        ✅ KEY (PA15) → key_user.init(...)   [纯软件轮询消抖，无 ISR，使用rtos进行轮询：200ms轮询 → 200ms消抖, 1s长按]
  *        ✅ USB        → BspUsb::instance()   [由默认任务启动后初始化]
  *
+ *        本工程尚未封装（CubeMX 已配置）：SPI1 / I2C2 / PWM1~4 / TIM3_CH4。
+ *
  */
 void bsp_init()
 {
@@ -108,14 +110,13 @@ BspGpio power_5v({POWER_5V_GPIO_Port, POWER_5V_Pin});          // PC15
 BspGpio gyro_acc_cs({GYRO_ACC_CS_GPIO_Port, GYRO_ACC_CS_Pin});    // PC0
 BspGpio gyro_gyro_cs({GYRO_GYRO_CS_GPIO_Port, GYRO_GYRO_CS_Pin}); // PC3
 
-///< BTB 扩展 IO
-BspGpio btb_gpio({BTB_GPIO_GPIO_Port, BTB_GPIO_Pin}); // PE14
+///< SPI1 片选（原 LCD 接口改造后作 SPI1 用）
+BspGpio spi1_cs({SPI1_CS_GPIO_Port, SPI1_CS_Pin}); // PE15
 
-///< LCD 控制
-BspGpio lcd_cs({LCD_CS_GPIO_Port, LCD_CS_Pin});    // PE15
-BspGpio lcd_blk({LCD_BLK_GPIO_Port, LCD_BLK_Pin}); // PB10
-BspGpio lcd_res({LCD_RES_GPIO_Port, LCD_RES_Pin}); // PB11
-BspGpio lcd_dc({LCD_DC_GPIO_Port, LCD_DC_Pin});    // PD10
+///< BTB 扩展 IO（经反向线到二层）
+BspGpio btb_pa5({BTB_PA5_GPIO_Port, BTB_PA5_Pin});    // PA5
+BspGpio btb_pe14({BTB_PE14_GPIO_Port, BTB_PE14_Pin}); // PE14
+BspGpio btb_pd10({BTB_PD10_GPIO_Port, BTB_PD10_Pin}); // PD10
 
 
 // ----------------

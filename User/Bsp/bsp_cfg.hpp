@@ -49,18 +49,16 @@ extern BspUart<128> bsp_uart9;
 extern BspUart<128> bsp_uart10;
 
 
-///< GPIO 输出引脚（电源控制、片选等）
+///< GPIO 输出引脚（电源控制、片选、BTB 扩展）
 extern BspGpio power_24v_2;
 extern BspGpio power_24v_1;
 extern BspGpio power_5v;
 extern BspGpio gyro_acc_cs;
 extern BspGpio gyro_gyro_cs;
-extern BspGpio dcmi_pwdn;
-extern BspGpio btb_gpio;
-extern BspGpio lcd_cs;
-extern BspGpio lcd_blk;
-extern BspGpio lcd_res;
-extern BspGpio lcd_dc;
+extern BspGpio spi1_cs;
+extern BspGpio btb_pa5;
+extern BspGpio btb_pe14;
+extern BspGpio btb_pd10;
 
 
 ///< 蜂鸣器
