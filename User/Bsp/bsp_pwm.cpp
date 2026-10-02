@@ -122,7 +122,8 @@ void BspPwm::_apply_duty()
   __HAL_TIM_SET_COMPARE(_config.htim, _config.channel, ccr);
 }
 
-// ----------------
+
+// ---------------- 
 // ---------------- 查询接口 ----------------
 
 

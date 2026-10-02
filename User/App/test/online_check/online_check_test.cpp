@@ -1,13 +1,12 @@
 #include "app_test.hpp"
 
+#if APP_TEST_ONLINE_CHECK_ENABLED
+
 #include "FreeRTOS.h" // IWYU pragma: keep
 #include "online_check.hpp"
 #include "task.h"
 
 #include <stdint.h>
-
-
-#if APP_TEST_ONLINE_CHECK_ENABLED
 
 volatile uint32_t online_check_test_stage                 = 0U;
 volatile uint32_t online_check_test_passed                = 0U;
