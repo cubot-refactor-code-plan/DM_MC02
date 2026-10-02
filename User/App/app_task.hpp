@@ -14,6 +14,17 @@
 #ifndef __APP_TASK_HPP__
 #define __APP_TASK_HPP__
 
+#include "status.hpp" // Status
+
+#include <stdint.h>
+
+// ---------------- sys_task 观察变量（供调试器与测试读取） ----------------
+
+extern volatile uint32_t sys_task_loop_count;    ///< sys_task 已执行的轮数（每 10 ms +1）
+extern volatile Status   sys_task_online_status; ///< Online::update() 最近一次返回值
+extern volatile uint32_t sys_task_cycle_us_max;  ///< 单轮最大耗时（µs）
+extern volatile uint32_t sys_task_gap_ms_max;    ///< 相邻两轮唤醒间隔最大值（ms）
+
 #ifdef __cplusplus
 extern "C"
 {

@@ -94,7 +94,7 @@ BspCan bsp_can3({&hfdcan3, "CAN3"});
  * @note 这个 __attribute__((section(".dma_buffer"))) 是把他放到dtcm区域外，在.ld格式文件下实现的
  *
  */
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true,921600U});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart3({&huart3, true});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart4({&huart4, true});
 ///< UART5 仅接收：CubeMX 未配 TX DMA，发送功能关闭（transmit_enable=false）

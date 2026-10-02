@@ -42,10 +42,12 @@ TODO：实机测试部分已存在，但不完善、可读性不足。
 
 开发文档总入口（AI 开发必读）：[Docs/README.md](Docs/README.md)
 
-`origin/main` 之后尚未推送的改动汇总（含验证状态与实机回归清单）：[CHANGELOG.md](CHANGELOG.md)
+`origin/main` 之后尚未推送的改动汇总（含验证状态与实机回归清单）：[Docs/CHANGELOG.md](Docs/CHANGELOG.md)
 
 | 文档 | 内容 |
 | --- | --- |
+| [CHANGELOG](Docs/CHANGELOG.md) | 未推送改动的清单与实机验证的真实状态 |
+| [问题记录](Docs/问题记录.md) | AI 协作复盘：失实汇报、不可核查的产出、约束清单 |
 | [项目结构](Docs/guide/项目结构.md) | 目录结构与各层职责 |
 | [开发环境与烧录调试](Docs/guide/开发环境与烧录调试.md) | 环境、编译、烧写、调试、验证记录 |
 | [进度与待办](Docs/plan/进度与待办.md) | 完成情况、待办、设计取舍 |

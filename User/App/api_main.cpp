@@ -115,6 +115,14 @@ void all_init()
   configASSERT(xTaskCreate(dwt_test_task, "dwt_test", 512, NULL, tskIDLE_PRIORITY + 3, NULL) == pdPASS);
 #endif
 
+#if APP_TEST_CAN3_DEVICE_ENABLED
+  configASSERT(xTaskCreate(can3_device_test_task, "can3_test", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
+
+#if APP_TEST_CAN3_IMU_ENABLED
+  configASSERT(xTaskCreate(can3_imu_test_task, "can3_imu", 512, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
+#endif
+
   sys_complete_init();
 }
 

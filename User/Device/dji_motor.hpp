@@ -168,11 +168,13 @@ public:
            uint8_t             motor_id,
            float               ratio        = 0.0f,
            float               offset       = 0.0f,
-           DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE) : can(can),
-                                                                              motor_id(motor_id),
-                                                                              ratio(ratio),
-                                                                              offset(offset),
-                                                                              control_mode(control_mode)
+           DjiMotorControlMode control_mode = DjiMotorControlMode::VOLTAGE)
+
+      : can(can),
+        motor_id(motor_id),
+        ratio(ratio),
+        offset(offset),
+        control_mode(control_mode)
     {
     }
 

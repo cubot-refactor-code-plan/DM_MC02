@@ -41,6 +41,12 @@
 /** @brief 编译并创建 DWT 计时标定测试；设为 0 可停用。 */
 #define APP_TEST_DWT_ENABLED 0
 
+/** @brief CAN3 三设备联调自检（达妙 IMU + M2006 + GM6020）；设为 0 可停用。 */
+#define APP_TEST_CAN3_DEVICE_ENABLED 0
+
+/** @brief CAN3 达妙 IMU 自检（读探测 + 数据帧打印 + 状态监视）；设为 0 可停用。 */
+#define APP_TEST_CAN3_IMU_ENABLED 0
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -89,6 +95,26 @@ extern "C"
    * @note 校验 1 s 延时是否 ≈1.000 s（不符就是 CPU 频率算错）与 delay_ms(1) 是否 ≈0.001 s。
    */
   void dwt_test_task(void *argument);
+
+  /**
+   * @brief CAN3 两台 DJI 电机自检任务（M2006/C610 + GM6020 电流模式）
+   * @param argument 任务参数（未使用，NULL）
+   * @note 仅在 APP_TEST_CAN3_DEVICE_ENABLED 非零时创建。
+   * @note 上电保持零输出，调试器写 can3_test_arm=1 才执行一次转动测试；
+   *       写 can3_test_abort=1 随时终止；结果全在 can3_test_* 观察变量里。
+   * @warning 会真实驱动电机（M2006 给 3000 / GM6020 给 5000 原始电流，输出轴 60 rpm 硬保护），必须架空或固定。
+   */
+  void can3_device_test_task(void *argument);
+
+  /**
+   * @brief CAN3 达妙 IMU 自检任务（读探测 + CAN_ID 扫描 + 状态监视）
+   * @param argument 任务参数（未使用，NULL）
+   * @note 仅在 APP_TEST_CAN3_IMU_ENABLED 非零时创建。
+   * @note 上电发一次读探测（读操作一定有应答帧），观察 1 s；若仍离线则扫描
+   *       CAN_ID 1..127；之后只在状态变化时打印。
+   * @note 调试器写 can3_imu_test_scan=1 可随时重新扫描（模块改完配置不用重启板子）。
+   */
+  void can3_imu_test_task(void *argument);
 
   /**
    * @brief 当前 USB 类的非阻塞实机测试步骤，由 USB 服务任务每毫秒调用。
