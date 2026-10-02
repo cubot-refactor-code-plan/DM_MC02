@@ -19,9 +19,11 @@
  *        ✅ USART10    → bsp_uart10.init()    [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ GPIO       → MX_GPIO_Init()       [BspGpio 仅封装]
  *        ✅ KEY (PA15) → key_user.init(...)   [纯软件轮询消抖，无 ISR，使用rtos进行轮询：200ms轮询 → 200ms消抖, 1s长按]
+ *        ✅ PWM ×6     → bsp_pwm*.init()      [参数取自 CubeMX(PSC/ARR/时钟)，上电 0% 占空比]
  *        ✅ USB        → BspUsb::instance()   [由默认任务启动后初始化]
  *
- *        本工程尚未封装（CubeMX 已配置）：SPI1 / I2C2 / PWM1~4 / TIM3_CH4。
+ *        明确不做 BSP 封装（CubeMX 已配置，由上层或库自行使用）：
+ *          SPI1 / SPI2 / I2C2 / OCTOSPI2（QSPI_Flash 直接调 HAL）/ USART2(RS485-2)
  *
  */
 void bsp_init()
@@ -47,8 +49,13 @@ void bsp_init()
   // ── 按键（纯软件轮询消抖，200ms 轮询 → 200ms 消抖, 1s 长按）──
   key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U}); // 200ms×1 消抖, 200ms×5=1s 长按
 
-  // ── 蜂鸣器（TIM12 CH2 PB15 PWM 无源蜂鸣器）──
-  // 构造时已完成配置（BspBuzzer::Config 默认值即本板参数），没有 init()
+  // ── PWM 通道 ×6（参数取自 CubeMX；先清 CCR 再启动 → 全部上电 0% 占空比）──
+  bsp_pwm1.init();       // PE13 TIM1_CH3  排针预留（舵机）
+  bsp_pwm2.init();       // PE9  TIM1_CH1  排针预留（舵机）
+  bsp_pwm3.init();       // PA2  TIM2_CH3  排针预留（舵机）
+  bsp_pwm4.init();       // PA0  TIM2_CH1  排针预留（舵机）
+  bsp_pwm_gyro.init();   // PB1  TIM3_CH4  陀螺仪
+  bsp_pwm_buzzer.init(); // PB15 TIM12_CH2 无源蜂鸣器
 }
 
 
@@ -120,10 +127,19 @@ BspGpio btb_pd10({BTB_PD10_GPIO_Port, BTB_PD10_Pin}); // PD10
 
 
 // ----------------
-// ---------------- 蜂鸣器 ----------------
+// ---------------- PWM 通道 ----------------
 
-///< TIM12 CH2 (PB15) PWM 无源蜂鸣器
-BspBuzzer bsp_buzzer;
+///< 排针预留舵机 PWM（定时器时钟 275 MHz = APB 137.5 MHz × 2；PSC/ARR 为 CubeMX 生成值）
+BspPwm bsp_pwm1({&htim1, TIM_CHANNEL_3, 275000000UL, 24U, 10000U}); // PE13 TIM1_CH3
+BspPwm bsp_pwm2({&htim1, TIM_CHANNEL_1, 275000000UL, 24U, 10000U}); // PE9  TIM1_CH1
+BspPwm bsp_pwm3({&htim2, TIM_CHANNEL_3, 275000000UL, 24U, 10000U}); // PA2  TIM2_CH3
+BspPwm bsp_pwm4({&htim2, TIM_CHANNEL_1, 275000000UL, 24U, 10000U}); // PA0  TIM2_CH1
+
+///< 陀螺仪 PWM：TIM3_CH4 PB1
+BspPwm bsp_pwm_gyro({&htim3, TIM_CHANNEL_4, 275000000UL, 23U, 9999U});
+
+///< 无源蜂鸣器：TIM12_CH2 PB15（由 Device 层 DeviceBuzzer 驱动）
+BspPwm bsp_pwm_buzzer({&htim12, TIM_CHANNEL_2, 275000000UL, 23U, 1999U});
 
 
 // ----------------

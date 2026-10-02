@@ -1,6 +1,13 @@
 #include "device_cfg.hpp"
 
 
+// ---------------- 全局实例 ----------------
+
+///< 蜂鸣器：PWM 通道（bsp_pwm_buzzer）已由 bsp_init() 启动，这里只做绑定
+DeviceBuzzer buzzer(bsp_pwm_buzzer);
+
+
+// ----------------
 // ---------------- 初始化函数 ----------------
 
 /**

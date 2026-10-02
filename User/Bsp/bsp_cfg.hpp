@@ -11,11 +11,11 @@
 #ifndef __BSP_CFG_HPP__
 #define __BSP_CFG_HPP__
 
-#include "bsp_buzzer.hpp"
 #include "bsp_can.hpp"
 #include "bsp_dwt.hpp"
 #include "bsp_gpio.hpp"
 #include "bsp_key.hpp"
+#include "bsp_pwm.hpp"
 #include "bsp_uart.hpp"
 #include "bsp_usb.hpp"
 
@@ -61,8 +61,13 @@ extern BspGpio btb_pe14;
 extern BspGpio btb_pd10;
 
 
-///< 蜂鸣器
-extern BspBuzzer bsp_buzzer;
+///< PWM 通道（参数取自 CubeMX，上电 0% 占空比）
+extern BspPwm bsp_pwm1;       // TIM1_CH3  PE13  排针预留（舵机）
+extern BspPwm bsp_pwm2;       // TIM1_CH1  PE9   排针预留（舵机）
+extern BspPwm bsp_pwm3;       // TIM2_CH3  PA2   排针预留（舵机）
+extern BspPwm bsp_pwm4;       // TIM2_CH1  PA0   排针预留（舵机）
+extern BspPwm bsp_pwm_gyro;   // TIM3_CH4  PB1   陀螺仪
+extern BspPwm bsp_pwm_buzzer; // TIM12_CH2 PB15  无源蜂鸣器（Device 层使用）
 
 ///< 按键
 extern BspKey key_user;

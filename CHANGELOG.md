@@ -21,7 +21,8 @@
 | `dji_motor` 改用 `CanBus` + `Config` 之后 | ❌ 未实机回归（历史提交里的"已测试通过"针对旧的总线系统，不适用于现在的分层） |
 | QSPI Flash / USB / Online | ❌ 本轮未跑，测试宏当前都是 0 |
 | `sys_task` 的 10 ms 节拍与 UART 巡检、`Online` 的毫秒超时 | ❌ 未实机验证（改动前 `sys_task` 为 1 ms，`Online` 阀值按调用次数计） |
-| `key_task`（按键事件与蜂鸣器提示） | ❌ 未实机验证 |
+| `key_task`（按键事件与蜂鸣器提示） | ✅ **已实机验证（2026-10-02）**：按键三档提示音都能正常发声并自动关闭 |
+| `bsp_pwm_buzzer`（TIM12_CH2）+ `device_buzzer` | ✅ **已实机验证（2026-10-02）**：`set_freq()` + `set_duty()` 起振、`off()` 停振均正常 |
 
 结论：**这批改动只保证"能编译 + 宿主测试通过"，不保证硬件行为正确**。实机回归清单见第 5 节。
 
@@ -46,6 +47,17 @@
 - `Online`：离线阈值改为**毫秒**语义（按 tick 差值判定，与 `update()` 的调用周期解耦），默认 30 ms 不变；`update()` 的调用周期只影响判定延迟
 - 新增 `User/Bsp/bsp_dwt.{hpp,cpp}`（内核 CYCCNT 计时）、`User/App/task/key_task.cpp`、`User/App/test/dwt/dwt_test.cpp`
 - `key_task` 接入 `all_init()`：任务名 `key`、256 words、`idle+2`，200 ms 轮询 `key_user`（对应 debounce 1 / long_press 5），按事件驱动蜂鸣器；轮询周期用 `pdMS_TO_TICKS(200U)` 表达
+- 新增 `User/Bsp/bsp_pwm.{hpp,cpp}`：PWM 通道驱动，句柄 / 通道 / 定时器时钟 / PSC / ARR 全部由
+  `Config` 手动传入（取自 CubeMX），驱动内不写死板级常量；`init()` **先清 CCR 再启动** →
+  `bsp_pwm1~4`（TIM1_CH3 / TIM1_CH1 / TIM2_CH3 / TIM2_CH1，排针预留舵机）、`bsp_pwm_gyro`
+  （TIM3_CH4）、`bsp_pwm_buzzer`（TIM12_CH2）全部上电 **0% 占空比**；接口 `set_duty(float)`
+  （0~100）与 `set_pulse_us(float)` 并存，另有 `set_freq()` / `off()` 与频率、脉宽查询
+- 蜂鸣器从 Bsp 移到 Device：新增 `User/Device/device_buzzer.{hpp,cpp}`（`DeviceBuzzer` 持有
+  `BspPwm&`，负责音调限幅、音量、鸣叫时长语义），实例 `buzzer` 在 `device_cfg`；
+  **删除** `User/Bsp/bsp_buzzer.{hpp,cpp}`；`key_task` 与 `bsp_key.hpp` 示例改用 `buzzer`
+- 修掉蜂鸣器的时钟换算错误：原 `BspBuzzer::Config::base_clk` 写死 6 MHz，与 TIM12 实际输入
+  时钟（275 MHz / 24 ≈ 11.458 MHz）不符，导致实际发声约为请求频率的 1.9 倍；现在频率换算
+  统一由 `BspPwm` 按 `timer_clk_hz / (prescaler + 1)` 计算
 
 ## 3. 命名与代码规范（改动面最大，合并分支时最容易冲突）
 

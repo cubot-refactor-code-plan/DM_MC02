@@ -1,6 +1,7 @@
 #include "FreeRTOS.h" // IWYU pragma: keep
-#include "bsp_cfg.hpp"
-#include "bsp_key.hpp" // IWYU pragma: keep (BspKey::Event)
+#include "bsp_cfg.hpp"   // IWYU pragma: keep (key_user)
+#include "bsp_key.hpp"   // IWYU pragma: keep (BspKey::Event)
+#include "device_cfg.hpp" // IWYU pragma: keep (buzzer)
 #include "task.h"
 
 extern "C" void key_task(void *argument)
@@ -13,13 +14,13 @@ extern "C" void key_task(void *argument)
     switch (key_user.poll())
     {
       case BspKey::Event::PRESS: // 3kHz/40ms：按下轻嘀
-        bsp_buzzer.beep(3000, 40);
+        buzzer.beep(3000, 40);
         break;
       case BspKey::Event::SHORT: // 4kHz/100ms：短按 高而短
-        bsp_buzzer.beep(4000, 100);
+        buzzer.beep(4000, 100);
         break;
       case BspKey::Event::LONG: // 2kHz/500ms：长按 低而长
-        bsp_buzzer.beep(2000, 500);
+        buzzer.beep(2000, 500);
         break;
       default:
         break;

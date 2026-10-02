@@ -39,13 +39,13 @@
  *       switch (key.poll())                // 无事件时返回 NONE
  *       {
  *         case BspKey::Event::PRESS:       // 按下（消抖确认）
- *           bsp_buzzer.beep(3000, 50);     // 鸣叫 50 ms
+ *           buzzer.beep(3000, 50);         // 鸣叫 50 ms
  *           break;
  *         case BspKey::Event::SHORT:       // 短按：阈值内松手
- *           bsp_buzzer.beep(2000, 50);
+ *           buzzer.beep(2000, 50);
  *           break;
  *         case BspKey::Event::LONG:        // 长按：按住 1s，仅触发一次
- *           bsp_buzzer.beep(4000, 500);    // 鸣叫 500 ms
+ *           buzzer.beep(4000, 500);        // 鸣叫 500 ms
  *           break;                         // 注意：此后的松手不再产生 SHORT
  *         case BspKey::Event::NONE:
  *         default:
