@@ -14,19 +14,38 @@
 #ifndef __APP_TASK_HPP__
 #define __APP_TASK_HPP__
 
+#include "status.hpp" // Status
+
+#include <stdint.h>
+
+// ---------------- sys_task 观察变量（供调试器与测试读取） ----------------
+
+extern volatile uint32_t sys_task_loop_count;    ///< sys_task 已执行的轮数（每 10 ms +1）
+extern volatile Status   sys_task_online_status; ///< Online::update() 最近一次返回值
+extern volatile uint32_t sys_task_cycle_us_max;  ///< 单轮最大耗时（µs）
+extern volatile uint32_t sys_task_gap_ms_max;    ///< 相邻两轮唤醒间隔最大值（ms）
+
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
   /**
-   * @brief 系统级 1 kHz 维护任务，当前负责推进全部 Online 对象的离线计时
+   * @brief 系统级周期维护任务（10 ms）：CAN / UART 的补救巡检 + Online 离线计时
    * @param argument 任务参数（未使用，NULL）
+   * @note CAN 的正常收发由 can_rx_task / can_tx_task 以 1 kHz 负责，本任务只做 10 ms
+   *       级的补救：补丢唤醒的发送、Bus-Off 恢复、串口收发通道重建。
    * @note 由 all_init() 创建，不应由业务代码直接调用。
    */
   void sys_task(void *argument);
 
-  /** @brief 按键任务：200 ms 轮询，短按/长按发不同提示音 */
+  /**
+   * @brief 按键任务：200 ms 轮询 key_user，按事件驱动蜂鸣器提示
+   * @param argument 任务参数（未使用，NULL）
+   * @note 轮询周期与 key_user 的消抖 / 长按配置对应（debounce 1 → 200 ms，
+   *       long_press 5 → 1 s）；beep 为阻塞调用，实际周期会多出一个响铃时长。
+   * @note 由 all_init() 创建，不应由业务代码直接调用。
+   */
   void key_task(void *argument);
 
 #ifdef __cplusplus

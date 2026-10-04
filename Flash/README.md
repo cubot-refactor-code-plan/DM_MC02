@@ -1,26 +1,47 @@
-这里面为烧录脚本
+# 烧录脚本
 
-个人测试可用
+四个脚本均支持当前工程的内部 Flash + W25Q64JV 双镜像烧录：
 
-- `.bat`为win下面的烧录脚本
-- `.sh` 为linux下面的烧录脚本
-  - .sh文件 需要提前`chmod +x` 但是只需要一次就可以一直授权
-- `.cfg`为openocd用到的配置内容
-- 带ozone的为ozone的相关配置内容，应该每个人都不同
+| 探针 | Linux | Windows | OpenOCD 配置 |
+| --- | --- | --- | --- |
+| CMSIS-DAP | `OpenOCD_flash.sh` | `OpenOCD_flash.bat` | `daplink.cfg` |
+| SEGGER J-Link | `JLink_flash.sh` | `JLink_flash.bat` | `jlink.cfg` |
 
-需要自行安装+配置好openocd jlink的环境变量
+所有脚本都依赖 `openocd`。J-Link 版本通过 OpenOCD 的 `jlink`/libjaylink 适配器使用物理
+J-Link 探针，不调用 J-Link Commander；可用 `openocd -c "adapter list" -c "shutdown"`
+确认当前 OpenOCD 是否包含 `jlink` 适配器。`.sh` 文件需要具有可执行权限。
 
-对应 VS Code 任务按钮（配置在 `.vscode/tasks.json`）：
+## 烧录当前工程
 
-| 按钮 | 任务名 | 实际执行 |
-| --- | --- | --- |
-| `[🔨 编译 F7]` | `Build` | `cmake --build --preset Debug` |
-| `[🧹 重新编译]` | `Clean_Rebuild` | 删 `build/Debug` 后重新配置 + 编译 |
-| `[🗑️ 清理]` | `Clean` | 删除 `build/Debug` |
-| `[⚡ DAP烧录Linux]` | `OpenOCD_flash_linux` | `Flash/OpenOCD_flash.sh` |
-| `[🔌 JLink烧录Linux]` | `JLink_flash_linux` | `Flash/JLink_flash.sh` |
-| `[⚡ DAP烧录Win]` | `OpenOCD_flash_win` | `Flash/OpenOCD_flash.bat` |
-| `[🔌 JLink烧录Win]` | `JLink_flash_win` | `Flash/JLink_flash.bat` |
+当前固件由两个独立产物组成：
 
-> `.sh` 的可执行权限已设置；重新 clone 或换机器后需再执行一次 `chmod +x Flash/*.sh`。
+- `DM_MC02_internal.hex`：STM32 内部 Flash 镜像；
+- `DM_MC02_usb_xip.bin`：写入 W25Q64JV `0x70110000` 的 USB XIP 镜像。
 
+构建完成后必须使用双镜像脚本，不能只下载 ELF。各脚本默认使用 `build/Debug`：
+
+```bash
+bash Flash/OpenOCD_flash.sh Debug
+bash Flash/JLink_flash.sh Debug
+```
+
+Windows 对应命令为：
+
+```bat
+Flash\OpenOCD_flash.bat Debug
+Flash\JLink_flash.bat Debug
+```
+
+可选参数是 `build/` 下的目录名。例如 HID 验证构建位于 `build/HID-Debug` 时使用：
+
+```bash
+bash Flash/OpenOCD_flash.sh HID-Debug
+```
+
+脚本先下载并校验内部镜像，再通过一次性 D3 SRAM 邮箱让固件把 OCTOSPI2 切换到 OpenOCD
+可识别的单线映射，随后擦写、校验外置镜像并复位运行。CDC/HID 跨模式更新由类别相关的
+XIP 签名保护；旧类别载荷不会被新内部固件执行。
+
+Linux 若把 HID 节点创建成 `0600 root:root`，可将 `Flash/99-dm-mc02-usb.rules` 安装到
+`/etc/udev/rules.d/` 后重载规则并重新插拔设备。规则仅匹配本工程的 `cafe:4001` CDC 和
+`cafe:4002` HID，不会影响独立的 CMSIS-DAP 虚拟串口。

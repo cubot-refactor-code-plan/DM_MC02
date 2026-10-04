@@ -1,214 +1,60 @@
-# CUBOT Code Rebuild：
+# CUBOT Code Rebuild
 
-## todo
+STM32H723 机器人主控固件，使用 CMake + Ninja + Arm GNU Toolchain 构建，运行在 FreeRTOS 上。
 
-- USB-HID
-- SPI-Flash
-- Cortex‑M7 内核相关
-  - 分支预测
-  - MPU 内存保护单元
-  - Cache 缓存
-- DSP 库移植
-- SPI、IIC、看门狗、DWT 驱动
-- 多种电机驱动开发（DJI DM）
-- LCD 屏驱动（DM屏幕和1寸LCD）
-- 灯、蜂鸣器、按键、舵机、BMI088、ICM42688 及国产陀螺仪驱动
-- 串口协议裁判系统、遥控器、云台、功率控制、发射机构、超电、底盘控制等等
-
-## 具体文件树
+代码按分层架构组织，依赖方向单向：
 
 ```txt
-root              
-│                   │.clang-format 代码格式化设置 可以按照自己风格改
-│                   │README.md     本文件
-│                   |---
-├─.vscode           |`tasks`是终端执行的任务
-|                   |如果想使用烧录和调试功能，需要工程名字和文件夹名字一样才可以（elf/hex文件名字和主文件夹名字相同）
-├─build             |---
-│  └─Debug          |编译出来的临时文件
-├─cmake             |---
-│  └─stm32cubemx    |STM32的库以及cmake链接方式
-├─Core              |---
-│  ├─Inc            |STM32的HAL层文件
-│  └─Src            |STM32的HAL层文件
-├─Drivers           |STM32的Driver层文件
-├─Flash             |个人写的烧录相关 工程名字和文件夹名字一样才可以烧录 写好了DAP和JLink 以及win和linux的烧录脚本 ozone
-├─Middlewares       |官方生成的中间件库，FreeRTOS，USB
-├─tinyusb-0.20.0    |TinyUSB库
-└─User              |---
-    ├─Bsp           |板载支持驱动
-    ├─Device        |设备层
-    ├─Module        |模块层（ 多个设备组合 ）
-    ├─Protocol      |协议层
-    ├─Algorithm     |算法层
-    ├─Service       |服务层 
-    └─App           |应用层 / c cpp混编接口层
-
-```
-我认为：ST官方生成的属于BSP的一部分 以及 Service的一部分
-
-freertos的硬件支持、usb的硬件支持，外设封装好的支持等等，本质上都在硬件抽象（hal）。但是板载支持包（bsp）不仅要硬件抽象，是要完全不考虑硬件，只需要简易的使用代码就可以操控整个板子的外设，不需要考虑板子上的任意情况。这是bsp要做的，也是最麻烦的。
-
-其他的device等等很好理解，只需要在写好的bsp层的基础上，对要做处理的设备进行处理即可
-![alt text](分层规划图.png)
-## 如何开发
-
-### 配置：
-1. 需要工程文件和主文件夹名称一样（烧录和调试都是使用的主文件夹名称作为的索引）
-2. 编译烧录调试都使用vscode中的内容，后期可以使用外部调试工具（但是没有keil了）
-3. 调整好各个插件，以及插件配置情况cortex debug、cmake、ninja、arm-gcc、clangd、git等等
-
-### 使用：
-
-配置使用CMake界面 / ST的插件
-
-编译使用F7 或者 CMake界面 或者 ST的
-
-烧录可以使用写好的脚本。写成了task可以直接调用（DAP JLink）
-
-调试可以直接用调试栏目。写了cortex debug的内容，也配置了ozone的内容（但是ozone这个东西自己导入的居多）
-
-Cortex-Debug可以看rtos的简单运行情况，内存使用情况，查看变量等等
-
-### 因为底层驱动涉及cpp，解决方法：
-
-严格在每一个.c .cpp中写接口转接文档，每个不能调用的东西都进行接口转接。
-
-写接口转接文档，发现在嵌入式中，只需要给`main.c`进行转接，使用`api_main`来当作提取出来的main即可。这样写的中断回调 初始化 while循环都没啥问题，FreeRTOS也是这样，只需要`extern "C"` 就可以了
-
-HAL库也早就写好了cpp调用c的`extern "C"`内容
-
-作为c调用cpp的转接cpp文件的就写`api_xxxx.cpp`和`api_xxx.h` 作为区分 用**`h`**
-
-正常cpp文件为：`xxx_yyyy.cpp` 和 `xxx_yyyy.hpp` 作为区分 用**`hpp`**
-
-`xxx为 app bsp alg`
-
-## 修改的文件
-
-### CMakeList
-
-为了更方便的添加.c .cpp文件 在User文件夹内添加了一个子文件夹的CMakeLists.txt，这些可以实现一键导入User的库
-
-现在只需要在主CMakeLists.txt的最后一行添加：
-
-```bash
-##### User #####
-add_subdirectory(User)
-
-# Add stm32cubemx to User_lib
-target_link_libraries(User_lib PRIVATE stm32cubemx)
-
-# Add TinyUSB include to Userlib
-target_include_directories(User_lib PUBLIC
-    ${TINYUSB_DIR}/src
-)
-
-# Add User_lib to main
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    User_lib
-
-)
-
-
-# 结尾部分
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
-
-##### User #####
+App → Module → Device → Bsp
 ```
 
-关于tinyusb，在user后面添加此内容
+`Service` / `Algorithm` / `Protocol` 不属于这条主链，以工具库、服务的形式贯穿整个工程。
 
-```bash
+仓库包含板载驱动、设备驱动与上位机通讯协议，并附带 CubeMX 工程、烧写脚本和开发文档；目标是提供基于全开源工具链的一套开源、便于跨兵种/跨比赛复用的成熟工程样板。
 
-### Add TinyUSB sources ###
-set(TINYUSB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tinyusb-0.20.0)
-include(${TINYUSB_DIR}/src/CMakeLists.txt)
-tinyusb_target_add(${CMAKE_PROJECT_NAME})
+TODO：实机测试部分已存在，但不完善、可读性不足。
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    ${TINYUSB_DIR}/src/portable/synopsys/dwc2/dcd_dwc2.c
-    ${TINYUSB_DIR}/src/portable/synopsys/dwc2/dwc2_common.c
-)
+## 目录总览
 
-# Add TinyUSB include to main
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    ${TINYUSB_DIR}/src
-)
+| 目录 | 说明 |
+| --- | --- |
+| `Core/` | CubeMX 生成的 HAL 初始化与中断服务 |
+| `User/` | 业务代码，按分层组织 |
+| `cmake/` | 工具链文件与 CubeMX 的 CMake 集成 |
+| `Docs/` | 开发文档、硬件图纸与器件手册 |
+| `Flash/` | 烧写脚本与调试配置 |
+| `QSPI_Flash/` | 外置 Flash 驱动与 XIP |
+| `Drivers/`、`Middlewares/`、`tinyusb-0.20.0/` | 第三方库（HAL、FreeRTOS、TinyUSB） |
 
-# Add project symbols (macros) <= tinyusb
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
-    CFG_TUSB_MCU=OPT_MCU_STM32H7
-    CFG_TUSB_OS=OPT_OS_FREERTOS
-)
+各目录与分层的详细说明见 [Docs/guide/项目结构.md](Docs/guide/项目结构.md)。
 
-### Add TinyUSB sources ###
-```
+## 编译与烧写
 
-以及在最后一行，添加此内容，增加了对浮点数打印的支持
+编译使用 VS Code 的 CMake 插件，烧录使用命令行脚本（OpenOCD / J-Link），调试使用 Cortex-Debug 或 Ozone。
 
-```bash
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
-```
+环境要求、命令行细节，以及 VS Code / Cortex-Debug / Ozone 的用法见 [Docs/guide/开发环境与烧录调试.md](Docs/guide/开发环境与烧录调试.md)。
 
-### .ld文件
+## 代码规范
 
-为了DMA传输，把需要用到DMA的东西的存储，换到了DTCM之外
+代码遵循 [Docs/spec/编码规范.md](Docs/spec/编码规范.md)：分层依赖单向、命名与注释有固定写法，格式由 `.clang-format` 固定。格式化为**手动执行**，工程里没有任何自动格式化；格式化范围是 `User/` 与 `QSPI_Flash/`，`Core/`（CubeMX 生成）与第三方目录不参与，细节见 [Docs/guide/clangd配置.md](Docs/guide/clangd配置.md)。
 
-```c
-__attribute__((section(".dma_buffer"))) 使用这一个缀修饰
-```
+## 文档
 
-修改ld文件的内容如下，中文注释之间为添加内容，多余的内容是定位用的
+开发文档总入口（AI 开发必读）：[Docs/README.md](Docs/README.md)
 
-```c
-  .fini_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
-  {
-    . = ALIGN(4);
-    PROVIDE_HIDDEN (__fini_array_start = .);
-    KEEP (*(SORT(.fini_array.*)))
-    KEEP (*(.fini_array*))
-    PROVIDE_HIDDEN (__fini_array_end = .);
-    . = ALIGN(4);
-  } >FLASH
+`origin/main` 之后尚未推送的改动汇总（含验证状态与实机回归清单）：[Docs/CHANGELOG.md](Docs/CHANGELOG.md)
 
- /* === 用户为dma传输配置的内存地址 === */
-  .dma_buffer (NOLOAD) :
-  {
-    . = ALIGN(32);
-    _sdma_buffer = .;
-    *(.dma_buffer)
-    *(.dma_buffer*)
-    . = ALIGN(32);
-    _edma_buffer = .;
-  } >RAM_D1
+| 文档 | 内容 |
+| --- | --- |
+| [CHANGELOG](Docs/CHANGELOG.md) | 未推送改动的清单与实机验证的真实状态 |
+| [问题记录](Docs/问题记录.md) | AI 协作复盘：失实汇报、不可核查的产出、约束清单 |
+| [项目结构](Docs/guide/项目结构.md) | 目录结构与各层职责 |
+| [开发环境与烧录调试](Docs/guide/开发环境与烧录调试.md) | 环境、编译、烧写、调试、验证记录 |
+| [进度与待办](Docs/plan/进度与待办.md) | 完成情况、待办、设计取舍 |
+| [编码规范](Docs/spec/编码规范.md) | 命名、注释、类设计、分层、C/C++ 混编 |
+| [分层架构](Docs/spec/分层架构.md) | 分层原则与分层规划图 |
+| [clangd 配置](Docs/guide/clangd配置.md) | clangd 参数、query-driver、IWYU |
+| [引脚分配与冲突](Docs/hardware/引脚分配与冲突.md) | 引脚复用冲突与最终分配 |
+| [构建系统改动](Docs/build/构建系统改动.md) | CMakeLists 与 TinyUSB 接入 |
+| [链接脚本改动](Docs/build/链接脚本改动.md) | `.dma_buffer` 段与 DMA 内存布局 |
 
-  /* === 用户dma相关配置结束 === */
-
-  /* used by the startup to initialize data */
-  _sidata = LOADADDR(.data);
-
-  /* Initialized data sections goes into RAM, load LMA copy after code */
-  .data :
-  {
-    . = ALIGN(4);
-    _sdata = .;        /* create a global symbol at data start */
-    *(.data)           /* .data sections */
-    *(.data*)          /* .data* sections */
-    *(.RamFunc)        /* .RamFunc sections */
-    *(.RamFunc*)       /* .RamFunc* sections */
-
-    . = ALIGN(4);
-  } >DTCMRAM AT> FLASH
-
-```
-
-
-### 让clangd 不报头文件未使用的错误（间接使用 clangd识别不出来）
-
-使用： 在include头文件后面添加
-
-`// IWYU pragma: keep`
-
-可以规避 `Included header XXX.h is not used directly (fixes available)` 这个错误
