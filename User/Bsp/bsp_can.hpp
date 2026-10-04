@@ -11,8 +11,8 @@
  * @copyright Copyright (c) 2026
  *
  * @details 本层只做三件事：硬件收发、总线恢复、诊断计数。
- *          它不认识任何「节点」概念；按 ID 分发到回调由 Service 层的 CanBus 负责
- *          （见 User/Service/can_bus.hpp）。
+ *          它不认识任何「节点」概念：取出来的帧直接交给上层的设备类，
+ *          由设备类自己判断这帧属不属于自己。
  *
  * @note 先在 bsp_cfg.cpp 实例化并外部声明，再在 bsp_init() 中初始化：
  *
@@ -27,12 +27,11 @@
  *      CanRxMsg rx = {};
  *      bsp_can1.receive(&rx, 0);     // 0=不等待，portMAX_DELAY=一直等
  *
- * @note 同一个 MessageBuffer 只允许一个消费者：receive() 与 CanBus 的分发任务
- *       消费的是同一个接收缓冲。启用 CanBus 分发后，应用层应改用 CanBus::receive()，
- *       不要再直接调用本函数。
+ * @note 同一条总线的接收缓冲只允许存在一个消费者：上层必须保证每条总线
+ *       只有一个任务调用 receive()，多个消费者会互相抢帧。
  *
  * @note 总线恢复：tx_recover() / service_recovery() 由 sys_task 周期调用（非阻塞）。
- *       运行状态用公开成员 diagnostics 查询（Live Watch 可直接看）。
+ *       运行状态用公开成员 diagnostics 查询。
  */
 
 #ifndef __BSP_CAN_HPP__
@@ -121,6 +120,7 @@ public:
     volatile uint32_t tx_it_fail;       ///< 开关 TX-FIFO-EMPTY 中断失败（HAL_BUSY）的次数
   };
 
+  // ----------------
   // ---------------- 公有接口 ----------------
 
   /**
@@ -138,6 +138,13 @@ public:
    * @note 可重复调用：开头先复位硬件的软件资源，任一步失败都回滚，不留半初始化状态。
    */
   Status init();
+
+  /**
+   * @brief 硬件是否可用（构造时收到了非空句柄）
+   * @return true=可以使用收发接口；false=句柄为空，所有收发都会失败
+   * @note 只反映句柄有效性，不代表 init() 成功；init() 的结果看返回值。
+   */
+  bool is_ready() const;
 
   /**
    * @brief 发送一帧 CAN 标准帧（8 字节，非阻塞，入缓冲后由中断发送）
@@ -206,18 +213,18 @@ public:
 
   // ----------------
   // ---------------- 公开成员 ----------------
-  // 仅供 Service/App 层访问与调试观察，不要随意改动。
-
-  FDCAN_HandleTypeDef *_hfdcan; ///< FDCAN 句柄
-
-  MessageBufferHandle_t _tx_message_buffer; ///< 发送消息缓冲区（任务写入，ISR 读出）
-  MessageBufferHandle_t _rx_message_buffer; ///< 接收消息缓冲区（ISR 写入，任务读出）
+  // 仅供调试观察（Live Watch / 测试），不要随意改动。
 
   Diagnostics diagnostics; ///< 运行诊断计数
 
 private:
   // ----------------
   // ---------------- 私有实现 ----------------
+
+  FDCAN_HandleTypeDef *_hfdcan; ///< FDCAN 句柄
+
+  MessageBufferHandle_t _tx_message_buffer; ///< 发送消息缓冲区（任务写入，ISR 读出）
+  MessageBufferHandle_t _rx_message_buffer; ///< 接收消息缓冲区（ISR 写入，任务读出）
 
   static constexpr size_t RX_QUEUE_DEPTH = 16; ///< 接收消息缓冲区深度（帧，满即丢并计数）
   static constexpr size_t TX_QUEUE_DEPTH = 16; ///< 发送消息缓冲区深度（帧，满即丢并计数）
@@ -228,9 +235,6 @@ private:
 
   TickType_t _recovery_started;   ///< 本次 Bus-Off 恢复开始时刻
   TickType_t _recovery_attempted; ///< 上次尝试恢复的时刻（恢复限流用）
-
-  /** @brief 任务上下文：总线是否可用于发送（已启动、非 Bus-Off、非恢复流程中） */
-  bool _tx_available() const;
 
   /** @brief 停外设并摘除本驱动用过的全部通知（幂等，未初始化时调用也安全） */
   void _reset_hardware();

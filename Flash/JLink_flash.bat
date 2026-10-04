@@ -1,50 +1,44 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM 获取当前脚本所在目录的父目录名称（项目名称）
-for %%i in ("%~dp0\..") do set "PROJECT_NAME=%%~nxi"
-
-REM 构建 ELF 文件路径
-set "ELF_FILE=build\Debug\!PROJECT_NAME!.elf"
-
-REM 检查文件是否存在
-if not exist "!ELF_FILE!" (
-    echo Error: ELF file not found at !ELF_FILE!
-    
-    REM 尝试查找 build 目录下的 .elf 文件
-    if exist "build\Debug\*.elf" (
-        echo Looking for available ELF files in build directory...
-        for %%f in (build\*.elf) do (
-            set "FOUND_ELF=%%f"
-            echo Found: !FOUND_ELF!
-        )
-        set "ELF_FILE=!FOUND_ELF!"
-        echo Using: !ELF_FILE!
-    ) else (
-        echo Error: No ELF files found in build directory!
-        pause
-        exit /b 1
-    )
+for %%i in ("%~dp0\..") do (
+    set "PROJECT_DIR=%%~fi"
+    set "PROJECT_NAME=%%~nxi"
 )
 
-echo Project Name: !PROJECT_NAME!
-echo ELF File: !ELF_FILE!
+set "BUILD_TYPE=%~1"
+if "%BUILD_TYPE%"=="" set "BUILD_TYPE=Debug"
 
-REM 创建临时 J-Link 脚本
-set "TEMP_SCRIPT=temp_jlink_script.jlink"
-(
-echo device STM32H723VG
-echo if SWD
-echo speed 4000
-echo r
-echo loadfile !ELF_FILE!
-echo r
-echo go
-echo exit
-) > "!TEMP_SCRIPT!"
+cd /d "%PROJECT_DIR%" || exit /b 1
 
-REM 执行 J-Link
-JLink -CommanderScript "!TEMP_SCRIPT!"
+set "ELF_FILE=build\%BUILD_TYPE%\%PROJECT_NAME%.elf"
+if not exist "!ELF_FILE!" (
+    for /f "delims=" %%f in ('dir /b /s build\*.elf 2^>nul') do (
+        set "ELF_FILE=%%f"
+        goto :found
+    )
+)
+:found
 
-REM 清理临时文件
-del "!TEMP_SCRIPT!"
+if not exist "!ELF_FILE!" (
+    echo Error: ELF file not found under build\
+    exit /b 1
+)
+
+where openocd >nul 2>nul
+if errorlevel 1 (
+    echo Error: openocd not found; this script drives J-Link through OpenOCD's jlink adapter.
+    exit /b 1
+)
+
+echo Project: !PROJECT_NAME! (!BUILD_TYPE!)
+echo ELF    : !ELF_FILE!
+openocd -f Flash/jlink.cfg ^
+    -c "gdb_port disabled" ^
+    -c "tcl_port disabled" ^
+    -c "telnet_port disabled" ^
+    -c "program \"!ELF_FILE!\" verify reset exit"
+if errorlevel 1 exit /b %errorlevel%
+
+echo Done.
+exit /b 0

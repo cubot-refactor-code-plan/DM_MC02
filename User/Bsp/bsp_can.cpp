@@ -85,16 +85,8 @@ extern "C"
 // ----------------
 // ---------------- 类函数实现 ----------------
 
-/** @brief 只绑定句柄，RTOS 资源在 init() 里创建 */
-BspCan::BspCan(const Config &cfg) :
-  _hfdcan(cfg.hfdcan),
-  _tx_message_buffer(nullptr),
-  _rx_message_buffer(nullptr),
-  diagnostics {},
-  _name(cfg.name),
-  _tx_lock(nullptr),
-  _recovery_started(0),
-  _recovery_attempted(0)
+/** @brief 只绑定句柄，RTOS 资源在 init() 里创建（初始化列表顺序 = 成员声明顺序） */
+BspCan::BspCan(const Config &cfg) : diagnostics {}, _hfdcan(cfg.hfdcan), _tx_message_buffer(nullptr), _rx_message_buffer(nullptr), _name(cfg.name), _tx_lock(nullptr), _recovery_started(0), _recovery_attempted(0)
 {
 }
 
@@ -176,6 +168,12 @@ Status BspCan::init()
   return Status::OK;
 }
 
+/** @brief 硬件是否可用（只看构造时传入的句柄是否为空） */
+bool BspCan::is_ready() const
+{
+  return _hfdcan != nullptr;
+}
+
 /**
  * @brief 发送一帧标准帧（8 字节，非阻塞，入队后由中断送入硬件）
  *
@@ -196,7 +194,8 @@ Status BspCan::send(uint32_t std_id, const uint8_t *data)
     return Status::NOT_INIT;
   }
   // Bus-Off / 恢复流程中帧发不到总线上，直接拒绝，由调用方决定是否重试
-  if (!_tx_available())
+  const bool bus_usable = _hfdcan->State == HAL_FDCAN_STATE_BUSY && !diagnostics.recovering && (_hfdcan->Instance->PSR & FDCAN_PSR_BO) == 0U && (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U;
+  if (!bus_usable)
   {
     return Status::BUSY;
   }
@@ -284,12 +283,6 @@ bool BspCan::tx_recover()
     diagnostics.tx_stall_recover++; // 诊断：中断确实处于关闭状态，记 1 次丢唤醒（正常抢占不计数）
   }
   return true;
-}
-
-/** @brief 任务上下文：总线是否可用于发送（已启动、非 Bus-Off、非恢复流程中） */
-bool BspCan::_tx_available() const
-{
-  return _hfdcan != nullptr && _hfdcan->State == HAL_FDCAN_STATE_BUSY && !diagnostics.recovering && (_hfdcan->Instance->PSR & FDCAN_PSR_BO) == 0U && (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U;
 }
 
 /**
@@ -663,8 +656,7 @@ void BspCan::_reset_hardware()
     return;
   }
 
-  (void)HAL_FDCAN_DeactivateNotification(_hfdcan,
-                                         FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST | FDCAN_IT_TX_FIFO_EMPTY | FDCAN_IT_BUS_OFF | FDCAN_IT_ERROR_PASSIVE | FDCAN_IT_ERROR_WARNING);
+  (void)HAL_FDCAN_DeactivateNotification(_hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST | FDCAN_IT_TX_FIFO_EMPTY | FDCAN_IT_BUS_OFF | FDCAN_IT_ERROR_PASSIVE | FDCAN_IT_ERROR_WARNING);
   (void)HAL_FDCAN_Stop(_hfdcan);
 }
 
@@ -700,12 +692,7 @@ Status BspCan::_configure_hardware()
     return Status::IO_ERROR;
   }
 
-  if (HAL_FDCAN_ConfigGlobalFilter(_hfdcan,
-                                   FDCAN_ACCEPT_IN_RX_FIFO0,
-                                   FDCAN_ACCEPT_IN_RX_FIFO0,
-                                   FDCAN_FILTER_REMOTE,
-                                   FDCAN_FILTER_REMOTE)
-      != HAL_OK)
+  if (HAL_FDCAN_ConfigGlobalFilter(_hfdcan, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
   {
     return Status::IO_ERROR;
   }

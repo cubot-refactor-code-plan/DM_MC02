@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compile the production Bus-Off recovery state machine against fake registers/RTOS.
 
-The state machine lives in User/Bsp/bsp_can.cpp (service_recovery/_tx_available);
-this script extracts those two function bodies and links them with a fake BspCan
-class, so the production source is never modified and no HAL is needed.
+The state machine lives in User/Bsp/bsp_can.cpp (service_recovery, plus the
+"bus usable" predicate that send() keeps as a local named bus_usable);
+this script extracts those bodies and links them with a fake BspCan class, so
+the production source is never modified and no HAL is needed.
 
 Run: python3 User/App/test/can/test_recovery_host.py
 """
@@ -19,6 +20,13 @@ def extract(signature):
     """切出 signature 开始的函数体，直到第 0 列的那个右花括号。"""
     start = source.index(signature)
     end = source.index('\n}\n', start) + len('\n}\n')
+    return source[start:end]
+
+
+def extract_statement(marker):
+    """切出 marker 开始、到第一个分号为止的整条语句。"""
+    start = source.index(marker)
+    end = source.index(';', start) + 1
     return source[start:end]
 
 
@@ -89,9 +97,13 @@ int main() {
 '''
 with tempfile.TemporaryDirectory(prefix='can-recovery-') as directory:
     path = Path(directory)
+
+    # 可发送判据原本是私有函数 _tx_available()，现在就地写成 send() 里的局部量 bus_usable；
+    # 这里按同一条表达式重建它，保证主机测试测的仍是生产代码里的那一个判据。
+    predicate = extract_statement('const bool bus_usable =').split('=', 1)[1].strip().rstrip(';')
+
     fragment = ('#include "bsp_can.hpp"\n\n'
-                + extract('bool BspCan::_tx_available() const')
-                + '\n'
+                + 'bool BspCan::_tx_available() const\n{\n  return ' + predicate + ';\n}\n\n'
                 + extract('Status BspCan::service_recovery()'))
     (path / 'bsp_can.hpp').write_text(header)
     (path / 'recovery.cpp').write_text(fragment)

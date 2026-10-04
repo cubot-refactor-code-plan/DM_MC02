@@ -1,160 +1,166 @@
 #include "pid.hpp"
+
 #include <math.h>
 
-// @Choose-B 这俩是hyw，最好别用cpp的库，嵌入式遭不住
+// @Choose-B 这俩是 hyw，最好别用 cpp 的库，嵌入式遭不住
 // #include <functional>
 // #include <numeric>
 
-void PID_t::Calc_Input(float target, float feedback)
+namespace
 {
-  input.last_target  = input.target;
-  input.last_error   = input.error;
-  input.error        = input.target - input.feedback;
+/**
+ * @brief 对称限幅
+ *
+ * @param limit 限幅值，写 0 表示不开启该项限制
+ */
+float clamp_sym(float value, float limit)
+{
+  if (limit <= 0.0f)
+    return value;
+  if (value > limit)
+    return limit;
+  if (value < -limit)
+    return -limit;
+  return value;
+}
+} // namespace
+
+
+// ----------------
+// ---------------- 系数、限幅与计算值 ----------------
+
+PidParam::PidParam() : kp(0), ki(0), kd(0)
+{
+}
+
+PidParam::PidParam(float kp, float ki, float kd) : kp(kp), ki(ki), kd(kd)
+{
+}
+
+PidLimitation::PidLimitation() : out_max(0), p_max(0), i_max(0), d_max(0), f_max(0), i_separation(0)
+{
+}
+
+PidLimitation::PidLimitation(float out_max, float p_max, float i_max, float d_max, float f_max, float i_separation) : out_max(out_max), p_max(p_max), i_max(i_max), d_max(d_max), f_max(f_max), i_separation(i_separation)
+{
+  // 积分限幅写 0 表示跟随总输出限幅
+  this->i_max = i_max == 0 ? out_max : i_max;
+}
+
+PidTerm::PidTerm() : p_term(0), i_term(0), d_term(0), f_term(0)
+{
+}
+
+
+// ----------------
+// ---------------- 构造 ----------------
+
+/** @brief 全参数构造：系数 + 限幅；kd 为 0 时没必要算微分项，直接关掉 */
+Pid::Pid(PidParam param, PidLimitation limitation) : _param(param), _lim(limitation), _term(), _diff_calc_mode(param.kd == 0.0f ? PidDiffCalcMode::DISABLE : PidDiffCalcMode::TARGET)
+{
+}
+
+
+// ----------------
+// ---------------- 公有接口 ----------------
+
+void Pid::switch_mode_diff_calc(PidDiffCalcMode mode)
+{
+  _diff_calc_mode = mode;
+}
+
+float Pid::feed_forward(float feedforward)
+{
+  _term.f_term += feedforward;
+  return _term.f_term;
+}
+
+float Pid::calc(float target, float feedback)
+{
+  calc_input(target, feedback);
+
+  return _calc_output();
+}
+
+float Pid::calc(float target, float feedback, float df_dt)
+{
+  calc_input(target, feedback);
+
+  // 外部直接给的一阶导数优先：比再差分一次噪声小（位移环填速度用）
+  if (_diff_calc_mode == PidDiffCalcMode::TARGET)
+    input.delta_target = df_dt;
+  else if (_diff_calc_mode == PidDiffCalcMode::ERROR)
+    input.delta_error = df_dt;
+
+  return _calc_output();
+}
+
+void Pid::print()
+{
+  // 暂未实现
+  return;
+}
+
+
+// ----------------
+// ---------------- 私有实现 ----------------
+
+void Pid::calc_input(float target, float feedback)
+{
+  input.last_target = input.target;
+  input.last_error  = input.error;
+
+  input.target   = target;
+  input.feedback = feedback;
+  input.error    = target - feedback;
+
+  // 一阶差分：默认给微分项用，3 参数 calc() 会用外部传入的导数覆盖
   input.delta_target = input.target - input.last_target;
   input.delta_error  = input.error - input.last_error;
 }
 
-_PID_Param_t::_PID_Param_t() : kp(0), ki(0), kd(0)
+/** @brief 算一次输出：比例 + 积分 + 微分 + 前馈，逐项限幅后再总限幅 */
+float Pid::_calc_output()
 {
-}
-_PID_Param_t::_PID_Param_t(float kp, float ki, float kd) : kp(kp), ki(ki), kd(kd)
-{
-}
-_PID_Limitation_t::_PID_Limitation_t() : Out_max(0), P_max(0), I_max(0), D_max(0), F_max(0), I_separation(0)
-{
-}
-_PID_Limitation_t::_PID_Limitation_t(float Out_max, float P_max, float I_max, float D_max, float F_max, float I_separation) : Out_max(Out_max), P_max(P_max), I_max(I_max), D_max(D_max), F_max(F_max), I_separation(I_separation)
-{
-  this->I_max = I_max == 0 ? Out_max : I_max;
-}
-_PID_Term_t::_PID_Term_t() : P_term(0), I_term(0), D_term(0), F_term(0)
-{
-}
+  // 比例项
+  _term.p_term = _param.kp * input.error;
 
-PID_t::PID_t(_PID_Param_t param, _PID_Limitation_t limitation) : param(param), lim(limitation), term()
-{
-  diffCalcMode = param.kd == 0 ? Diff_target : Disable_PID_Diff;
-}
-PID_t::PID_t(_PID_Param_t param) : param(param), lim(), term()
-{
-  diffCalcMode = param.kd == 0 ? Diff_target : Disable_PID_Diff;
-}
-PID_t::PID_t(float kp, float ki, float kd) : param(kp, ki, kd), lim(), term()
-{
-  diffCalcMode = param.kd == 0 ? Diff_target : Disable_PID_Diff;
-}
-PID_t::PID_t(float kp, float ki, float kd, float Out_max, float P_max, float I_max, float D_max, float F_max, float I_separation) : param(kp, ki, kd), lim(Out_max, P_max, I_max, D_max, F_max, I_separation), term()
-{
-  diffCalcMode = param.kd == 0 ? Diff_target : Disable_PID_Diff;
-}
+  // 积分项：积分分离阈值大于 0 时，误差超出阈值就不积分（清零抑制超调）
+  const bool integral_enabled = _lim.i_separation <= 0.0f || fabsf(input.error) < _lim.i_separation;
+  _term.i_term = integral_enabled ? _term.i_term + _param.ki * input.error : 0.0f;
 
-void PID_t::SwitchMode_DiffCalc(_PID_Diff_Calc_mode_t mode)
-{
-  diffCalcMode = mode;
-}
-
-float PID_t::FeedForward(float feedforward)
-{
-  term.F_term += feedforward;
-  return term.F_term;
-}
-
-float PID_t::Calc(float target, float feedback)
-{
-  Calc_Input(target, feedback);
-
-  term.P_term = param.kp * input.error;
-  // 积分分离阈值为0时禁用积分分离
-  term.I_term = fabsf(input.error) < lim.I_separation || lim.I_separation == 0 ? term.I_term + param.ki * input.error : 0;
-  switch (diffCalcMode)
+  // 微分项
+  switch (_diff_calc_mode)
   {
-    case Diff_target:
+    case PidDiffCalcMode::TARGET:
     {
-      term.D_term = param.kd * input.delta_target; // 微分先行
+      _term.d_term = _param.kd * input.delta_target; // 微分先行
       break;
     }
-    case Diff_error:
+    case PidDiffCalcMode::ERROR:
     {
-      term.D_term = param.kd * input.delta_error; // 常规微分
+      _term.d_term = _param.kd * input.delta_error; // 常规微分
       break;
     }
-    case Disable_PID_Diff:
+    case PidDiffCalcMode::DISABLE:
+    default:
     {
-      term.D_term = 0;
+      _term.d_term = 0.0f;
       break;
     }
   }
 
-  // 各项限幅
-  term.P_term = term.P_term > lim.P_max ? lim.P_max : term.P_term;
-  term.P_term = term.P_term < -lim.P_max ? -lim.P_max : term.P_term;
-  term.I_term = term.I_term > lim.I_max ? lim.I_max : term.I_term;
-  term.I_term = term.I_term < -lim.I_max ? -lim.I_max : term.I_term;
-  term.D_term = term.D_term > lim.D_max ? lim.D_max : term.D_term;
-  term.D_term = term.D_term < -lim.D_max ? -lim.D_max : term.D_term;
-  term.F_term = term.F_term > lim.F_max ? lim.F_max : term.F_term;
-  term.F_term = term.F_term < -lim.F_max ? -lim.F_max : term.F_term;
+  // 逐项限幅（写 0 表示不限制）
+  _term.p_term = clamp_sym(_term.p_term, _lim.p_max);
+  _term.i_term = clamp_sym(_term.i_term, _lim.i_max);
+  _term.d_term = clamp_sym(_term.d_term, _lim.d_max);
+  _term.f_term = clamp_sym(_term.f_term, _lim.f_max);
 
-  // 计算输出
-  output = term.P_term + term.I_term + term.D_term + term.F_term;
-  output = output > lim.Out_max ? lim.Out_max : output;
-  output = output < -lim.Out_max ? -lim.Out_max : output;
+  // 总输出限幅
+  output = clamp_sym(_term.p_term + _term.i_term + _term.d_term + _term.f_term, _lim.out_max);
 
-  // 清零前馈项，准备下一次累加
-  term.F_term = 0;
+  // 前馈项取用后清零，等下一次 feed_forward() 重新累加
+  _term.f_term = 0.0f;
+
   return output;
-}
-
-float PID_t::Calc(float target, float feedback, float df_dt)
-{
-  Calc_Input(target, feedback);
-
-  term.P_term = param.kp * input.error;
-  // 微分分离阈值为0时禁用微分分离
-  term.I_term = fabsf(input.error) < lim.I_separation || lim.I_separation == 0 ? term.I_term + param.ki * input.error : 0;
-  switch (diffCalcMode)
-  {
-    case Diff_target:
-    {
-      input.delta_target = df_dt;
-      term.D_term        = param.kd * input.delta_target; // 微分先行
-      break;
-    }
-    case Diff_error:
-    {
-      input.delta_error = df_dt;
-      term.D_term       = param.kd * input.delta_error; // 常规微分
-      break;
-    }
-    case Disable_PID_Diff:
-    {
-      term.D_term = 0;
-      break;
-    }
-  }
-
-  // 各项限幅
-  term.P_term = term.P_term > lim.P_max ? lim.P_max : term.P_term;
-  term.P_term = term.P_term < -lim.P_max ? -lim.P_max : term.P_term;
-  term.I_term = term.I_term > lim.I_max ? lim.I_max : term.I_term;
-  term.I_term = term.I_term < -lim.I_max ? -lim.I_max : term.I_term;
-  term.D_term = term.D_term > lim.D_max ? lim.D_max : term.D_term;
-  term.D_term = term.D_term < -lim.D_max ? -lim.D_max : term.D_term;
-  term.F_term = term.F_term > lim.F_max ? lim.F_max : term.F_term;
-  term.F_term = term.F_term < -lim.F_max ? -lim.F_max : term.F_term;
-
-  // 计算输出
-  output = term.P_term + term.I_term + term.D_term + term.F_term;
-  output = output > lim.Out_max ? lim.Out_max : output;
-  output = output < -lim.Out_max ? -lim.Out_max : output;
-
-  // 清零前馈项，准备下一次累加
-  term.F_term = 0;
-  return output;
-}
-
-void PID_t::Print()
-{
-  // 暂未实现
-  return;
 }

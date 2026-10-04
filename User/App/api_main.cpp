@@ -11,6 +11,9 @@
 /* Device */
 #include "device_cfg.hpp" // IWYU pragma: keep
 
+/* Service */
+#include "service_cfg.hpp"
+
 /* 任务声明 */
 #include "app_task.hpp"
 
@@ -24,11 +27,36 @@
  * @note 在main.c的MX_FREERTOS_INIT函数中调用
  *       用于创建FreeRTOS任务和初始化外设驱动
  *
+ *       初始化顺序：
+ *         1. service_init()  —— Service 层（系统状态标志）
+ *         2. bsp_init()      —— BSP 层外设初始化
+ *         3. device_init()   —— 设备层初始化
+ *         4. 创建各任务      —— 任务入口先等运行态
+ *         5. sys_state.complete_init() —— 置运行位
  */
 void all_init()
 {
-  /* 初始化BSP设备 */
+  /* Service 层：系统状态标志，须最先（后面各层要靠它上报失败） */
+  configASSERT(service_init() == Status::OK);
+
+  /* BSP 层：外设（含各 CAN 外设） */
   bsp_init();
+
+  /* 设备层：BSP 之后 */
+  configASSERT(device_init() == Status::OK);
+
+#if APP_TEST_CAN_RECOVERY_ENABLED
+  can_recovery_test_init();
+  configASSERT(xTaskCreate(can_recovery_test_task, "can_fault", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
+
+#if APP_TEST_ONLINE_CHECK_ENABLED
+  configASSERT(xTaskCreate(online_check_test_task, "online_test", 256, NULL, tskIDLE_PRIORITY + 3, NULL) == pdPASS);
+#endif
+
+#if APP_TEST_DJI_GROUP_ENABLED
+  configASSERT(xTaskCreate(dji_motor_group_test_task, "dji_grp", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
 
   /* 维护任务：sys_task 为 10 ms（Online 计时 + UART/CAN 断链兜底，优先级 +7） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
@@ -36,6 +64,8 @@ void all_init()
   /* 按键任务：200 ms 轮询（短按/长按发不同提示音，优先级 +5） */
   configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 
+  /* 置运行标志：任务入口的 wait_running() 在此之后才放行 */
+  sys_state.complete_init();
 }
 
 

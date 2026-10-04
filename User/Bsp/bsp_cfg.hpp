@@ -11,11 +11,11 @@
 #ifndef __BSP_CFG_HPP__
 #define __BSP_CFG_HPP__
 
-#include "bsp_buzzer.hpp"
 #include "bsp_can.hpp"
 #include "bsp_dwt.hpp"
 #include "bsp_gpio.hpp"
 #include "bsp_key.hpp"
+#include "bsp_pwm.hpp"
 #include "bsp_uart.hpp"
 
 
@@ -55,15 +55,23 @@ extern BspGpio power_24v_1;  ///< 电源控制
 extern BspGpio power_5v;     ///< 电源控制
 extern BspGpio gyro_acc_cs;  ///< IMU 加速度计片选
 extern BspGpio gyro_gyro_cs; ///< IMU 陀螺仪片选
-extern BspGpio btb_gpio;     ///< BTB 扩展 IO
-extern BspGpio lcd_cs;       ///< LCD 片选
-extern BspGpio lcd_blk;      ///< LCD 背光
-extern BspGpio lcd_res;      ///< LCD 复位
-extern BspGpio lcd_dc;       ///< LCD 数据/命令选择
+extern BspGpio btb_pa5;  ///< BTB 扩展 IO（PA5）
+extern BspGpio btb_pe14; ///< BTB 扩展 IO（PE14）
+extern BspGpio btb_pd10; ///< BTB 扩展 IO（PD10）
+extern BspGpio spi1_cs;  ///< SPI1 片选（原 LCD 接口，PE15）
 
 
-extern BspBuzzer bsp_buzzer; ///< 无源蜂鸣器（TIM12 CH2 / PB15）
-extern BspKey    key_user;   ///< 用户按键（PA15，低有效）
+extern BspPwm bsp_pwm1; ///< PE13 TIM1_CH3 排针预留（舵机）
+extern BspPwm bsp_pwm2; ///< PE9  TIM1_CH1 排针预留（舵机）
+extern BspPwm bsp_pwm3; ///< PA2  TIM2_CH3 排针预留（舵机）
+extern BspPwm bsp_pwm4; ///< PA0  TIM2_CH1 排针预留（舵机）
+
+
+extern BspPwm bsp_pwm_gyro;   ///< PB1  TIM3_CH4  陀螺仪
+extern BspPwm bsp_pwm_buzzer; ///< PB15 TIM12_CH2 无源蜂鸣器（由 Device 层 DeviceBuzzer 驱动）
+
+
+extern BspKey key_user; ///< 用户按键（PA15，低有效）
 
 // ----------------
 

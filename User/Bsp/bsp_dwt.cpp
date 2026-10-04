@@ -44,7 +44,7 @@ double BspDwt::delta_s(uint32_t *last) const
 }
 
 /** @brief 绝对时间（秒，自 init() 起算） */
-double BspDwt::time_s()
+double BspDwt::get_time_s()
 {
   // 必须先调用 update_timeline()（它会累加 _base_s 的副作用），再取 _base_s。
   // 若写成 `_base_s + update_timeline()/...`，则 "+" 两侧求值顺序未定义：
@@ -54,15 +54,15 @@ double BspDwt::time_s()
 }
 
 /** @brief 绝对时间（毫秒） */
-double BspDwt::time_ms()
+double BspDwt::get_time_ms()
 {
-  return time_s() * 1000.0;
+  return get_time_s() * 1000.0;
 }
 
 /** @brief 绝对时间（微秒） */
-double BspDwt::time_us()
+double BspDwt::get_time_us()
 {
-  return time_s() * 1000000.0;
+  return get_time_s() * 1000000.0;
 }
 
 /** @brief 忙等指定纳秒，ns的值只能是1.818的倍数，这个太短了 */
@@ -97,7 +97,7 @@ void BspDwt::delay_s(double s) const
 /** @brief 四个 delay_* 的公共实现：忙等 cycles 个 CPU 周期 */
 void BspDwt::wait_cycles(double cycles) const
 {
-  if (cycles <= 0.0 || !available()) // 未初始化时计数频率未知，无法换算
+  if (cycles <= 0.0 || !_inited) // 未初始化时计数频率未知，无法换算
   {
     return;
   }
@@ -111,18 +111,6 @@ void BspDwt::wait_cycles(double cycles) const
   while ((DWT->CYCCNT - start) < (uint32_t)cycles)
   {
   }
-}
-
-/** @brief 是否已初始化且计数可用（供类内自检，不对外暴露） */
-bool BspDwt::available() const
-{
-  return _inited;
-}
-
-/** @brief CYCCNT 计数频率（Hz） */
-uint32_t BspDwt::cpu_hz() const
-{
-  return _cpu_hz;
 }
 
 /** @brief 回绕检测 + 累加，返回本次读到的 CYCCNT（绝对时间轴唯一的状态更新点） */

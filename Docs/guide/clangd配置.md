@@ -52,11 +52,11 @@ clangd 的 include-cleaner 会检查头文件是否被直接使用。间接使�
 用法（工程里没有任何自动格式化，格式化都要手动触发）：
 
 - 单文件：在编辑器中对当前文件执行 Format Document（`Shift+Alt+F`），用的就是 `.clang-format`。
-- 批量统一：直接用那份 clang-format 覆盖格式化，范围 `User/` 与 `QSPI_Flash/`：
+- 批量统一：直接用那份 clang-format 覆盖格式化，范围 `User/`：
 
   ```bash
   CF=~/.vscode/extensions/ms-vscode.cpptools-*/LLVM/bin/clang-format
-  "$CF" -i $(find User QSPI_Flash -type f \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' \))
+  "$CF" -i $(find User -type f \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' \))
   ```
 
 `Core/` 由 CubeMX 生成、第三方目录是上游代码，两者都不格式化。
@@ -74,7 +74,7 @@ Diagnostics:
   Suppress: '*'
 ```
 
-本工程自己的代码（`User/`、`QSPI_Flash/`、`Core/`）不受影响；`tinyusb-0.20.0/` 也不屏蔽，它本身是可编译的源码，保留诊断便于排查问题。
+本工程自己的代码（`User/`、`Core/`）不受影响。
 
 ### 必须靠前的头文件
 

@@ -12,5 +12,9 @@ if not exist "%ELF_FILE%" (
     exit /b 1
 )
 
-REM 使用标准化路径烧录
-openocd -f Flash/daplink.cfg -c "program \"%ELF_FILE%\" verify reset exit"
+REM 使用标准化路径烧录（禁用 GDB / Telnet / TCL 服务端口）
+openocd -f Flash/daplink.cfg ^
+    -c "gdb_port disabled" ^
+    -c "tcl_port disabled" ^
+    -c "telnet_port disabled" ^
+    -c "program \"%ELF_FILE%\" verify reset exit"

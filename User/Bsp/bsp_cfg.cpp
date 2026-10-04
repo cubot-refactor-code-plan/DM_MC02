@@ -21,8 +21,7 @@
  *        ✅ USART10    → bsp_uart10.init()    [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ GPIO       → MX_GPIO_Init()       [BspGpio 仅封装]
  *        ✅ KEY (PA15) → key_user.init(...)   [纯软件轮询消抖，无 ISR；200ms 轮询 → 200ms 消抖, 1s 长按]
- *        ✅ USB        → BspUsb::instance()   [由默认任务启动后初始化]
- *        ✅ 蜂鸣器      → bsp_buzzer           [TIM12 CH2 PB15，构造时完成配置，没有 init()]
+ *        ✅ PWM×6      → bsp_pwm*.init()      [TIM1/2/3/12 各通道，先清 CCR 再启动 → 上电 0% 占空比]
  *
  */
 void bsp_init()
@@ -45,6 +44,14 @@ void bsp_init()
   configASSERT(bsp_uart9.init() == Status::OK);
   configASSERT(bsp_uart10.init() == Status::OK);
 
+  // PWM×6（参数取自 CubeMX；先清 CCR 再启动 → 上电全部 0% 占空比）
+  bsp_pwm1.init();       // PE13 TIM1_CH3  排针预留（舵机）
+  bsp_pwm2.init();       // PE9  TIM1_CH1  排针预留（舵机）
+  bsp_pwm3.init();       // PA2  TIM2_CH3  排针预留（舵机）
+  bsp_pwm4.init();       // PA0  TIM2_CH1  排针预留（舵机）
+  bsp_pwm_gyro.init();   // PB1  TIM3_CH4  陀螺仪
+  bsp_pwm_buzzer.init(); // PB15 TIM12_CH2 无源蜂鸣器
+
   // 按键（纯软件轮询消抖，200ms轮询 → 200ms消抖, 1s长按）
   key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U});
 }
@@ -58,9 +65,9 @@ BspDwt bsp_dwt; ///< 内核 CYCCNT 计时（CPU 频率由 init() 从 RCC 读出�
 // ----------------
 // ---------------- CAN ----------------
 
-BspCan bsp_can1(&hfdcan1); ///< 构造只绑句柄，没有其它参数
-BspCan bsp_can2(&hfdcan2);
-BspCan bsp_can3(&hfdcan3);
+BspCan bsp_can1({&hfdcan1, "CAN1"}); ///< 构造参数：{句柄, 调试名}
+BspCan bsp_can2({&hfdcan2, "CAN2"});
+BspCan bsp_can3({&hfdcan3, "CAN3"});
 
 
 // ----------------
@@ -96,20 +103,28 @@ BspGpio gyro_acc_cs({GYRO_ACC_CS_GPIO_Port, GYRO_ACC_CS_Pin});    // PC0
 BspGpio gyro_gyro_cs({GYRO_GYRO_CS_GPIO_Port, GYRO_GYRO_CS_Pin}); // PC3
 
 // BTB 扩展 IO
-BspGpio btb_gpio({BTB_GPIO_GPIO_Port, BTB_GPIO_Pin}); // PE14
+BspGpio btb_pa5({BTB_PA5_GPIO_Port, BTB_PA5_Pin});    // PA5
+BspGpio btb_pe14({BTB_PE14_GPIO_Port, BTB_PE14_Pin}); // PE14
+BspGpio btb_pd10({BTB_PD10_GPIO_Port, BTB_PD10_Pin}); // PD10
 
-// LCD 控制
-BspGpio lcd_cs({LCD_CS_GPIO_Port, LCD_CS_Pin});    // PE15
-BspGpio lcd_blk({LCD_BLK_GPIO_Port, LCD_BLK_Pin}); // PB10
-BspGpio lcd_res({LCD_RES_GPIO_Port, LCD_RES_Pin}); // PB11
-BspGpio lcd_dc({LCD_DC_GPIO_Port, LCD_DC_Pin});    // PD10
+// SPI1 片选（原 LCD 接口，经反向线延伸到二层）
+BspGpio spi1_cs({SPI1_CS_GPIO_Port, SPI1_CS_Pin}); // PE15
 
 
 // ----------------
-// ---------------- 蜂鸣器 ----------------
+// ---------------- PWM 通道 ----------------
 
-// 蜂鸣器：TIM12 CH2 (PB15)，默认 Config（计数基频 6 MHz）；换定时器/通道时传 BspBuzzer::Config
-BspBuzzer bsp_buzzer;
+///< 排针预留舵机 PWM（定时器时钟 275 MHz = APB 137.5 MHz × 2；PSC/ARR 取自 CubeMX）
+BspPwm bsp_pwm1({&htim1, TIM_CHANNEL_3, 275000000UL, 24U, 10000U}); // PE13 TIM1_CH3
+BspPwm bsp_pwm2({&htim1, TIM_CHANNEL_1, 275000000UL, 24U, 10000U}); // PE9  TIM1_CH1
+BspPwm bsp_pwm3({&htim2, TIM_CHANNEL_3, 275000000UL, 24U, 10000U}); // PA2  TIM2_CH3
+BspPwm bsp_pwm4({&htim2, TIM_CHANNEL_1, 275000000UL, 24U, 10000U}); // PA0  TIM2_CH1
+
+///< 陀螺仪 PWM：TIM3_CH4 PB1
+BspPwm bsp_pwm_gyro({&htim3, TIM_CHANNEL_4, 275000000UL, 23U, 9999U});
+
+///< 无源蜂鸣器：TIM12_CH2 PB15（由 Device 层 DeviceBuzzer 驱动）
+BspPwm bsp_pwm_buzzer({&htim12, TIM_CHANNEL_2, 275000000UL, 23U, 1999U});
 
 
 // ----------------

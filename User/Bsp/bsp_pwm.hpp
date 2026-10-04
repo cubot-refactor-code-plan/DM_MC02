@@ -59,14 +59,7 @@ public:
     /**
      * @brief 按序构造配置（参数顺序 = 字段顺序，可匿名传入）
      */
-    Config(TIM_HandleTypeDef *htim = nullptr, uint32_t channel = 0U, uint32_t timer_clk_hz = 0U, uint32_t prescaler = 0U, uint32_t period = 0U, float duty_pct = 0.0f)
-
-      : htim(htim),
-        channel(channel),
-        timer_clk_hz(timer_clk_hz),
-        prescaler(prescaler),
-        period(period),
-        duty_pct(duty_pct)
+    Config(TIM_HandleTypeDef *htim = nullptr, uint32_t channel = 0U, uint32_t timer_clk_hz = 0U, uint32_t prescaler = 0U, uint32_t period = 0U, float duty_pct = 0.0f) : htim(htim), channel(channel), timer_clk_hz(timer_clk_hz), prescaler(prescaler), period(period), duty_pct(duty_pct)
     {
     }
 

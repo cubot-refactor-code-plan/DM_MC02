@@ -5,15 +5,11 @@
 
 // 依赖只在测试启用时有意义：放进 #if，避免关闭时整个 TU 为空、被 include-cleaner 判成多余
 #  include "bsp_cfg.hpp"
-#  include "can_bus.hpp"
-#  include "service_cfg.hpp" // bus_can1
+#  include "service_cfg.hpp" // sys_state
 #  include "task.h"
 
-#  if APP_TEST_DJI_MOTOR_ENABLED
-#    error "CAN recovery test and motor motion test cannot share CAN1"
-#  endif
-
 // CAN1/C620 ID2，所有控制帧均为零。arm=1 自动故障注入，arm=2 等待物理断连。
+// 本测试直连 BspCan：接收缓冲由本文件自己消费，不经任何注册表 / 分发层。
 volatile uint32_t   can_recovery_test_arm                = 0;
 volatile uint32_t   can_recovery_test_stage              = 0;
 volatile uint32_t   can_recovery_test_failure            = 0;
@@ -31,23 +27,43 @@ volatile Status     can_recovery_test_init_status        = Status::NOT_INIT;
 
 namespace
 {
-Status feedback(void *, const CanRxMsg &rx)
+/**
+ * @brief 取空 BspCan 接收缓冲，只统计 0x202 的有效反馈
+ *
+ * @note 本测试不再注册接收节点，消费接收缓冲的责任落在本函数上；
+ *       非 0x202 的帧与测试无关，取出即丢弃。
+ * @note 与旧回调一致：编码器值越界的帧不计入有效反馈。
+ */
+void drain_rx()
 {
-  if (((uint16_t(rx.data[0]) << 8) | rx.data[1]) >= 8192)
-    return Status::BAD_ARG;
-  ++can_recovery_test_feedback;
-  can_recovery_test_last_rx = xTaskGetTickCount();
-  return Status::OK;
+  CanRxMsg rx = {};
+  // 单轮有上限，避免反馈洪流下把测试任务一直卡在取帧里
+  for (uint32_t i = 0U; i < 8U && bsp_can1.receive(&rx, 0U) == Status::OK; ++i)
+  {
+    if (rx.header.Identifier != 0x202U)
+    {
+      continue;
+    }
+    // 编码器值越界的帧不计入有效反馈
+    const uint32_t ecd = (static_cast<uint32_t>(rx.data[0]) << 8U) | static_cast<uint32_t>(rx.data[1]);
+    if (ecd >= 8192U)
+    {
+      continue;
+    }
+    ++can_recovery_test_feedback;
+    can_recovery_test_last_rx = xTaskGetTickCount();
+  }
 }
 
 void zero()
 {
   uint8_t      data[8] = {};
-  const Status status  = bus_can1.send(0x200, data);
+  const Status status  = bsp_can1.send(0x200, data);
   if (status == Status::FULL)
     ++can_recovery_test_send_full;
   if (status == Status::BUSY)
     ++can_recovery_test_send_busy;
+  drain_rx();
 }
 
 bool wait_feedback(uint32_t timeout_ms)
@@ -207,11 +223,12 @@ bool physical()
 
 extern "C" void can_recovery_test_init()
 {
-  can_recovery_test_init_status = regist({&bus_can1, 0x202, feedback}) ? Status::OK : Status::IO_ERROR;
+  // 只确认句柄已绑定：总线本身的初始化由 bsp_init() 完成，本测试不再登记接收节点
+  can_recovery_test_init_status = bsp_can1.is_ready() ? Status::OK : Status::NOT_INIT;
 }
 extern "C" void can_recovery_test_task(void *)
 {
-  sys_flag_wait_running();
+  sys_state.wait_running();
   can_recovery_test_stage = 1;
   while (can_recovery_test_arm == 0)
   {

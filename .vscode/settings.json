@@ -1,6 +1,7 @@
 {
     "clangd.arguments": [
-        "--compile-commands-dir=build/Debug",                     
+        "--compile-commands-dir=build/Debug",
+        "--query-driver=**/arm-none-eabi-g++,/**/arm-none-eabi-gcc"                     
     ],
     "cortex-debug.variableUseNaturalFormat": true,
     "cmake.useCMakePresets": "always",

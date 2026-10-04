@@ -2,8 +2,8 @@
  * @file app_test.hpp
  * @author Rh
  * @brief 应用层测试任务开关与声明
- * @version 0.1
- * @date 2026-09-27
+ * @version 0.2
+ * @date 2026-10-03
  *
  * @copyright Copyright (c) 2026
  *
@@ -14,11 +14,14 @@
 #ifndef __APP_TEST_HPP__
 #define __APP_TEST_HPP__
 
-/** @brief DWT 计时验证：打印绝对时间轴 / 1s 标定 / 1ms 忙等自测 */
-#define APP_TEST_DWT_ENABLED 1
+/** @brief CAN1 零输出故障注入与 Bus-Off 恢复实机测试 */
+#define APP_TEST_CAN_RECOVERY_ENABLED 0
 
-/** @brief UART 极限测试：uart8 <-> uart9 对接，双向同时压满并逐个包比对 */
-#define APP_TEST_UART_ENABLED 1
+/** @brief 编译并创建 Online 实机自检任务 */
+#define APP_TEST_ONLINE_CHECK_ENABLED 0
+
+/** @brief CAN3 DJI 电机组通讯自检（3508/2006/6020 混挂，成员表见 device_cfg.cpp） */
+#define APP_TEST_DJI_GROUP_ENABLED 1
 
 
 #ifdef __cplusplus
@@ -37,6 +40,18 @@ extern "C"
 
   /** @brief UART 极限测试：每秒汇报两个方向的统计（独立任务，不干扰收发） */
   void uart_test_report(void *argument);
+
+  /** @brief Online 状态机自检任务 */
+  void online_check_test_task(void *argument);
+
+  /** @brief CAN1 故障注入与恢复测试的初始化 */
+  void can_recovery_test_init(void);
+
+  /** @brief CAN1 零输出故障注入与 Bus-Off 恢复测试任务 */
+  void can_recovery_test_task(void *argument);
+
+  /** @brief CAN3 DJI 电机组通讯自检任务（开环正弦 + 轮询汇报） */
+  void dji_motor_group_test_task(void *argument);
 
 #ifdef __cplusplus
 }

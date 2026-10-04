@@ -67,11 +67,7 @@ public:
   struct Config
   {
     /** @brief 按序构造（参数顺序 = 字段顺序） */
-    Config(UART_HandleTypeDef *huart = nullptr, bool transmit_enable = true, uint32_t baudrate = 115200U)
-
-      : huart(huart),
-        transmit_enable(transmit_enable),
-        baudrate(baudrate)
+    Config(UART_HandleTypeDef *huart = nullptr, bool transmit_enable = true, uint32_t baudrate = 115200U) : huart(huart), transmit_enable(transmit_enable), baudrate(baudrate)
     {
     }
 

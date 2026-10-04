@@ -161,11 +161,7 @@ extern "C"
 
 /** @brief 只做赋值，RTOS 资源与接收启动放在 init() */
 template <size_t BUFFER_SIZE>
-BspUart<BUFFER_SIZE>::BspUart(const Config &cfg)
-
-  : _huart(cfg.huart),
-    _transmit_enable(cfg.transmit_enable),
-    _baudrate(cfg.baudrate)
+BspUart<BUFFER_SIZE>::BspUart(const Config &cfg) : _huart(cfg.huart), _transmit_enable(cfg.transmit_enable), _baudrate(cfg.baudrate)
 {
   // 构造函数只做赋值；运行时逻辑（FreeRTOS资源创建）推迟到 init()
 }

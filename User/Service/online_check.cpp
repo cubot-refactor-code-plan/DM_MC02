@@ -6,9 +6,12 @@
 #include <stdint.h>
 
 
+// ---------------- 私有实现 ----------------
+
+
 namespace
 {
-/** @brief 在调度器运行后用任务临界区保护 Online 链表与状态。 */
+/** @brief 在调度器运行后用任务临界区保护 Online 链表与状态 */
 class ScopedTaskCritical
 {
 public:
@@ -34,15 +37,15 @@ private:
 } // namespace
 
 
+// ----------------
+// ---------------- 成员变量 ----------------
+
+
 Online *Online::_head = nullptr;
 Online *Online::_tail = nullptr;
 
 
-Online::Online(uint16_t timeout_gap) :
-  _last_refresh_tick(xTaskGetTickCount() - pdMS_TO_TICKS(timeout_gap == 0U ? 1U : timeout_gap)),
-  _timeout_gap(timeout_gap == 0U ? 1U : timeout_gap),
-  _statu(Status::TIMEOUT),
-  _next(nullptr)
+Online::Online(uint16_t timeout_gap) : _last_refresh_tick(xTaskGetTickCount() - pdMS_TO_TICKS(timeout_gap == 0U ? 1U : timeout_gap)), _timeout_gap(timeout_gap == 0U ? 1U : timeout_gap), _statu(Status::TIMEOUT), _next(nullptr)
 {
   const ScopedTaskCritical lock;
   if (_tail == nullptr)
@@ -91,6 +94,10 @@ Online::~Online()
 }
 
 
+// ----------------
+// ---------------- 公有接口 ----------------
+
+
 Status Online::refresh_task(void)
 {
   const ScopedTaskCritical lock;
@@ -113,8 +120,7 @@ Status Online::refresh_isr(void)
 Status Online::is_online(void) const
 {
   const ScopedTaskCritical lock;
-  const Status             result = _statu;
-  return result;
+  return _statu;
 }
 
 
@@ -133,3 +139,6 @@ Status Online::update(void)
 
   return Status::OK;
 }
+
+
+// ----------------

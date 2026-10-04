@@ -1,151 +1,157 @@
 /**
- * @file pid.cpp
+ * @file pid.hpp
  * @author ChoseB (ChoseB@cumt.edu.cn)
- * @brief PID算法的封装
- * @version 0.1
+ * @brief PID 算法的封装
+ * @version 0.2
  * @date 2026-03-07
  *
  * @copyright Copyright (c) 2026
  *
- * @brief 使用示例
+ * @details 使用示例（只有一个构造函数：系数 + 限幅，限幅可省略）：
  *
- * @note 实例化(以下初始化方式任选其一即可)
+ *      // 只给 kp / ki / kd，不限幅
+ *      Pid motor1_pid({0.8f, 0.0f, 0.0f});
  *
- *      // option 1
- *      PID_t motor1PID(0.8,0,0);                                        // 只给kp,ki,kd
+ *      // 给全参数：{kp, ki, kd} + {out_max, p_max, i_max, d_max, f_max, i_separation}
+ *      Pid motor2_pid({0.8f, 1.0f, 1.0f}, {10000.0f, 0.0f, 3000.0f, 0.0f, 0.0f, 50.0f});
  *
- *      // option 2
- *      PID_t motor2PID(0.8,1,1,10000,0,3000,0,8000,50);                 // 给全参数
+ *      // 复制构造：批量起一组同参数对象
+ *      Pid motors_pid[4] = {motor2_pid, motor2_pid, motor2_pid, motor2_pid};
  *
- *      // option 3
- *      PID_t PID_temp(0.8,1,1,10000,0,3000,0,8000,50);
- *      PID_t motorsPID[4] = {PID_temp,PID_temp,PID_temp,PID_temp};      // 复制其他的pid对象
+ *      // 有必要才禁用微分先行
+ *      motor2_pid.switch_mode_diff_calc(PidDiffCalcMode::ERROR);
  *
- *      // option 4
- *      PID_t motor3PID(0.8,1,1,10000,0,3000,0,8000,50);
- *      motor3.PID.SwitchMode_DiffCalc(Diff_error);                      // optional, 有必要才禁用微分先行
+ * @note 使用（假设已有 Pid 对象 pid；calc 的第三个参数可省略）：
  *
- * @note 使用(假设已有PID_t对象pid)
- *
- *      pid.FeedForward(FrictionFF());           // optional
- *      pid.FeedForward(FollowFF(dTarget));      // optional
- *      pid.Calc(tar,motor.angle,motor.speed);   // 最后一个参数是可去掉的
+ *      pid.feed_forward(friction_ff());        // optional
+ *      pid.feed_forward(follow_ff(d_target));  // optional
+ *      pid.calc(tar, motor.angle, motor.speed);
  */
-
 
 #ifndef __PID_HPP__
 #define __PID_HPP__
 
-struct _PID_Param_t
+/** @brief PID 系数 */
+struct PidParam
 {
-  float kp; // 比例项系数
-  float ki; // 积分项系数
-  float kd; // 微分项系数
-  _PID_Param_t();
-  _PID_Param_t(float kp, float ki, float kd);
+  float kp; ///< 比例项系数
+  float ki; ///< 积分项系数
+  float kd; ///< 微分项系数
+
+  PidParam();
+  PidParam(float kp, float ki, float kd);
 };
 
-struct _PID_Limitation_t
+/** @brief 各项限幅（写 0 表示关闭该项限制） */
+struct PidLimitation
 {
-  float Out_max;      // 总输出最大限制
-  float P_max;        // 比例项最大限制，写0则关闭
-  float I_max;        // 积分项最大限制，写0则采用总最大输出
-  float D_max;        // 微分项最大限制，写0则关闭
-  float F_max;        // 前馈项最大限制，写0则关闭
-  float I_separation; // 积分分离阈值
-  _PID_Limitation_t();
-  _PID_Limitation_t(float Out_max, float P_max, float I_max, float D_max, float F_max, float I_separation);
+  float out_max;      ///< 总输出最大限制，写 0 则不限制
+  float p_max;        ///< 比例项最大限制，写 0 则关闭
+  float i_max;        ///< 积分项最大限制，写 0 则跟随 out_max
+  float d_max;        ///< 微分项最大限制，写 0 则关闭
+  float f_max;        ///< 前馈项最大限制，写 0 则关闭
+  float i_separation; ///< 积分分离阈值，写 0 则关闭积分分离
+
+  PidLimitation();
+  PidLimitation(float out_max, float p_max, float i_max, float d_max, float f_max, float i_separation);
 };
 
-struct _PID_Term_t
+/** @brief 各项计算值 */
+struct PidTerm
 {
-  float P_term; // 比例项计算值
-  float I_term; // 积分项计算值
-  float D_term; // 微分项计算值
-  float F_term; // 前馈项计算值
-  _PID_Term_t();
+  float p_term; ///< 比例项计算值
+  float i_term; ///< 积分项计算值
+  float d_term; ///< 微分项计算值
+  float f_term; ///< 前馈项计算值
+
+  PidTerm();
 };
 
-struct _PID_Input_t
+/** @brief 输入量与中间量 */
+struct PidInput
 {
-  float target;   // 当前目标值
-  float feedback; // 当前反馈值
-  float error;    // 当前误差值，error = target - feedback
+  float target;   ///< 当前目标值
+  float feedback; ///< 当前反馈值
+  float error;    ///< 当前误差值，error = target - feedback
 
-  float last_target; // 上一目标值
-  float last_error;  // 上一误差值
+  float last_target; ///< 上一目标值
+  float last_error;  ///< 上一误差值
 
-  float delta_target; // 目标值微分，delta_target = target - last_target，也支持直接传入目标值微分
-  float delta_error;  // 误差值微分，delta_target = error - last_error，也支持直接传入误差值微分
+  float delta_target; ///< 目标值微分；也可由外部直接传入
+  float delta_error;  ///< 误差值微分；也可由外部直接传入
 };
 
-enum _PID_Diff_Calc_mode_t
+/** @brief 微分项计算方式 */
+enum class PidDiffCalcMode
 {
-  Diff_target      = 0x01, // 使用delta_target来计算微分项
-  Diff_error       = 0x02, // 使用delta_target来计算微分项
-  Disable_PID_Diff = 0x00, // 不计算微分项目
+  TARGET  = 0x01, ///< 使用 delta_target 计算微分项（微分先行）
+  ERROR   = 0x02, ///< 使用 delta_error 计算微分项（常规微分）
+  DISABLE = 0x00, ///< 不计算微分项
 };
 
-class PID_t
+/** @brief PID 控制器 */
+class Pid
 {
 protected:
-  _PID_Param_t      param; // 系数
-  _PID_Limitation_t lim;   // 限幅
-  _PID_Term_t       term;  // 各项计算值
+  PidParam        _param;          ///< 系数
+  PidLimitation   _lim;            ///< 限幅
+  PidTerm         _term;           ///< 各项计算值
+  PidDiffCalcMode _diff_calc_mode; ///< 微分项计算模式
 
-  _PID_Diff_Calc_mode_t diffCalcMode; // 微分项计算模式
+  /** @brief 根据传入的 target / feedback 计算误差与微分 */
+  virtual void calc_input(float target, float feedback);
 
-  virtual void Calc_Input(float target, float feedback); // 根据传入计算出其他输入项
+private:
+  /** @brief 用当前 input 与前馈项算一次输出并限幅（两个 calc 重载共用） */
+  float _calc_output();
 
 public:
-  _PID_Input_t input;  // 传入
-  float        output; // 传出
-
-  PID_t(_PID_Param_t param);
-  PID_t(float kp, float ki, float kd);
-  PID_t(_PID_Param_t param, _PID_Limitation_t limitation);
-  PID_t(float kp, float ki, float kd, float Out_max, float P_max, float I_max, float D_max, float F_max, float I_separation);
+  PidInput input;  ///< 传入
+  float    output; ///< 传出
 
   /**
-   * @brief 切换微分项计算方式。通常在不适用于微分先行的动态系统中补充初始化
-   *
-   * @param mode 微分项计算方式。使用计算模式Diff_error来禁用微分先行
+   * @brief 构造
+   * @param param 系数 {kp, ki, kd}
+   * @param limitation 限幅 {out_max, p_max, i_max, d_max, f_max, i_separation}；
+   *                   可省略，省略等于全部不限幅
    */
-  void SwitchMode_DiffCalc(_PID_Diff_Calc_mode_t mode);
+  Pid(PidParam param, PidLimitation limitation = PidLimitation());
+
+  /**
+   * @brief 切换微分项计算方式（通常在不适用于微分先行的动态系统中补充初始化）
+   * @param mode 微分项计算方式；用 PidDiffCalcMode::ERROR 禁用微分先行
+   */
+  void switch_mode_diff_calc(PidDiffCalcMode mode);
 
   /**
    * @brief 将某一前馈函数预测的值引入计算
-   *
-   * @param feedforward 某一前馈函数返回的数值
+   * @param feedforward 前馈函数返回的数值
    * @return float 前馈项总和
    */
-  float FeedForward(float feedforward);
+  float feed_forward(float feedforward);
 
   /**
-   * @brief pid计算函数
-   *
+   * @brief PID 计算
    * @param target 目标值
    * @param feedback 反馈值
    * @return float 输出
    */
-  float Calc(float target, float feedback);
-  /**
-   * @brief pid计算函数，目标值一阶导数自行导入
-   *
-   * @param target 目标值
-   * @param feedback 反馈值
-   * @param df_dt 目标值一阶导数
-   * @note 示例:
-   * 当动态系统被控量为位移x时，df_dt项可填入速度v，以提高微分项计算精度
-   * @return float 输出
-   */
-  float Calc(float target, float feedback, float df_dt);
+  float calc(float target, float feedback);
 
   /**
-   * @brief 快速打印target和feedback到vofa [暂未实现]
-   *
+   * @brief PID 计算（一阶导数由外部导入，精度高于内部差分）
+   * @param target 目标值
+   * @param feedback 反馈值
+   * @param df_dt 一阶导数；作用到哪个量由微分模式决定
+   *              （TARGET → input.delta_target，ERROR → input.delta_error）
+   * @note 被控量为位移 x 时，df_dt 填速度 v（微分先行 / 常规微分都适用），
+   *       避免内部再差分一次把反馈噪声放大
+   * @return float 输出
    */
-  void Print();
+  float calc(float target, float feedback, float df_dt);
+
+  /** @brief 快速打印 target 和 feedback 到 vofa [暂未实现] */
+  void print();
 };
 
 #endif // __PID_HPP__

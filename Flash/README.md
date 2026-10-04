@@ -1,47 +1,43 @@
 # 烧录脚本
 
-四个脚本均支持当前工程的内部 Flash + W25Q64JV 双镜像烧录：
+两个 Linux 脚本均可从任意目录调用，无需先切入工程根目录。
 
-| 探针 | Linux | Windows | OpenOCD 配置 |
+| 探针 | Linux | Windows | 连接配置 |
 | --- | --- | --- | --- |
 | CMSIS-DAP | `OpenOCD_flash.sh` | `OpenOCD_flash.bat` | `daplink.cfg` |
-| SEGGER J-Link | `JLink_flash.sh` | `JLink_flash.bat` | `jlink.cfg` |
+| SEGGER J-Link | `JLink_flash.sh` | `JLink_flash.bat` | `jlink.cfg`（OpenOCD 的 `jlink` 适配器） |
 
-所有脚本都依赖 `openocd`。J-Link 版本通过 OpenOCD 的 `jlink`/libjaylink 适配器使用物理
-J-Link 探针，不调用 J-Link Commander；可用 `openocd -c "adapter list" -c "shutdown"`
-确认当前 OpenOCD 是否包含 `jlink` 适配器。`.sh` 文件需要具有可执行权限。
+- `OpenOCD_flash.sh`：定位 `build/Debug/<工程名>.elf`（找不到时兵底搜索 `build/` 下任意 `.elf`），
+  经 `daplink.cfg` 执行 `program <elf> verify reset exit`。
+- `JLink_flash.sh`：参数 `[BUILD_TYPE]`（默认 `Debug`），经 OpenOCD 的 `jlink` 适配器（libjaylink）
+  驱动 J-Link，以 SWD 4 MHz 下载 `build/<BUILD_TYPE>/<工程名>.elf` 并复位运行。
+- 两个脚本都依赖 `openocd`；J-Link 版本还要求 OpenOCD 带 `jlink` 适配器（可用
+  `openocd -c "adapter list" -c "shutdown"` 确认）。`.sh` 文件需要可执行权限。
+- 两个脚本都用 `program … verify reset exit` 一次完成下载、校验与复位，并禁用 OpenOCD 的
+  GDB / Telnet / TCL 服务端口（烧录不需要，避免占用 3333 / 4444 / 6666）。
 
-## 烧录当前工程
-
-当前固件由两个独立产物组成：
-
-- `DM_MC02_internal.hex`：STM32 内部 Flash 镜像；
-- `DM_MC02_usb_xip.bin`：写入 W25Q64JV `0x70110000` 的 USB XIP 镜像。
-
-构建完成后必须使用双镜像脚本，不能只下载 ELF。各脚本默认使用 `build/Debug`：
+## 用法
 
 ```bash
-bash Flash/OpenOCD_flash.sh Debug
-bash Flash/JLink_flash.sh Debug
+bash Flash/OpenOCD_flash.sh
+bash Flash/JLink_flash.sh          # 默认 build/Debug
 ```
 
-Windows 对应命令为：
+Windows 对应命令：
 
 ```bat
-Flash\OpenOCD_flash.bat Debug
+Flash\OpenOCD_flash.bat
 Flash\JLink_flash.bat Debug
 ```
 
-可选参数是 `build/` 下的目录名。例如 HID 验证构建位于 `build/HID-Debug` 时使用：
+## 本目录其他文件
 
-```bash
-bash Flash/OpenOCD_flash.sh HID-Debug
-```
+| 文件 | 用途 |
+| --- | --- |
+| `daplink.cfg` | OpenOCD 的 DAPLink / CMSIS-DAP 配置 |
+| `jlink.cfg` | OpenOCD 的 SEGGER J-Link 配置（`adapter driver jlink` + SWD 4 MHz） |
+| `STM32H723.svd` | STM32H723 外设寄存器描述，供 Cortex-Debug 查看外设寄存器 |
+| `linux.jdebug`、`linux.jdebug.user` | Ozone 工程示例；内含创建者机器的绝对路径、探针序列号与 Ozone 版本信息，换机器后必须在 Ozone 中重新选择 ELF 与探针 |
 
-脚本先下载并校验内部镜像，再通过一次性 D3 SRAM 邮箱让固件把 OCTOSPI2 切换到 OpenOCD
-可识别的单线映射，随后擦写、校验外置镜像并复位运行。CDC/HID 跨模式更新由类别相关的
-XIP 签名保护；旧类别载荷不会被新内部固件执行。
-
-Linux 若把 HID 节点创建成 `0600 root:root`，可将 `Flash/99-dm-mc02-usb.rules` 安装到
-`/etc/udev/rules.d/` 后重载规则并重新插拔设备。规则仅匹配本工程的 `cafe:4001` CDC 和
-`cafe:4002` HID，不会影响独立的 CMSIS-DAP 虚拟串口。
+相关配置：`.vscode/tasks.json`（烧录任务 `OpenOCD_flash_linux` / `JLink_flash_linux`）、
+`.vscode/launch.json`（调试配置）、`Docs/guide/开发环境与烧录调试.md`。

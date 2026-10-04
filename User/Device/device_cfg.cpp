@@ -1,23 +1,33 @@
 #include "device_cfg.hpp"
 
+#include "bsp_cfg.hpp" // IWYU pragma: keep（bsp_pwm_buzzer）
 
-/* ==================== 全局实例化 ==================== */
 
-/* ==================== 初始化函数 ==================== */
+// ---------------- 全局实例 ----------------
 
-/**
- * @brief 设备层统一初始化
- *
- * @note LCD 在此初始化（复位、背光、寄存器配置，SPI1 DMA）；
- *       当前为底层库形态：电机不初始化（不绑定到位信号量、不创建接收任务）。
- *
- *       业务接入电机时的完整初始化顺序（参考）：
- *         1. api_main 创建到位信号量 motor_xy_sem / motor_z_sem
- *         2. emm_motor_*.init()
- *         3. emm_motor_*.set_in_pos_sem(...) 绑定到位信号量
- *         4. DeviceEmmV5::create_rx_tasks() 创建每路电机的到位接收任务
- */
-void device_init()
+
+DeviceBuzzer buzzer(bsp_pwm_buzzer);
+
+// CAN3 上的 DJI 电机组：按反馈标识符 0x201 ~ 0x20B 的顺序填 11 位，空位写 nullptr。
+// 位置 0~3 放 M3508/M2006；位置 4~7 三种都能放；位置 8~10 只能放 GM6020（电流模式）。
+// 当前只挂 1 台 GM6020（必须电流模式）：电调 ID 1 → 反馈 0x205 → 位置 4（控制帧 0x1FE 槽位 0）。
+static const DjiMotorGroup::Member gm6020_1 {DjiMotorModel::GM6020};
+
+DjiMotorGroup can3_dji_group({&bsp_can3,
+                              nullptr, nullptr, nullptr, nullptr,
+                              &gm6020_1, nullptr, nullptr, nullptr,
+                              nullptr, nullptr, nullptr});
+
+
+// ----------------
+// ---------------- 函数定义 ----------------
+
+
+/** @brief 逐个初始化本层设备，返回第一个失败的 Status */
+Status device_init(void)
 {
-  /* TODO: 电机业务接入时在此初始化（见上方注释） */
+  return can3_dji_group.init();
 }
+
+
+// ----------------

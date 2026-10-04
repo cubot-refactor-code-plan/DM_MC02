@@ -1,8 +1,10 @@
 # CAN1 Bus-Off 恢复压力测试
 
+> ⚠️ 本测试尚未实机运行（`APP_TEST_CAN_RECOVERY_ENABLED` 当前为 0）。
+
 ## 固件与状态
 
-`APP_TEST_CAN_RECOVERY_ENABLED=1` 启用测试；不能同时启用 DJI 电机转动测试。
+`APP_TEST_CAN_RECOVERY_ENABLED=1` 启用测试。
 CAN1 连接 C620 ID2，所有发送指令都是零电流。复位后等待 GDB 写
 `can_recovery_test_arm=1`，不会自动注入故障。
 
@@ -69,14 +71,16 @@ CAN1 / C620 ID2 / M3508，电源限流 2 A，全程零电流指令。
 
 ## CAN 分层重构（2026-10-01）
 
+> ⚠️ 本节引入的 `CanBus` 分发层已于 2026-10-04 归档，见文末「架构变更」。
+
 - Bsp 层 `BspCan` 只保留硬件收发 / 恢复 / 诊断，去掉节点链表、`friend` 与回退缓冲；
-  按 ID 分发、槽位发送调度与回退缓冲移到 Service 层 `CanBus`（`bus_can1/2/3`）。
+  按 ID 分发、槽位发送调度与回退缓冲当时移到了 Service 层 `CanBus`（`bus_can1/2/3`）。
 - `can_rx_task` / `can_tx_task` 从 `User/App/task/` 移到 `User/Service/can_bus.cpp`。
 - 应用与设备层一律通过 `CanBus` 收发：`bus_can1.send()` / `bus_can1.receive()`；
   直接调 `BspCan::receive()` 会与分发任务争抢同一个 MessageBuffer。
 - 恢复接口：`BspCan::service_recovery()`（Bus-Off）与 `BspCan::tx_recover()`（丢唤醒补发），
   由 `sys_task` 每 10 ms 对三条总线各调一次。
-- 系统状态标志改用 FreeRTOS 原生事件组，函数更名为 `sys_flag_*(...)`；
+- 系统状态改用 FreeRTOS 原生事件组，封装成可多实例的 `EventState` 类（全局实例 `sys_state`）；
   CAN 相关 RTOS 资源统一用原生 API（`xSemaphore*` / `xMessageBuffer*`）。
 - 诊断量集中在 `BspCan::diagnostics`，新增 `rx_lost` / `rx_len_drop` / `tx_buf_full` /
   `tx_stall_recover` / `tx_it_fail` / `err_passive` / `err_warning`。
@@ -95,16 +99,29 @@ CAN1 / C620 ID2 / M3508，电源限流 2 A，全程零电流指令。
 - 输出轴位移 +6.9367 / -7.7443 rad；最终转速 0、0x200 全零输出。
 - 反馈在线，反馈拒收与 CAN 收发错误计数均为 0。
 
-当前 APP_TEST_DJI_MOTOR_ENABLED=1，APP_TEST_CAN_RECOVERY_ENABLED=0。
-电机测试复位后等待 arm=1；Bus-Off 生产恢复逻辑持续由 sys_task 服务。
+当前各测试开关均已关闭（`APP_TEST_CAN_RECOVERY_ENABLED=0`、
+`APP_TEST_ONLINE_CHECK_ENABLED=0`、`APP_TEST_DJI_GROUP_ENABLED=0`）；
+Bus-Off 生产恢复逻辑持续由 sys_task 服务。
 
-## CAN3 电机自检（2026-10-02，当前已停用）
+## CAN3 电机自检（2026-10-02，已归档）
 
-`APP_TEST_CAN3_DEVICE_ENABLED` 控制（**当前为 0，已停用**）；任务 `can3_test`。**不需要调试器**：
-上电自动开始，串口（USART1，115200 8N1）敲任意字符停止、再敲重新开始。
+当时的测试开关 `APP_TEST_CAN3_DEVICE_ENABLED`（任务 `can3_test`）依赖已归档的
+`CanBus` 与节点注册表，文件已移到 `Example/can_backup/can3_device_test.cpp`。
 
 - 被测设备：`m2006`（C610，ID 1 → 0x200 槽位 0 / 反馈 0x201）、`gm6020`（电流模式，
   ID 1 → 0x1FE 槽位 0 / 反馈 0x205），都在 CAN3。
+
+## 2026-10-04 架构变更：设备直连 BspCan
+
+- `CanBus` / `CanRxNode` / `CanTxNode` / `DjiMotor<型号>` 整体归档到 `Example/can_backup/`。
+  归档后**不再有总线级分发层**：`BspCan` 取出的帧由设备自己的任务处理。
+- `can_rx_task` / `can_tx_task` 删除；`sys_task` 改为直接对 `bsp_can1/2/3` 调用
+  `tx_recover()` / `service_recovery()`。
+- `sys_task` 的注释与 `BspCan` 的文件头同步删掉了对 `CanBus` 的引用。
+  `test_recovery_host.py` 只依赖 `bsp_can.cpp`，不受影响（仍为 PASS）。
+
+> ⚠️ **`BspCan` 的接收缓冲只允许一个消费者**：同一条总线上如果有两个任务都调
+> `receive()`，会互相抢帧。每条总线请只在一个任务里取帧。
 - 控制方式：**开环**——电流指令直接给 `AMP·sin(2π·f·t)`（不用转速反馈），默认 ±3000 / 0.25 Hz；
   电流正负交替，电机随之正反往复；指令带斜率限制，转速只做 1000 rpm 兜底（等于不限制）。
 - 打印：每轮给出 `rpm` 极值、`given`（电调反馈电流）极值、`temp`、`limit_hits`，
@@ -114,25 +131,3 @@ CAN1 / C620 ID2 / M3508，电源限流 2 A，全程零电流指令。
 未做转速闭环**。开环版已实机确认可用（2026-10-03）；`sys_task` 单轮最大 30 µs、
 唤醒间隔恒为 10 ms。
 
-## CAN3 IMU 自检（2026-10-03，当前已停用）
-
-`APP_TEST_CAN3_IMU_ENABLED` 控制（**当前为 0，已停用**）；任务 `can3_imu`。只靠串口：
-模块主动上报时**每收到一帧新数据就打印一行**，行首帧号可用于估算真实帧率。
-
-- 打印：`[IMU] #1234 ypr=+1.23/-0.45/+0.67 T=32.1 a=+0.12/-0.03/+9.81 gz=+0.001`
-- 抽样：数据率远高于串口带宽，两次打印之间限制 20 ms（`PRINT_MIN_GAP_MS`），只影响显示
-- 开机自检（各一行）：`init ack` 回显配置指令的应答；`probe ack` 再发一次读请求做对照
-- 收不到数据帧时每秒告警一次 `[IMU] no data frame, fb=? RXd=? RXl=?`（有数据时永不出现）
-- 串口输入任意字符：暂停 / 恢复打印
-
-### 实机结论
-
-- **应答模式正常**：`ack_id=0x59`、`ack_reg=0x03`、`ack_code=0x00`，欧拉角数据随姿态刷新
-- **解析 bug 已修**：映射值须按**无符号**解释（原按 `int16_t` 处理，使正角度整体偏 −360°，
-  如 `roll=-359.65°` 实为 `+0.35°`）
-- **主动上报未打通**：CAN 侧依次试过「设间隔 1 ms（0x0A）→ 切主动（0x0B）→ 保存 flash（0xFE）
-  → 重启（0x00）」，仍无任何数据帧（`fb=0`、`RXd=0`、`RXl=0`，总线上只有本机请求）
-- **判定**：卡在模块侧「输出数据选择」（`RID 0x0F`）——手册注明该寄存器**当前固件不支持 CAN
-  修改**，且 USB 快捷指令须在「设置模式」下操作，而 CAN 侧寄存器表没有进入设置模式的条目。
-  需从模块 USB 口配置：`AA 06 01 0D` → `AA 01 18 0D` → `AA 01 14/15/16/17 0D` →
-  `AA 03 01 0D` → `AA 06 00 0D`

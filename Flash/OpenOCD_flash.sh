@@ -36,6 +36,9 @@ echo "📦 ELF ：$ELF_FILE"
 echo "⚡ OpenOCD 烧录中（DAPLink / CMSIS-DAP）..."
 
 openocd -f "$SCRIPT_DIR/daplink.cfg" \
+        -c "gdb_port disabled" \
+        -c "tcl_port disabled" \
+        -c "telnet_port disabled" \
         -c "program \"$ELF_FILE\" verify reset exit"
 
 echo "✅ 烧录完成"

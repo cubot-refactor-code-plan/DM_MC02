@@ -20,9 +20,9 @@
  *    const double dt_s = bsp_dwt.delta_s(&last); // 与上次调用之间的间隔（秒）
  *
  *    // 2) 读绝对时间（自 init() 起算，会推进内部累加量，仅任务上下文）
- *    const double now_s  = bsp_dwt.time_s();     // 秒
- *    const double now_ms = bsp_dwt.time_ms();    // 毫秒
- *    const double now_us = bsp_dwt.time_us();    // 微秒
+ *    const double now_s  = bsp_dwt.get_time_s();     // 秒
+ *    const double now_ms = bsp_dwt.get_time_ms();    // 毫秒
+ *    const double now_us = bsp_dwt.get_time_us();    // 微秒
  *
  *    // 3) 忙等（不依赖中断，临界区内可用，ns的单位是1.818；毫秒级以上改用 vTaskDelay）
  *    bsp_dwt.delay_us(500);                      // 忙等 500 us
@@ -33,7 +33,7 @@
  * @warning delta_s() 的时间戳由调用方保存，同一个 last 不要在多个任务间共用。
  * @warning CPU 进入sleep/stop时，停止计数
  * @warning delta_s() 无状态、可在 ISR 中调用；
- * @warning 32 位计数器每 7.809 s 回绕一次（本工程 550 MHz）：delta_s() 用无符号差值，两次间隔 < 7.809 s 时结果恒正        
+ * @warning 32 位计数器每 7.809 s 回绕一次（本工程 550 MHz）：delta_s() 用无符号差值，两次间隔 < 7.809 s 时结果恒正
  */
 
 #ifndef __BSP_DWT_HPP__
@@ -81,13 +81,13 @@ public:
   double delta_s(uint32_t *last) const;
 
   /** @brief 当前绝对时间（秒，自 init() 起算）—— 会推进内部累加量，仅任务上下文调用 */
-  double time_s();
+  double get_time_s();
 
   /** @brief 当前绝对时间（毫秒）—— 会推进内部累加量，仅任务上下文调用 */
-  double time_ms();
+  double get_time_ms();
 
   /** @brief 当前绝对时间（微秒）—— 会推进内部累加量，仅任务上下文调用 */
-  double time_us();
+  double get_time_us();
 
   /**
    * @brief 忙等指定纳秒（纯忙等，不让出 CPU）
@@ -119,12 +119,6 @@ public:
   // ----------------
 private:
   // ---------------- 私有实现 ----------------
-
-  /** @brief 是否已初始化且 CYCCNT 可用（供类内自检，不对外暴露） */
-  bool available() const;
-
-  /** @brief 实际使用的 CPU 时钟（Hz），即 CYCCNT 的计数频率 */
-  uint32_t cpu_hz() const;
 
   /** @brief 回绕检测 + 累加，返回本次读到的 CYCCNT（绝对时间轴唯一的状态更新点） */
   uint32_t update_timeline();
