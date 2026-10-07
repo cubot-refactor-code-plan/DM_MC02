@@ -15,6 +15,7 @@
 #define __DEVICE_CFG_HPP__
 
 #include "device_buzzer.hpp"
+#include "device_r9ds.hpp"
 #include "dji_motor_group.hpp"
 #include "status.hpp"
 
@@ -34,6 +35,7 @@ void device_init(void);
 
 extern DeviceBuzzer  buzzer;         ///< 蜂鸣器，绑定 BSP 层的 bsp_pwm_buzzer
 extern DjiMotorGroup can3_dji_group; ///< CAN3 上的 DJI 电机组，成员表见 device_cfg.cpp
+extern DeviceR9ds    r9ds;           ///< R9DS 遥控接收机，绑定 BSP 层的 bsp_uart5（UART5，SBUS）
 
 
 // ----------------

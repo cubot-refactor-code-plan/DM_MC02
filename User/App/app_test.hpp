@@ -14,7 +14,7 @@
 #ifndef __APP_TEST_HPP__
 #define __APP_TEST_HPP__
 
-#include "status.hpp" // 测试任务的初始化函数返回 Status
+#include "status.hpp" // IWYU pragma: keep
 
 
 /** @brief CAN1 零输出故障注入与 Bus-Off 恢复实机测试 */
@@ -25,6 +25,9 @@
 
 /** @brief CAN3 DJI 电机组通讯自检（3508/2006/6020 混挂，成员表见 device_cfg.cpp） */
 #define APP_TEST_DJI_GROUP_ENABLED 0
+
+/** @brief R9DS 遥控接收机 SBUS 收帧自检（UART5，只收不发；接收机需拨到 SBUS 模式） */
+#define APP_TEST_R9DS_ENABLED 1
 
 
 #ifdef __cplusplus
@@ -60,6 +63,9 @@ extern "C"
 
   /** @brief CAN3 DJI 电机组通讯自检任务（开环正弦 + 轮询汇报） */
   void dji_motor_group_test_task(void *argument);
+
+  /** @brief R9DS SBUS 收帧自检任务（打印原始帧 / 16 通道 / 映射后的通道与诊断计数） */
+  void r9ds_test_task(void *argument);
 
 #ifdef __cplusplus
 }

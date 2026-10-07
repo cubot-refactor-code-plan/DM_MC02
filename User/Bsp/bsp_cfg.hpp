@@ -44,7 +44,7 @@ extern BspCan bsp_can3; ///< CAN3
 extern BspUart<128> bsp_uart1;  ///< USART1
 extern BspUart<128> bsp_uart3;  ///< USART3
 extern BspUart<128> bsp_uart4;  ///< UART4
-extern BspUart<128> bsp_uart5;  ///< UART5（只接收，未配 TX DMA）
+extern BspUart<128> bsp_uart5;  ///< UART5（SBUS：100000/8E2 + 外部反相；只接收，未配 TX DMA）
 extern BspUart<128> bsp_uart7;  ///< UART7
 extern BspUart<128> bsp_uart8;  ///< UART8
 extern BspUart<128> bsp_uart9;  ///< UART9
@@ -62,10 +62,10 @@ extern BspGpio btb_pd10; ///< BTB 扩展 IO（PD10）
 extern BspGpio spi1_cs;  ///< SPI1 片选（原 LCD 接口，PE15）
 
 
-extern BspPwm bsp_pwm1; ///< PE13 TIM1_CH3 排针预留（舵机）
-extern BspPwm bsp_pwm2; ///< PE9  TIM1_CH1 排针预留（舵机）
-extern BspPwm bsp_pwm3; ///< PA2  TIM2_CH3 排针预留（舵机）
-extern BspPwm bsp_pwm4; ///< PA0  TIM2_CH1 排针预留（舵机）
+extern BspPwm bsp_pwm1; ///< PE13 TIM1_CH3 排针预留（舵机 50 Hz）
+extern BspPwm bsp_pwm2; ///< PE9  TIM1_CH1 排针预留（舵机 50 Hz）
+extern BspPwm bsp_pwm3; ///< PA2  TIM2_CH3 排针预留（舵机 50 Hz）
+extern BspPwm bsp_pwm4; ///< PA0  TIM2_CH1 排针预留（舵机 50 Hz）
 
 
 extern BspPwm bsp_pwm_gyro;   ///< PB1  TIM3_CH4  陀螺仪

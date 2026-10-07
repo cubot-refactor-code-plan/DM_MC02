@@ -22,6 +22,10 @@ DjiMotorGroup can3_dji_group({&bsp_can3,
                               &gm6020_1, nullptr, nullptr, nullptr,
                               nullptr, &gm6020_6, nullptr});
 
+// R9DS 遥控接收机：走 UART5（SBUS，100000/8E2 + 外部反相，见 bsp_cfg.cpp 的 bsp_uart5）。
+// 四个摇杆的零飘偏移用默认全 0：死区已经把"没动杆但不在 1000"处理掉了。
+DeviceR9ds r9ds(bsp_uart5);
+
 
 // ----------------
 // ---------------- 函数定义 ----------------
@@ -31,6 +35,7 @@ DjiMotorGroup can3_dji_group({&bsp_can3,
 void device_init(void)
 {
   configASSERT(can3_dji_group.init() == Status::OK);
+  configASSERT(r9ds.init() == Status::OK);
 }
 
 

@@ -13,10 +13,10 @@
  *
  * @note 本板实例（见 bsp_cfg.cpp，参数取自 CubeMX；定时器时钟 275 MHz = APB1/APB2 137.5 MHz × 2）：
  *
- *       bsp_pwm1        TIM1_CH3   PE13   排针预留（舵机）
- *       bsp_pwm2        TIM1_CH1   PE9    排针预留（舵机）
- *       bsp_pwm3        TIM2_CH3   PA2    排针预留（舵机）
- *       bsp_pwm4        TIM2_CH1   PA0    排针预留（舵机）
+ *       bsp_pwm1        TIM1_CH3   PE13   排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
+ *       bsp_pwm2        TIM1_CH1   PE9    排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
+ *       bsp_pwm3        TIM2_CH3   PA2    排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
+ *       bsp_pwm4        TIM2_CH1   PA0    排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
  *       bsp_pwm_gyro    TIM3_CH4   PB1    陀螺仪
  *       bsp_pwm_buzzer  TIM12_CH2  PB15   无源蜂鸣器（由 Device 层 DeviceBuzzer 使用）
  *

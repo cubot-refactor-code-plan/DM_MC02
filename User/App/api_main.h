@@ -18,7 +18,7 @@
 #ifndef __API_MAIN_H__
 #define __API_MAIN_H__
 
-#include "FreeRTOS.h" // IWYU pragma: keep
+#include "FreeRTOS.h"  // IWYU pragma: keep
 #include "semphr.h"
 
 #ifdef __cplusplus
