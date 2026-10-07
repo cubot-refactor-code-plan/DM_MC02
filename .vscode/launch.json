@@ -9,7 +9,7 @@
       "servertype": "openocd",
       // 这个是根据主文件名 作为名字 ${workspaceFolderBasename}
       "executable": "build/Debug/${workspaceFolderBasename}.elf",
-      "runToEntryPoint": "main",
+      "runToEntryPoint": "all_init",
       "configFiles": [
         "interface/cmsis-dap.cfg",
         "target/stm32h7x.cfg"
@@ -30,7 +30,7 @@
       
       // 这个是根据主文件名 作为名字 ${workspaceFolderBasename}
       "executable": "build/Debug/${workspaceFolderBasename}.elf",
-      "runToEntryPoint": "main",
+      "runToEntryPoint": "all_init",
       "device": "STM32H723VG",
       "svdFile": "Flash/STM32H723.svd",
       "liveWatch": {

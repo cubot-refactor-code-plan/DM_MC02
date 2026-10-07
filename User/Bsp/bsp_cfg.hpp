@@ -24,9 +24,10 @@
 /**
  * @brief BSP 层统一初始化
  *
- * @note 须在 FreeRTOS 内核启动后调用（各驱动内部要创建 RTOS 对象）
+ * @note 须在 FreeRTOS 内核启动后调用（各驱动内部要创建 RTOS 对象）。
+ *       每一条驱动的 init() 都在函数内用 configASSERT 验过，失败就地停机，因此不需要返回值。
  */
-void bsp_init();
+void bsp_init(void);
 
 
 // ----------------

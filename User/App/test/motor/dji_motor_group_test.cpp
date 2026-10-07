@@ -12,8 +12,17 @@
 #  include <stdint.h>
 
 
-/** @brief 开环恒定指令（原始值）；没有闭环，直接把这一档电流一直给着让它转 */
-constexpr int16_t CMD_AMP = 300;
+/**
+ * @brief 开环恒定指令（原始值），下标 = 位置；没有闭环，直接把这一档电流一直给着让它转
+ *
+ * @note 只有挂了电机的位置会被用到。两台 GM6020 各给一档，方便从反馈里区分是哪一台在响应：
+ *       位置 4（电调 ID 1，反馈 0x205）= 250，位置 5（电调 ID 2，反馈 0x206）= 350。
+ */
+constexpr int16_t CMD_BY_POS[DjiMotorGroup::MOTOR_NUM] = {
+  0, 0, 0, 0,     // 位置 0~3：未挂电机
+  350, 0, 0, 0, // 位置 4~7：两台 GM6020 各一档
+  0, 350, 0,        // 位置 8~10：未挂电机
+};
 /** @brief 串口汇报周期，单位 ms；每次只打一个位置，轮着来 */
 constexpr uint32_t REPORT_PERIOD_MS = 200U;
 
@@ -27,25 +36,30 @@ void report(uint8_t index)
                    static_cast<unsigned>(index),
                    static_cast<unsigned>(DjiMotorGroup::RX_ID_BASE + index),
                    can3_dji_group.is_online(index) ? 1U : 0U,
-                   static_cast<int>(CMD_AMP),
+                   static_cast<int>(CMD_BY_POS[index]),
                    static_cast<int>(md.radian_data.velocity * 1000.0f),
                    static_cast<int>(md.radian_data.angle_multi_round * 1000.0f));
 }
 
-/** @brief 打印成员表里挂了几个位置 */
+/** @brief 打印成员表与各位置的开环指令：一台一行，末尾给总数 */
 void report_layout()
 {
   uint32_t used = 0U;
   for (uint8_t index = 0U; index < DjiMotorGroup::MOTOR_NUM; ++index)
   {
-    if (can3_dji_group.has_motor(index))
+    if (!can3_dji_group.has_motor(index))
     {
-      ++used;
+      continue;
     }
+
+    ++used;
+    bsp_uart1.printf("[DJIGRP] pos=%u fb=0x%03X cmd=%d\r\n",
+                     static_cast<unsigned>(index),
+                     static_cast<unsigned>(DjiMotorGroup::RX_ID_BASE + index),
+                     static_cast<int>(CMD_BY_POS[index]));
   }
-  bsp_uart1.printf("[DJIGRP] CAN3 open-loop constant: %u motor(s), cmd=%d\r\n",
-                   static_cast<unsigned>(used),
-                   static_cast<int>(CMD_AMP));
+
+  bsp_uart1.printf("[DJIGRP] CAN3 open-loop constant: %u motor(s)\r\n", static_cast<unsigned>(used));
 }
 } // namespace
 
@@ -80,7 +94,7 @@ extern "C" void dji_motor_group_test_task(void *argument)
     {
       if (can3_dji_group.has_motor(index))
       {
-        (void)can3_dji_group.set_output(index, CMD_AMP);
+        (void)can3_dji_group.set_output(index, CMD_BY_POS[index]);
       }
     }
 

@@ -36,14 +36,16 @@
  */
 void all_init()
 {
+  /* 各层 init 内部自带 configASSERT，失败就地停机，因此这里直接调用、不需要再验一次 */
+
   /* Service 层：系统状态标志，须最先（后面各层要靠它上报失败） */
-  configASSERT(service_init() == Status::OK);
+  service_init();
 
   /* BSP 层：外设（含各 CAN 外设） */
   bsp_init();
 
   /* 设备层：BSP 之后 */
-  configASSERT(device_init() == Status::OK);
+  device_init();
 
 #if APP_TEST_CAN_RECOVERY_ENABLED
   can_recovery_test_init();
@@ -65,7 +67,7 @@ void all_init()
   configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 
   /* 置运行标志：任务入口的 wait_running() 在此之后才放行 */
-  sys_state.complete_init();
+  configASSERT(sys_state.complete_init() == Status::OK);
 }
 
 

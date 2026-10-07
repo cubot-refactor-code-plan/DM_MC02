@@ -35,6 +35,7 @@ Status EventState::complete_init(void)
   {
     return Status::NOT_SUPPORTED;
   }
+
   (void)xEventGroupSetBits(_handle, RUNNING_BIT);
   return Status::OK;
 }
@@ -55,6 +56,7 @@ Status EventState::error(Status statu)
   {
     return Status::BAD_ARG;
   }
+  
   (void)xEventGroupSetBits(_handle, status_bit(statu));
   (void)xEventGroupClearBits(_handle, status_bit(Status::OK));
   return Status::OK;

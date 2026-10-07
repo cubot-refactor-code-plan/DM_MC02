@@ -19,8 +19,15 @@ BspPwm::BspPwm(const Config &cfg) : _config(cfg)
  */
 Status BspPwm::init()
 {
-  // 配置合法性：句柄/通道/时钟必须给出，PSC 是 16 位寄存器
-  if (_config.htim == nullptr || _config.channel == 0U || _config.timer_clk_hz == 0U || _config.prescaler > 0xFFFFU)
+  // 已启动过就直接返回：HAL_TIM_PWM_Start() 会把该通道状态置 BUSY 且不再复位，
+  // 重复调用会返回 HAL_ERROR（这也让 init() 真正做到注释里承诺的"幂等"）
+  if (_initialized)
+    return Status::OK;
+
+  // 配置合法性：句柄/时钟必须给出，PSC 是 16 位寄存器，通道必须是该定时器真实具备的输出通道
+  // 注意：TIM_CHANNEL_1 的宏值就是 0，所以绝不能写 channel == 0 判非法（会误杀 CH1）
+  if (_config.htim == nullptr || _config.timer_clk_hz == 0U || _config.prescaler > 0xFFFFU ||
+      IS_TIM_CCX_INSTANCE(_config.htim->Instance, _config.channel) == 0U)
     return Status::BAD_ARG;
 
   // 计数器时钟 = 定时器时钟 / (PSC + 1)

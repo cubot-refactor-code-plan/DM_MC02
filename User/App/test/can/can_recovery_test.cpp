@@ -221,10 +221,11 @@ bool physical()
 }
 } // namespace
 
-extern "C" void can_recovery_test_init()
+extern "C" void can_recovery_test_init(void)
 {
   // 只确认句柄已绑定：总线本身的初始化由 bsp_init() 完成，本测试不再登记接收节点
   can_recovery_test_init_status = bsp_can1.is_ready() ? Status::OK : Status::NOT_INIT;
+  configASSERT(can_recovery_test_init_status == Status::OK);
 }
 extern "C" void can_recovery_test_task(void *)
 {

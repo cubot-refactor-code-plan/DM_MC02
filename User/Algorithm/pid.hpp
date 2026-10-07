@@ -1,157 +1,181 @@
 /**
  * @file pid.hpp
- * @author ChoseB (ChoseB@cumt.edu.cn)
- * @brief PID 算法的封装
- * @version 0.2
- * @date 2026-03-07
+ * @author ChoseB (ChoseB@cumt.edu.cn) 被修改过
+ * @brief 位置式 PID 控制器（比例 + 积分 + 微分 + 前馈，逐项限幅后再总限幅）
+ * @version 0.3
+ * @date 2026-10-06
  *
  * @copyright Copyright (c) 2026
  *
- * @details 使用示例（只有一个构造函数：系数 + 限幅，限幅可省略）：
+ * @details 每个实例独立保存自己的运行状态（积分累加值、上一次目标/误差、前馈累加值），
+ *          互不干扰。一次 calc() 的计算顺序固定为：
  *
- *      // 只给 kp / ki / kd，不限幅
- *      Pid motor1_pid({0.8f, 0.0f, 0.0f});
+ *          1. 误差       error = target - feedback
+ *          2. 一阶差分   delta_target = target - 上一拍 target；
+ *                       delta_error = error - 上一拍 error
+ *          3. 各分项     P = kp·error；
+ *                       I = 上一拍 I + ki·error；
+ *                       D = kd·(delta_target 或 delta_error)；
+ *                       F = 前馈累加值（由 feed_forward() 提前给出）
+ *          4. 逐项限幅   P→p_max、I→i_max、D→d_max、F→f_max
+ *          5. 求和总限幅 (P + I + D + F) → out_max，即为本拍输出
  *
- *      // 给全参数：{kp, ki, kd} + {out_max, p_max, i_max, d_max, f_max, i_separation}
- *      Pid motor2_pid({0.8f, 1.0f, 1.0f}, {10000.0f, 0.0f, 3000.0f, 0.0f, 0.0f, 50.0f});
+ * @note 微分先行(D)：默认取目标值的差分量（微分先行，delta_target）：设定值突变时 D 项不会像
+ *       取误差差分那样给出巨大冲击。需要常规微分时把 Config::diff_mode 改成 ERROR。
+ *       kd 为 0 时微分项恒为 0，构造时自动把微分项关掉。
+ * @note 积分分离：i_separation > 0 且 |error| ≥ i_separation 时把积分**清零**
+ *       （大误差下抑制超调）；填 0 表示始终积分。
+ * @note 前馈：feed_forward() 累加的值只在下一拍 calc() 里生效一次，
+ *       要持续给前馈就得每拍都调一次。这样前馈与 PID 三个分项同拍使用、不会残留。 
+ * @note 限幅一律「填 0 = 不限制」：Config::limit 的 out_max / p_max / i_max / d_max / f_max
+ *       写 0 都表示关闭该项限制；其中 i_max 写 0 时自动跟随 out_max（见 Limit 构造函数里的说明）。
+ *
+ * @details 使用示例（参数按「系数 → 限幅 → 微分方式」三段给，后两段可省略）：
+ *
+ * @code{.cpp}
+ *      // 只给三项系数，限幅与微分方式用默认值
+ *      Pid speed_pid({{0.8f, 0.0f, 0.0f}});                                    
+ *      // 给上 {kp, ki, kd} 与 {out_max, p_max, i_max, d_max, 前馈f_max, 积分分离阈值i_separation}
+ *      Pid angle_pid({{0.8f, 1.0f, 1.0f}, {10000.0f, 0.0f, 3000.0f}});
+ *
+ *      // 系数 + 限幅 + 改微分方式
+ *      Pid current_pid({{0.8f, 1.0f, 1.0f}, {10000.0f, 0.0f, 3000.0f}, PidDiffCalcMode::ERROR});
  *
  *      // 复制构造：批量起一组同参数对象
- *      Pid motors_pid[4] = {motor2_pid, motor2_pid, motor2_pid, motor2_pid};
+ *      Pid motors_pid[3] = {angle_pid, speed_pid, current_pid};
  *
- *      // 有必要才禁用微分先行
- *      motor2_pid.switch_mode_diff_calc(PidDiffCalcMode::ERROR);
- *
- * @note 使用（假设已有 Pid 对象 pid；calc 的第三个参数可省略）：
- *
- *      pid.feed_forward(friction_ff());        // optional
- *      pid.feed_forward(follow_ff(d_target));  // optional
- *      pid.calc(tar, motor.angle, motor.speed);
+ *      // 每拍调用；第三个参数（一阶导数）可省略
+ *      motors_pid[0].feed_forward(friction_ff());                   // optional：本拍前馈
+ *      float u = motors_pid[0].calc(tar, motor.angle, motor.speed); // 外部给速度，省一次差分
+ * @endcode
  */
 
 #ifndef __PID_HPP__
 #define __PID_HPP__
 
-/** @brief PID 系数 */
-struct PidParam
-{
-  float kp; ///< 比例项系数
-  float ki; ///< 积分项系数
-  float kd; ///< 微分项系数
-
-  PidParam();
-  PidParam(float kp, float ki, float kd);
-};
-
-/** @brief 各项限幅（写 0 表示关闭该项限制） */
-struct PidLimitation
-{
-  float out_max;      ///< 总输出最大限制，写 0 则不限制
-  float p_max;        ///< 比例项最大限制，写 0 则关闭
-  float i_max;        ///< 积分项最大限制，写 0 则跟随 out_max
-  float d_max;        ///< 微分项最大限制，写 0 则关闭
-  float f_max;        ///< 前馈项最大限制，写 0 则关闭
-  float i_separation; ///< 积分分离阈值，写 0 则关闭积分分离
-
-  PidLimitation();
-  PidLimitation(float out_max, float p_max, float i_max, float d_max, float f_max, float i_separation);
-};
-
-/** @brief 各项计算值 */
-struct PidTerm
-{
-  float p_term; ///< 比例项计算值
-  float i_term; ///< 积分项计算值
-  float d_term; ///< 微分项计算值
-  float f_term; ///< 前馈项计算值
-
-  PidTerm();
-};
-
-/** @brief 输入量与中间量 */
-struct PidInput
-{
-  float target;   ///< 当前目标值
-  float feedback; ///< 当前反馈值
-  float error;    ///< 当前误差值，error = target - feedback
-
-  float last_target; ///< 上一目标值
-  float last_error;  ///< 上一误差值
-
-  float delta_target; ///< 目标值微分；也可由外部直接传入
-  float delta_error;  ///< 误差值微分；也可由外部直接传入
-};
-
-/** @brief 微分项计算方式 */
+/** @brief 微分项的计算方式（填进 Pid::Config::diff_mode） */
 enum class PidDiffCalcMode
 {
-  TARGET  = 0x01, ///< 使用 delta_target 计算微分项（微分先行）
-  ERROR   = 0x02, ///< 使用 delta_error 计算微分项（常规微分）
-  DISABLE = 0x00, ///< 不计算微分项
+  DISABLE = 0x00, ///< 不计算微分项（kd 为 0 时自动进入此模式）
+  TARGET  = 0x01, ///< 微分先行：用目标值差分算 D，设定值突变时冲击小（默认）
+  ERROR   = 0x02, ///< 常规微分：用误差差分算 D，跟随更紧，但设定值突变时冲击大
 };
 
-/** @brief PID 控制器 */
+/**
+ * @brief PID 控制器
+ *
+ * @note 同一实例不是线程安全的：约定由同一个任务按拍调用 calc()。
+ */
 class Pid
 {
-protected:
-  PidParam        _param;          ///< 系数
-  PidLimitation   _lim;            ///< 限幅
-  PidTerm         _term;           ///< 各项计算值
-  PidDiffCalcMode _diff_calc_mode; ///< 微分项计算模式
-
-  /** @brief 根据传入的 target / feedback 计算误差与微分 */
-  virtual void calc_input(float target, float feedback);
-
-private:
-  /** @brief 用当前 input 与前馈项算一次输出并限幅（两个 calc 重载共用） */
-  float _calc_output();
-
 public:
-  PidInput input;  ///< 传入
-  float    output; ///< 传出
+  // ---------------- 配置 ----------------
+
+  /** @brief 三项系数（PID 的 kp / ki / kd） */
+  struct Gain
+  {
+    /** @brief 按序构造（参数顺序 = 字段顺序，全部可省略） */
+    Gain(float kp = 0.0f, float ki = 0.0f, float kd = 0.0f) : kp(kp), ki(ki), kd(kd)
+    {
+    }
+
+    float kp; ///< 比例系数
+    float ki; ///< 积分系数
+    float kd; ///< 微分系数；为 0 时不计算微分项
+  };
 
   /**
-   * @brief 构造
-   * @param param 系数 {kp, ki, kd}
-   * @param limitation 限幅 {out_max, p_max, i_max, d_max, f_max, i_separation}；
-   *                   可省略，省略等于全部不限幅
+   * @brief 限幅与积分分离（限幅类参数一律「填 0 = 不限制」）
+   *
+   * @note i_max 填 0 时在构造里被置为 out_max：让积分项也不会超过总输出上限，
+   *       避免输出一直被限幅、积分迟迟卸不下来。
    */
-  Pid(PidParam param, PidLimitation limitation = PidLimitation());
+  struct Limit
+  {
+    /** @brief 按序构造（参数顺序 = 字段顺序，全部可省略） */
+    Limit(float out_max = 0.0f, float p_max = 0.0f, float i_max = 0.0f, float d_max = 0.0f, float f_max = 0.0f, float i_separation = 0.0f) : out_max(out_max), p_max(p_max), i_max(i_max == 0.0f ? out_max : i_max), d_max(d_max), f_max(f_max), i_separation(i_separation)
+    {
+    }
+
+    float out_max;      ///< 总输出限幅（绝对值），0 = 不限制
+    float p_max;        ///< 比例项限幅（绝对值），0 = 不限制
+    float i_max;        ///< 积分项限幅（绝对值），构造时 0 → 跟随 out_max
+    float d_max;        ///< 微分项限幅（绝对值），0 = 不限制
+    float f_max;        ///< 前馈项限幅（绝对值），0 = 不限制
+    float i_separation; ///< 积分分离阈值，0 = 始终积分
+  };
+
+  /** @brief 控制器全部参数 = 系数 + 限幅 + 微分方式（可直接用匿名 {...} 按段传入） */
+  struct Config
+  {
+    /** @brief 按序构造（参数顺序 = 字段顺序，后两段可省略） */
+    Config(Gain gain = Gain(), Limit limit = Limit(), PidDiffCalcMode diff_mode = PidDiffCalcMode::TARGET) : gain(gain), limit(limit), diff_mode(diff_mode)
+    {
+    }
+
+    Gain            gain;      ///< 三项系数
+    Limit           limit;     ///< 限幅与积分分离
+    PidDiffCalcMode diff_mode; ///< 微分项取值方式；kd 为 0 时被构造改为 DISABLE
+  };
+
+  // ----------------
+  // ---------------- 公有接口 ----------------
 
   /**
-   * @brief 切换微分项计算方式（通常在不适用于微分先行的动态系统中补充初始化）
-   * @param mode 微分项计算方式；用 PidDiffCalcMode::ERROR 禁用微分先行
+   * @brief 构造控制器
+   * @param config 全部参数；可省略，省略 = 系数与限幅全为 0（输出恒为 0）
    */
-  void switch_mode_diff_calc(PidDiffCalcMode mode);
+  Pid(Config config = Config());
 
   /**
-   * @brief 将某一前馈函数预测的值引入计算
-   * @param feedforward 前馈函数返回的数值
-   * @return float 前馈项总和
-   */
-  float feed_forward(float feedforward);
-
-  /**
-   * @brief PID 计算
+   * @brief 计算一次输出（微分量由内部对目标/误差做一阶差分得到）
    * @param target 目标值
    * @param feedback 反馈值
-   * @return float 输出
+   * @return float 本拍限幅后的输出
    */
   float calc(float target, float feedback);
 
   /**
-   * @brief PID 计算（一阶导数由外部导入，精度高于内部差分）
+   * @brief 计算一次输出（微分量由外部直接给，避免内部再差分一次放大噪声）
    * @param target 目标值
    * @param feedback 反馈值
-   * @param df_dt 一阶导数；作用到哪个量由微分模式决定
-   *              （TARGET → input.delta_target，ERROR → input.delta_error）
-   * @note 被控量为位移 x 时，df_dt 填速度 v（微分先行 / 常规微分都适用），
-   *       避免内部再差分一次把反馈噪声放大
-   * @return float 输出
+   * @param df_dt 一阶导数（如位移环里直接给速度），作用于哪个量由 diff_mode 决定
+   * @return float 本拍限幅后的输出
    */
   float calc(float target, float feedback, float df_dt);
 
-  /** @brief 快速打印 target 和 feedback 到 vofa [暂未实现] */
-  void print();
+  /**
+   * @brief 叠加一份前馈量（只在下一拍 calc() 里生效一次）
+   * @param feedforward 前馈值，一拍内可多次调用累加
+   * @return float 当前累计的前馈总和
+   */
+  float feed_forward(float feedforward);
+
+  // ----------------
+  // ---------------- 私有实现 ----------------
+
+  /** @brief 记录本拍 target / feedback，算出误差与两个一阶差分量（供 _calc_output() 使用） */
+  void _calc_input(float target, float feedback);
+
+  /** @brief 用当前误差、积分累加值、微分与前馈算一次输出并限幅（两个 calc 重载共用） */
+  float _calc_output();
+
+  /** @brief 对称限幅：|value| 超过 limit 就截到 ±limit；limit <= 0 表示不限制（与 Limit 的约定一致） */
+  static float _clamp_sym(float value, float limit);
+
+  // ----------------
+  // ---------------- 成员变量 ----------------
+
+  Config _cfg;          ///< 参数（构造时若 kd == 0 则把 diff_mode 改成 DISABLE）
+  float  _error;        ///< 本拍误差 error = target - feedback
+  float  _last_error;   ///< 上一拍误差（算 delta_error 用）
+  float  _last_target;  ///< 上一拍目标值（算 delta_target 用）
+  float  _delta_target; ///< 本拍目标一阶差分（可被三参数 calc 覆盖）
+  float  _delta_error;  ///< 本拍误差一阶差分（可被三参数 calc 覆盖）
+  float  _i_term;       ///< 积分项累加值（唯一需要跨拍保留的分项）
+  float  _f_term;       ///< 前馈累加值（每次输出后清零）
+
+  // ----------------
 };
 
 #endif // __PID_HPP__

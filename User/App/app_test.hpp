@@ -14,6 +14,9 @@
 #ifndef __APP_TEST_HPP__
 #define __APP_TEST_HPP__
 
+#include "status.hpp" // 测试任务的初始化函数返回 Status
+
+
 /** @brief CAN1 零输出故障注入与 Bus-Off 恢复实机测试 */
 #define APP_TEST_CAN_RECOVERY_ENABLED 0
 
@@ -21,7 +24,7 @@
 #define APP_TEST_ONLINE_CHECK_ENABLED 0
 
 /** @brief CAN3 DJI 电机组通讯自检（3508/2006/6020 混挂，成员表见 device_cfg.cpp） */
-#define APP_TEST_DJI_GROUP_ENABLED 1
+#define APP_TEST_DJI_GROUP_ENABLED 0
 
 
 #ifdef __cplusplus
@@ -44,7 +47,12 @@ extern "C"
   /** @brief Online 状态机自检任务 */
   void online_check_test_task(void *argument);
 
-  /** @brief CAN1 故障注入与恢复测试的初始化 */
+  /**
+   * @brief CAN1 故障注入与恢复测试的初始化
+   *
+   * @note 总线就绪与否在这里用 configASSERT 验，失败就地停机；
+   *       结论同时记进 can_recovery_test_init_status，方便调试器直接看。
+   */
   void can_recovery_test_init(void);
 
   /** @brief CAN1 零输出故障注入与 Bus-Off 恢复测试任务 */

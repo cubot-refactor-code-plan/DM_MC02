@@ -64,7 +64,7 @@ public:
     }
 
     TIM_HandleTypeDef *htim;         ///< 定时器句柄
-    uint32_t           channel;      ///< PWM 通道（TIM_CHANNEL_x）
+    uint32_t           channel;      ///< PWM 通道（TIM_CHANNEL_x；注意 TIM_CHANNEL_1 的值就是 0，合法）
     uint32_t           timer_clk_hz; ///< 定时器输入时钟 (Hz)：计数器时钟 = timer_clk_hz / (prescaler + 1)
     uint32_t           prescaler;    ///< PSC 寄存器值（CubeMX 值，分频 = prescaler + 1）
     uint32_t           period;       ///< ARR 寄存器值（CubeMX 值，一个周期 = period + 1 个计数）
@@ -88,7 +88,11 @@ public:
    *
    * @note 幂等；按 Config::period 同步一次 ARR，之后由 set_freq() 动态调整。
    *
-   * @return OK=成功；BAD_ARG=配置非法（句柄/通道/时钟为空，PSC 超范围）；IO_ERROR=PWM 启动失败
+   * @return OK=成功；BAD_ARG=配置非法（句柄/时钟为空，PSC 超范围，或该定时器没有这个通道）；
+   *         IO_ERROR=PWM 启动失败
+   *
+   * @warning 通道参数必须写 `TIM_CHANNEL_x` 宏：其中 **`TIM_CHANNEL_1` 的宏值就是 0**，
+   *          不要用「通道值是否为 0」来判断是否配置过。
    */
   Status init();
 

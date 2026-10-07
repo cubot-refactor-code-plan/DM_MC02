@@ -29,7 +29,7 @@ struct MotorData
   struct Radian
   {
     float angle_single_round; ///< 单圈机械角度，单位：rad
-    float angle_multi_round;  ///< 累计多圈机械角度，单位：rad
+    double angle_multi_round;  ///< 累计多圈机械角度，单位：rad
     float velocity;           ///< 角速度，单位：rad/s
     float acceleration;       ///< 角加速度，单位：rad/s^2
   } radian_data;

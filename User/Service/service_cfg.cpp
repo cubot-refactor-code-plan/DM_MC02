@@ -1,13 +1,15 @@
 #include "service_cfg.hpp"
 
+#include "FreeRTOS.h" // IWYU pragma: keep (configASSERT)
+
 
 // ---------------- 函数定义 ----------------
 
 
-/** @brief Service 层统一初始化：逐个初始化本层实例，返回第一个失败的状态码 */
-Status service_init(void)
+/** @brief Service 层统一初始化：失败就地停机 */
+void service_init(void)
 {
-  return sys_state.init();
+  configASSERT(sys_state.init() == Status::OK);
 }
 
 

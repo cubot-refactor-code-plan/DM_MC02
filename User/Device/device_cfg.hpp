@@ -23,10 +23,10 @@
 
 /**
  * @brief 逐个初始化本层设备
- * @return OK=全部就绪；其余=第一个失败设备返回的状态码
- * @note 设备自己不写全局状态，失败只以 Status 返回给调用方。
+ *
+ * @note 设备自己不写全局状态；初始化失败在这里用 configASSERT 就地停机，因此不需要返回值。
  */
-Status device_init(void);
+void device_init(void);
 
 
 // ----------------

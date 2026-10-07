@@ -22,10 +22,10 @@
 /**
  * @brief Service 层统一初始化
  *
- * @return OK=全部就绪；其余=第一个失败实例返回的状态码
- * @note 须在调度器启动后调用（EventState 要创建事件组），且早于各任务入口的 wait_running()
+ * @note 须在调度器启动后调用（EventState 要创建事件组），且早于各任务入口的 wait_running()。
+ *       内部用 configASSERT 校验，失败就地停机，因此不需要返回值。
  */
-Status service_init(void);
+void service_init(void);
 
 
 // ----------------

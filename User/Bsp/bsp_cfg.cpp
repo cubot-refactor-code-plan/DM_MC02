@@ -6,6 +6,7 @@
  * @brief BSP 层统一初始化
  *
  * @note  必须在 FreeRTOS 内核启动后调用（这些驱动内部要创建 RTOS 对象）。
+ *        每一条驱动的 init() 都已在下面用 configASSERT 验过，失败就地停机，因此本函数无返回值。
  *        串口的模板实例化只能在 bsp_uart.cpp，其余 BSP 全局实例都在 bsp_cfg.cpp 中定义。
  *        本函数初始化的外设：
  *
@@ -24,7 +25,7 @@
  *        ✅ PWM×6      → bsp_pwm*.init()      [TIM1/2/3/12 各通道，先清 CCR 再启动 → 上电 0% 占空比]
  *
  */
-void bsp_init()
+void bsp_init(void)
 {
   // DWT 计时（内核 CYCCNT，不依赖 FreeRTOS/中断）：最先初始化，供其它驱动记时间戳
   configASSERT(bsp_dwt.init() == Status::OK);
@@ -45,15 +46,15 @@ void bsp_init()
   configASSERT(bsp_uart10.init() == Status::OK);
 
   // PWM×6（参数取自 CubeMX；先清 CCR 再启动 → 上电全部 0% 占空比）
-  bsp_pwm1.init();       // PE13 TIM1_CH3  排针预留（舵机）
-  bsp_pwm2.init();       // PE9  TIM1_CH1  排针预留（舵机）
-  bsp_pwm3.init();       // PA2  TIM2_CH3  排针预留（舵机）
-  bsp_pwm4.init();       // PA0  TIM2_CH1  排针预留（舵机）
-  bsp_pwm_gyro.init();   // PB1  TIM3_CH4  陀螺仪
-  bsp_pwm_buzzer.init(); // PB15 TIM12_CH2 无源蜂鸣器
+  configASSERT(bsp_pwm1.init() == Status::OK);       // PE13 TIM1_CH3  排针预留（舵机）
+  configASSERT(bsp_pwm2.init() == Status::OK);       // PE9  TIM1_CH1  排针预留（舵机）
+  configASSERT(bsp_pwm3.init() == Status::OK);       // PA2  TIM2_CH3  排针预留（舵机）
+  configASSERT(bsp_pwm4.init() == Status::OK);       // PA0  TIM2_CH1  排针预留（舵机）
+  configASSERT(bsp_pwm_gyro.init() == Status::OK);   // PB1  TIM3_CH4  陀螺仪
+  configASSERT(bsp_pwm_buzzer.init() == Status::OK); // PB15 TIM12_CH2 无源蜂鸣器
 
   // 按键（纯软件轮询消抖，200ms轮询 → 200ms消抖, 1s长按）
-  key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U});
+  configASSERT(key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U}) == Status::OK);
 }
 
 
