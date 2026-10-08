@@ -49,24 +49,24 @@
  *
  * @note 一个周期的标准用法（收帧必须在同一个任务里串行做，本类不加锁）：
  *
- *       r9ds.update();                            // 把这一拍串口里攒的字节全消化掉，可能解出 0 ~ n 帧
+ *       r9ds.update();                            // 把这一拍串口里攒的字节全消化掉
  *       if (r9ds.is_online() && !r9ds.failsafe())
  *       {
  *         const DeviceR9ds::Rc &rc = r9ds.rc();
- *         float fwd   = rc.left_vertical * 0.01f;                          // 左摇杆上下：-1.0 ~ +1.0
- *         bool  a_up  = (rc.switch_a == DeviceR9ds::Switch::UP);           // A 开关在上挡
+ *         float fwd   = rc.left_vertical * 0.01f;                  // 左摇杆上下：-1.0 ~ +1.0
+ *         bool  a_up  = (rc.switch_a == DeviceR9ds::Switch::UP);   // A 开关在上挡
  *       }
  *
  * @warning 不是线程安全的：update() 只允许由一个任务调用；查询接口返回实时引用，
  *          读取期间不得并发执行 update()。
- * @warning 在线状态靠 Online 节点，计时由 sys_task 每 10 ms 推进一次，与本任务调用频率无关。
+ * @warning 在线判定**不依赖 Online 节点**，由本类自己按 tick 算（见 is_online()）：所以它只在
+ *          is_online() 被调用那一刻成立，调用频率只影响分辨率、不会漏判。
  */
 
 #ifndef __DEVICE_R9DS_HPP__
 #define __DEVICE_R9DS_HPP__
 
-#include "bsp_uart.hpp"    // 被解析的串口（配成 100000 / 9B 含偶校验 / 2 停止位）
-#include "online_check.hpp"
+#include "bsp_uart.hpp" // 被解析的串口（配成 100000 / 9B 含偶校验 / 2 停止位）
 #include "status.hpp"
 
 #include <stdint.h>
@@ -75,7 +75,8 @@
 /**
  * @brief R9DS 遥控接收机设备
  *
- * @note 不拥有串口、不创建任务、不创建 RTOS 资源：只解析调用方喂进来的时间片。
+ * @note 不拥有串口、不创建任务、不创建 RTOS 资源、也不注册到 Online 链表：只解析调用方喂进来的
+ *       时间片，在线判定自己按 tick 算。
  */
 class DeviceR9ds
 {
@@ -106,11 +107,23 @@ public:
   // ---------------- 时基常量 ----------------
 
   /**
-   * @brief 离线判定阈值 (ms)
+   * @brief 接收机静默多久就判离线 (ms)
    *
    * @note 帧周期约 14 ms（慢速）/ 7 ms（快速），取 100 ms ≈ 7 帧。
+   * @note 计时在 is_online() 里按 tick 现算，不需要任何周期任务推进。
    */
   static constexpr uint16_t ONLINE_TIMEOUT_MS = 100U;
+
+  /**
+   * @brief 连续多少帧带「本帧丢失」就判离线
+   *
+   * @note 实测遥控器关机时 **lost 先置 1 并保持一段时间，fs 之后才置 1**，所以拿它当提前量：
+   *       3 帧 × 13.5 ms ≈ 40 ms，比等 fs 早、也比上面的 100 ms 帧超时早。
+   * @note 要求“连续”是为了抗单帧偶发丢包：正常遥控时偶发一帧 lost 不应该判离线。
+   * @note 调这个数的依据看 diag().lost_streak：正常遥控时它应该一直是 0；若能看到涨到 1 ~ 2，
+   *       说明链路本身在零星丢帧，把它调大（5 或 8）。
+   */
+  static constexpr uint32_t LOST_STREAK_TO_OFFLINE = 5U;
 
   // ----------------
   // ---------------- 开关挡位 ----------------
@@ -156,7 +169,7 @@ public:
   // ---------------- 接收诊断 ----------------
 
   /**
-   * @brief 接收诊断计数：只增不减
+   * @brief 接收诊断：前四个计数只增不减，最后一个是实时值
    *
    * @note 专门用来区分两种"收不到数据"：byte_cnt 为 0 说明一个字节都没进来（查接线 / 波特率 /
    *       反相），byte_cnt 在涨而 frame_cnt 不动说明字节进来了但切不出帧（查帧格式 / 反相）。
@@ -167,6 +180,7 @@ public:
     uint32_t frame_cnt;      ///< 帧头帧尾都正确、已解析的帧数
     uint32_t bad_footer_cnt; ///< 帧头对上了但帧尾不是 0x00 的帧数
     uint32_t skip_byte_cnt;  ///< 为了找帧头而丢掉的字节数（正常应远小于 byte_cnt）
+    uint32_t lost_streak;    ///< 【实时值】连续多少帧带「本帧丢失」，收到一帧不带就清 0
   };
 
   // ----------------
@@ -181,7 +195,7 @@ public:
   /** @brief 默认析构（不持有任何需要释放的资源） */
   ~DeviceR9ds() = default;
 
-  // 内部持有 Online 链表节点，复制会让链表指向原对象
+  // 内部持有解析状态（半截帧、通道值等），复制会让两份状态各自推进
   DeviceR9ds(const DeviceR9ds &)            = delete;
   DeviceR9ds &operator=(const DeviceR9ds &) = delete;
   DeviceR9ds(DeviceR9ds &&)                 = delete;
@@ -212,7 +226,22 @@ public:
   // ----------------
   // ---------------- 查询接口 ----------------
 
-  /** @brief 遥控接收机是否在线（最近 ONLINE_TIMEOUT_MS 内收到过完整且帧尾正确的帧） */
+  /**
+   * @brief 遥控链路是否可用
+   *
+   * @note 三个条件同时成立才算在线，各管一段故障、互相兜底：
+   *       ① 收到过帧，且最近一帧在 ONLINE_TIMEOUT_MS 内 —— 管“接收机自己静默了”（拔线 / 掉电）；
+   *       ② 最近那一帧的 flags 没置「失控保护」—— 管“遥控器失联了”；
+   *       ③ 连续带「本帧丢失」的帧数没到 LOST_STREAK_TO_OFFLINE —— 管“链路正在变差”，是②的提前量。
+   * @note 为什么光看帧不够：**遥控器一关机，接收机不会安静下来**，它继续按帧周期发 SBUS，
+   *       只把 flags 的位置起来，所以只看“有没有帧”就会一直显示在线。
+   * @note 为什么还要③：实测关机时 **lost 先置 1 并保持一段时间，fs 之后才置 1**，所以拿连续的
+   *       lost 当提前量，比等 fs 早几十毫秒报出失联；要求“连续”是为抗单帧偶发丢包。
+   * @note 为什么①不能省：接收机被拔掉时一个字节都不会来，flags 和 lost_streak 都冻在最后一次
+   *       的值上，**只有这条能发现**。想知道它还在不在发帧，看 diag().byte_cnt / frame_cnt 涨不涨。
+   * @note ① 的计时由本类自己按 tick 现算（**不走 Online 节点**），所以不需要任何周期任务喂它，
+   *       也就不用关心调用频率；代价是结果只在调用那一刻成立。
+   */
   bool is_online(void) const;
 
   /** @brief 遥控器语义值（**控制逻辑用这个**），实时引用，读期间不得并发 update() */
@@ -234,7 +263,7 @@ public:
 private:
   // ---------------- 帧解析 ----------------
 
-  /** @brief 解析一帧已通过帧尾校验的数据：16 通道 → 语义值 → flags → 刷新在线状态 */
+  /** @brief 解析一帧已通过帧尾校验的数据：16 通道 → 语义值 → flags → 记录帧时刻 */
   void _parse_frame(const uint8_t *frame);
 
   // ----------------
@@ -255,8 +284,7 @@ private:
   // ----------------
   // ---------------- 成员变量 ----------------
 
-  BspUart<128> &_uart;   ///< 被解析的串口（不拥有）
-  Online        _online; ///< 在线检查节点
+  BspUart<128> &_uart; ///< 被解析的串口（不拥有）
 
   Rc       _rc {};                ///< 最近一帧的遥控器语义值
   uint16_t _raw[CHANNEL_NUM] {};  ///< 最近一帧的原始通道值（协议侧）
@@ -264,7 +292,8 @@ private:
   uint32_t _fill = 0U;            ///< 已拼到第几个字节，0 = 还没进入帧
   bool     _frame_lost = false;   ///< 最近一帧 flags 的 bit2：本帧丢失
   bool     _failsafe   = false;   ///< 最近一帧 flags 的 bit3：失控保护激活
-  Diag     _diag {};              ///< 诊断计数
+  Diag     _diag {};              ///< 诊断计数（frame_cnt 顺带当“收到过帧吗”的标志用）
+  uint32_t _last_frame_tick = 0U; ///< 最近一帧的 tick，is_online() 拿它算“接收机静默了多久”
 
   // ----------------
 };

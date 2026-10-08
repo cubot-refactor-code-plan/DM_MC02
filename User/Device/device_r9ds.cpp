@@ -1,5 +1,8 @@
 #include "device_r9ds.hpp"
 
+#include "FreeRTOS.h" // IWYU pragma: keep (pdMS_TO_TICKS)
+#include "task.h"     // xTaskGetTickCount
+
 
 // ---------------- 构造与析构 ----------------
 
@@ -10,7 +13,7 @@
  * @note 构造函数只做赋值，不碰硬件、不读串口：真正的复位在 init() 里，
  *       所以可以在 main() 之前的静态初始化阶段构造（见 device_cfg.cpp）。
  */
-DeviceR9ds::DeviceR9ds(BspUart<128> &uart) : _uart(uart), _online(ONLINE_TIMEOUT_MS)
+DeviceR9ds::DeviceR9ds(BspUart<128> &uart) : _uart(uart)
 {
 }
 
@@ -20,7 +23,7 @@ DeviceR9ds::DeviceR9ds(BspUart<128> &uart) : _uart(uart), _online(ONLINE_TIMEOUT
 
 
 /**
- * @brief 复位解析状态与诊断计数
+ * @brief 复位解析状态、诊断计数与帧时刻
  *
  * @note 重复调用安全：丢掉的只是"半截帧"和统计数字，下一次 update() 会重新找帧头。
  *       通道值一并置成安全默认，这样还没收到过任何帧时上层读到的不是野值。
@@ -28,10 +31,11 @@ DeviceR9ds::DeviceR9ds(BspUart<128> &uart) : _uart(uart), _online(ONLINE_TIMEOUT
 Status DeviceR9ds::init(void)
 {
   // 解析状态：从"找帧头"重新开始
-  _fill       = 0U;
-  _frame_lost = false;
-  _failsafe   = false;
-  _diag       = Diag {};
+  _fill            = 0U;
+  _frame_lost      = false;
+  _failsafe        = false;
+  _diag            = Diag {}; // 计数与连续丢帧数（lost_streak）一并清零
+  _last_frame_tick = 0U;      // 配合 frame_cnt == 0，让 is_online() 立刻回到离线
 
   for (uint32_t i = 0U; i < CHANNEL_NUM; ++i)
   {
@@ -45,7 +49,7 @@ Status DeviceR9ds::init(void)
   // 安全默认（顺序 = Rc 字段顺序）：连续通道全回中位 0，开关全回上挡
   _rc = Rc {0, 0, 0, 0, Switch::UP, 0, 0, 0, Switch::UP, Switch::UP};
 
-  // 在线状态不用管：Online 节点初始就是离线，收到第一帧有效数据才会转在线
+  // 在线状态不用额外清：frame_cnt 已归零，is_online() 见到它就判离线，直到收到第一帧
   return Status::OK;
 }
 
@@ -105,10 +109,32 @@ void DeviceR9ds::update(void)
 // ---------------- 查询接口 ----------------
 
 
-/** @brief 在线判定交给 Online 节点（计时由 sys_task 每 10 ms 推进，与本任务频率无关） */
+/**
+ * @brief 在线判定：帧到 + 没失控 + 没在连续丢帧
+ *
+ * @note 三个条件各管一段，且大致按“能多早发现”排列：
+ *       ① 接收机静默超时 —— 拔线 / 掉电时一个字节都不会来，flags 和 lost_streak 都冻在最后一次
+ *          的值上，**只有这条能发现**；反过来说：遥控器关机不在此列，接收机照发不误；
+ *       ② 连续丢帧数 —— 链路刚开始变差就报，是最早的一条（实测 lost 比 fs 先置 1）；
+ *       ③ 最新一帧的失控位 —— 遥控器已确认失联（接收机继续发帧，不把那个位置起来区分不出来）。
+ *
+ * @note ① 自己按 tick 现算，不走 Online 节点、也不需要任何周期任务喂它：
+ *       好处是调用频率只影响分辨率、不会漏判；代价是结果只在调用这一刻成立
+ *       （同一个静止的帧，晚一点再问就可能变成离线）。
+ * @note 单独判一次 frame_cnt == 0，是为了让“从没收到过帧”的初始状态就是离线，
+ *       而不必在 init() 里提前去读 tick。
+ */
 bool DeviceR9ds::is_online(void) const
 {
-  return _online.is_online() == Status::OK;
+  // ① 收到过帧，且最近一帧还在 ONLINE_TIMEOUT_MS 之内（无符号差值，tick 回绕安全）
+  if ((_diag.frame_cnt == 0U) ||
+      ((static_cast<uint32_t>(xTaskGetTickCount()) - _last_frame_tick) >= pdMS_TO_TICKS(ONLINE_TIMEOUT_MS)))
+  {
+    return false;
+  }
+
+  // ② 最新一帧没置失控保护，③ 也没在连续丢帧
+  return (!_failsafe) && (_diag.lost_streak < LOST_STREAK_TO_OFFLINE);
 }
 
 /** @brief 遥控器语义值（控制逻辑用这个），实时引用 */
@@ -144,7 +170,6 @@ DeviceR9ds::Diag DeviceR9ds::diag(void) const
 
 // ----------------
 // ---------------- 帧解析 ----------------
-
 
 /**
  * @brief 解析一帧已通过帧尾校验的数据
@@ -199,11 +224,21 @@ void DeviceR9ds::_parse_frame(const uint8_t *frame)
   _frame_lost         = (flags & 0x04U) != 0U;
   _failsafe           = (flags & 0x08U) != 0U;
 
-  // 帧完整且帧尾正确 = 接收机确实在发帧，续一次在线命。
-  // 注意 flags 里的失控位不影响"在线"：接收机在线、只是它和遥控器失联了，两件事分开报。
-  (void)_online.refresh_task();
-}
+  // 连续丢帧计数：带标志就累加、收到一帧干净的就清 0。实测关机时它先于 fs 涨起来，
+  // 所以 is_online() 拿它当提前量（阈值见 LOST_STREAK_TO_OFFLINE）。
+  if (_frame_lost)
+  {
+    ++_diag.lost_streak;
+  }
+  else
+  {
+    _diag.lost_streak = 0U;
+  }
 
+  // 帧完整且帧尾正确 = 接收机确实在发帧：记下时刻，作为①“接收机没静默”的依据。
+  // 注意这里只记“接收机还在发帧”这一件事：遥控器跟它有没有失联，由 is_online() 用 flags 判。
+  _last_frame_tick = static_cast<uint32_t>(xTaskGetTickCount());
+}
 
 // ----------------
 // ---------------- 原始值换算 ----------------
