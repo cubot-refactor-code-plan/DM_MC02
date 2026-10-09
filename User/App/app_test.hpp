@@ -29,6 +29,9 @@
 /** @brief R9DS 遥控接收机 SBUS 收帧自检（UART5，只收不发；接收机需拨到 SBUS 模式） */
 #define APP_TEST_R9DS_ENABLED 1
 
+/** @brief 舵机限速轨迹自检（servo1 @PE13 TIM1_CH3，开环来回扫角，打印目标/实际角度/脉宽） */
+#define APP_TEST_SERVO_ENABLED 0
+
 
 #ifdef __cplusplus
 extern "C"
@@ -66,6 +69,9 @@ extern "C"
 
   /** @brief R9DS SBUS 收帧自检任务（打印原始帧 / 16 通道 / 映射后的通道与诊断计数） */
   void r9ds_test_task(void *argument);
+
+  /** @brief 舵机限速轨迹自检任务（1 kHz update()，200 ms 打印目标/实际角度/脉宽） */
+  void servo_test_task(void *argument);
 
 #ifdef __cplusplus
 }

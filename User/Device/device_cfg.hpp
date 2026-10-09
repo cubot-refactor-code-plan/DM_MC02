@@ -16,6 +16,7 @@
 
 #include "device_buzzer.hpp"
 #include "device_r9ds.hpp"
+#include "device_servo.hpp"
 #include "dji_motor_group.hpp"
 #include "status.hpp"
 
@@ -35,6 +36,12 @@ void device_init(void);
 extern DeviceBuzzer  buzzer;         ///< 蜂鸣器，绑定 BSP 层的 bsp_pwm_buzzer
 extern DjiMotorGroup can3_dji_group; ///< CAN3 上的 DJI 电机组，成员表见 device_cfg.cpp
 extern DeviceR9ds    r9ds;           ///< R9DS 遥控接收机，绑定 BSP 层的 bsp_uart5（UART5，SBUS）
+
+/// 舵机：绑定 BSP 层排针预留的 4 路 50 Hz PWM（bsp_pwm1~4 = PE13 / PE9 / PA2 / PA0）
+extern DeviceServo servo1; ///< PE13 TIM1_CH3
+extern DeviceServo servo2; ///< PE9  TIM1_CH1
+extern DeviceServo servo3; ///< PA2  TIM2_CH3
+extern DeviceServo servo4; ///< PA0  TIM2_CH1
 
 // ----------------
 #endif // __DEVICE_CFG_HPP__

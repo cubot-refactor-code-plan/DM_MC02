@@ -35,7 +35,7 @@ Status DeviceR9ds::init(void)
   _frame_lost      = false;
   _failsafe        = false;
   _diag            = Diag {}; // 计数与连续丢帧数（lost_streak）一并清零
-  _last_frame_tick = 0U;      // 配合 frame_cnt == 0，让 is_online() 立刻回到离线
+  _last_frame_tick = 0U;      // 配合 frame_cnt <= 0，让 is_online() 立刻回到离线
 
   for (uint32_t i = 0U; i < CHANNEL_NUM; ++i)
   {
@@ -46,15 +46,14 @@ Status DeviceR9ds::init(void)
     _frame[i] = 0U;
   }
 
-  // 安全默认（顺序 = Rc 字段顺序）：连续通道全回中位 0，开关全回上挡
-  _rc = Rc {0, 0, 0, 0, Switch::UP, 0, 0, 0, Switch::UP, Switch::UP};
+  // 安全默认（顺序 = Rc 字段顺序）：连续通道全回中位 0，开关全回下挡
+  _rc = Rc {0, 0, 0, 0, Switch::DOWN, 0, 0, 0, Switch::DOWN, Switch::DOWN};
 
-  // 在线状态不用额外清：frame_cnt 已归零，is_online() 见到它就判离线，直到收到第一帧
   return Status::OK;
 }
 
 /**
- * @brief 把这一拍串口里攒的字节全部消化掉
+ * @brief 把这对应串口里的字节全部接收并且存入
  *
  * @note 状态机只有三档：_fill == 0 时在找 0x0F；0 < _fill < 25 时在拼帧；
  *       拼满 25 字节后用帧尾 0x00 确认，不匹配就整帧丢掉、重新找帧头。
@@ -73,7 +72,7 @@ void DeviceR9ds::update(void)
       return; // 这一拍的字节取完了
     }
 
-    ++_diag.byte_cnt;
+    _diag.byte_cnt += 1.0f;
 
     // 还没进入帧：跳过一切非帧头的字节
     if ((_fill == 0U) && (byte != FRAME_HEADER))
@@ -93,7 +92,7 @@ void DeviceR9ds::update(void)
     // 拼满 25 字节：帧尾必须是 0x00，否则整帧作废、重新找帧头
     if (_frame[FRAME_SIZE - 1U] == FRAME_FOOTER)
     {
-      ++_diag.frame_cnt;
+      _diag.frame_cnt += 1.0f;
       _parse_frame(_frame);
     }
     else
@@ -113,21 +112,20 @@ void DeviceR9ds::update(void)
  * @brief 在线判定：帧到 + 没失控 + 没在连续丢帧
  *
  * @note 三个条件各管一段，且大致按“能多早发现”排列：
- *       ① 接收机静默超时 —— 拔线 / 掉电时一个字节都不会来，flags 和 lost_streak 都冻在最后一次
- *          的值上，**只有这条能发现**；反过来说：遥控器关机不在此列，接收机照发不误；
- *       ② 连续丢帧数 —— 链路刚开始变差就报，是最早的一条（实测 lost 比 fs 先置 1）；
+ *       ① 接收机静默超时 —— 拔线 / 掉电时一个字节都不会来，帧只有最后一次的值，只有这条能发现；反过来说：遥控器关机不在此列，接收机照发不误；
+ *       ② 连续丢帧数 —— 链路刚开始变差就报，是最早的一条（lost 比 fs 先置 1）；
  *       ③ 最新一帧的失控位 —— 遥控器已确认失联（接收机继续发帧，不把那个位置起来区分不出来）。
  *
  * @note ① 自己按 tick 现算，不走 Online 节点、也不需要任何周期任务喂它：
  *       好处是调用频率只影响分辨率、不会漏判；代价是结果只在调用这一刻成立
- *       （同一个静止的帧，晚一点再问就可能变成离线）。
- * @note 单独判一次 frame_cnt == 0，是为了让“从没收到过帧”的初始状态就是离线，
+ *       需要定时调用update,如果以此工程为准的话，推荐在sys_task中10ms调用一次
+ * @note 单独判一次 frame_cnt <= 0，是为了让“从没收到过帧”的初始状态就是离线，
  *       而不必在 init() 里提前去读 tick。
  */
 bool DeviceR9ds::is_online(void) const
 {
   // ① 收到过帧，且最近一帧还在 ONLINE_TIMEOUT_MS 之内（无符号差值，tick 回绕安全）
-  if ((_diag.frame_cnt == 0U) ||
+  if ((_diag.frame_cnt <= 0.0f) ||
       ((static_cast<uint32_t>(xTaskGetTickCount()) - _last_frame_tick) >= pdMS_TO_TICKS(ONLINE_TIMEOUT_MS)))
   {
     return false;
@@ -137,7 +135,7 @@ bool DeviceR9ds::is_online(void) const
   return (!_failsafe) && (_diag.lost_streak < LOST_STREAK_TO_OFFLINE);
 }
 
-/** @brief 遥控器语义值（控制逻辑用这个），实时引用 */
+/** @brief 遥控器语义值（控制逻辑用这个返回值），实时引用 */
 const DeviceR9ds::Rc &DeviceR9ds::rc(void) const
 {
   return _rc;
@@ -178,7 +176,7 @@ DeviceR9ds::Diag DeviceR9ds::diag(void) const
  *       每个通道都跨字节边界，所以统一取「起始字节 + 后两字节」拼成 24 位窗口，
  *       右移掉窗口内偏移后取低 11 位。算例（ch10）：
  *
- *       bit 偏移 = 10 × 11 = 110 → 起始字节 = 110 / 8 + 1 = 14、窗口内偏移 = 110 % 8 = 6
+ *       bit 偏移 = 10×11 = 110 → 起始字节 = 110/8 + 1 = 14、窗口内偏移 = 110%8 = 6
  *       ⇒ (frame[14] | frame[15] << 8 | frame[16] << 16) >> 6 & 0x7FF
  *
  * @note 用统一下标循环算，不手抄 16 条移位表达式 —— 手抄一旦有一位下标写错，现象会是
@@ -248,10 +246,9 @@ void DeviceR9ds::_parse_frame(const uint8_t *frame)
  * @brief 原始值 → 遥控器语义值（连续通道）
  *
  * @note 两端 200 / 1800 对应 +100 / -100，中位 1000 对应 0，线性：
- *
- *       值 = (1000 - raw) / 8        // 8 = (1800 - 200) / (100 - (-100))
- *
+ *       值 = (1000 - raw) / 8 
  *       算例：raw 200 → +100、raw 1000 → 0、raw 1800 → -100、raw 1200 → -25。
+ *
  * @note 整数除法是截断，所以 raw 993 ~ 1007 都得到 0（不足 1 个单位就舍掉），等于自带一个
  *       15 个原始值宽的小死区。
  * @note 故意不限幅到 ±100：原始值跑出 200 ~ 1800（噪声或通道异常）时结果会跟着超出去，

@@ -64,6 +64,10 @@ void all_init()
   configASSERT(xTaskCreate(r9ds_test_task, "r9ds", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
+#if APP_TEST_SERVO_ENABLED
+  configASSERT(xTaskCreate(servo_test_task, "servo", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
+
   /* 维护任务：sys_task 为 10 ms（Online 计时 + UART/CAN 断链兜底，优先级 +7） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
 

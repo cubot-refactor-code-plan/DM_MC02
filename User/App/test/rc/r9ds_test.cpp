@@ -108,13 +108,13 @@ extern "C" void r9ds_test_task(void *argument)
       // 打在线状态：带上计数，免得“值没变”其实是“根本没数据进来”
       const DeviceR9ds::Diag d = r9ds.diag();
 
-      bsp_uart1.printf("[R9DS] on=%u fs=%u lost=%u ls=%lu byte=%lu frame=%lu badtail=%lu\r\n",
+      bsp_uart1.printf("[R9DS] on=%u fs=%u lost=%u ls=%lu byte=%.0f frame=%.0f badtail=%lu\r\n",
                        r9ds.is_online() ? 1U : 0U,
                        r9ds.failsafe() ? 1U : 0U,
                        r9ds.frame_lost() ? 1U : 0U,
                        static_cast<unsigned long>(d.lost_streak),
-                       static_cast<unsigned long>(d.byte_cnt),
-                       static_cast<unsigned long>(d.frame_cnt),
+                       d.byte_cnt,
+                       d.frame_cnt,
                        static_cast<unsigned long>(d.bad_footer_cnt));
 #endif
     }
