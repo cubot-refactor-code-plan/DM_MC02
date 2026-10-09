@@ -44,9 +44,9 @@ void bsp_init(void)
   configASSERT(bsp_uart9.init() == Status::OK);
   configASSERT(bsp_uart10.init() == Status::OK);
 
-  configASSERT(bsp_uart5.init() == Status::OK);
   // UART5 = SBUS：帧格式只能由 CubeMX 写进 huart5，这里校验一遍。
   // 被改回 8N1 的现象是「收得到字节但就是解不出 SBUS」
+  configASSERT(bsp_uart5.init() == Status::OK);
   configASSERT(huart5.Init.BaudRate == 100000U);              // SBUS 定死 100 kbps
   configASSERT(huart5.Init.WordLength == UART_WORDLENGTH_9B); // 8数据位 + 1校验位：HAL里校验位会顶掉一个数据位
   configASSERT(huart5.Init.Parity == UART_PARITY_EVEN);       // SBUS 定死偶校验

@@ -27,7 +27,7 @@
 #define APP_TEST_DJI_GROUP_ENABLED 0
 
 /** @brief R9DS 遥控接收机 SBUS 收帧自检（UART5，只收不发；接收机需拨到 SBUS 模式） */
-#define APP_TEST_R9DS_ENABLED 1
+#define APP_TEST_R9DS_ENABLED 0
 
 /** @brief 舵机限速轨迹自检（servo1 @PE13 TIM1_CH3，开环来回扫角，打印目标/实际角度/脉宽） */
 #define APP_TEST_SERVO_ENABLED 0
