@@ -32,6 +32,9 @@
 /** @brief 舵机限速轨迹自检（servo1 @PE13 TIM1_CH3，开环来回扫角，打印目标/实际角度/脉宽） */
 #define APP_TEST_SERVO_ENABLED 0
 
+/** @brief 张大头 EmmV5.0 单电机点动测试（UART7，地址 1，正转 2 圈 / 反转 2 圈） */
+#define APP_TEST_EMMV5_ENABLED 1
+
 
 #ifdef __cplusplus
 extern "C"
@@ -72,6 +75,9 @@ extern "C"
 
   /** @brief 舵机限速轨迹自检任务（1 kHz update()，200 ms 打印目标/实际角度/脉宽） */
   void servo_test_task(void *argument);
+
+  /** @brief EmmV5.0 单电机正反转测试任务（UART7，地址 1） */
+  void emmv5_test_task(void *argument);
 
 #ifdef __cplusplus
 }

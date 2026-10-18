@@ -13,9 +13,10 @@
  *        ✅ DWT        → bsp_dwt.init()       [内核 CYCCNT 计时，无外设]
  *        ✅ CAN1/2/3   → bsp_can1/2/3.init()  [Message Buffer 收发]
  *        ✅ USART1     → bsp_uart1.init()     [IDLE RX DMA + FreeRTOS stream buffer]
+ *        ✅ USART2     → bsp_uart2.init()     [RS485，硬件 DE；IDLE RX DMA + TX DMA]
  *        ✅ USART3     → bsp_uart3.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ UART4      → bsp_uart4.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ UART5      → bsp_uart5.init()     [SBUS 遥控接收：100000/8E2，仅接收；帧格式在 CubeMX 里配]
+ *        ✅ UART5      → bsp_sbus5.init()     [SBUS 中断接收，无 DMA]
  *        ✅ UART7      → bsp_uart7.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ UART8      → bsp_uart8.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ UART9      → bsp_uart9.init()     [IDLE RX DMA + FreeRTOS stream buffer]
@@ -37,6 +38,7 @@ void bsp_init(void)
 
   // UART（同样依赖 FreeRTOS 流缓冲区，失败则立刻停机）
   configASSERT(bsp_uart1.init() == Status::OK);
+  configASSERT(bsp_uart2.init() == Status::OK); // USART2：RS485 硬件 DE
   configASSERT(bsp_uart3.init() == Status::OK);
   configASSERT(bsp_uart4.init() == Status::OK);
   configASSERT(bsp_uart7.init() == Status::OK);
@@ -44,13 +46,8 @@ void bsp_init(void)
   configASSERT(bsp_uart9.init() == Status::OK);
   configASSERT(bsp_uart10.init() == Status::OK);
 
-  // UART5 = SBUS：帧格式只能由 CubeMX 写进 huart5，这里校验一遍。
-  // 被改回 8N1 的现象是「收得到字节但就是解不出 SBUS」
-  configASSERT(bsp_uart5.init() == Status::OK);
-  configASSERT(huart5.Init.BaudRate == 100000U);              // SBUS 定死 100 kbps
-  configASSERT(huart5.Init.WordLength == UART_WORDLENGTH_9B); // 8数据位 + 1校验位：HAL里校验位会顶掉一个数据位
-  configASSERT(huart5.Init.Parity == UART_PARITY_EVEN);       // SBUS 定死偶校验
-  configASSERT(huart5.Init.StopBits == UART_STOPBITS_2);      // 每字节 12 位 = 1起始 + 8数据 + 1校验 + 2停止
+  // UART5 = SBUS：帧格式（100000 / 9B 含偶校验 / 2 停止位）在 BspSbus::init() 里校验
+  configASSERT(bsp_sbus5.init() == Status::OK);
 
   // PWM×6（参数取自 CubeMX；先清 CCR 再启动 → 上电全部 0% 占空比）
   configASSERT(bsp_pwm1.init() == Status::OK);       // PE13 TIM1_CH3  排针预留（舵机 50 Hz）
@@ -91,23 +88,18 @@ BspCan bsp_can3({&hfdcan3, "CAN3"});
  * @note Config 里的 baudrate 只给发送侧用（算一包发完要多久、判 TX 卡不卡死）；接收侧的波特率
  *       与帧格式一律由 CubeMX 写进 huartX，本驱动一个字段都不改 —— 所以协议参数要么在 CubeMX
  *       里配，要么就是错的，不能在 Config 里改。
- *
- * @note bsp_uart5 = SBUS 遥控接收（R9DS 第 9 通道输出），协议：100000 bps、8 数据位、偶校验、
- *       2 停止位、**反相 TTL**。
- *       电平反相由外部/板载电路解决，所以不需要开 UART_ADVFEATURE_RXINV；量 PD2 空闲应为**低**。
- *       帧格式三项在 CubeMX 里必须写 **9B + Even + 2Stop** —— HAL 里校验位会顶掉一个数据位，
- *       写 8B + Even 实际只剩 7 个数据位（stm32h7xx_hal_uart.c 的 "parity enabled ⇒ 数据寄存器
- *       最高位被校验位代替"）。bsp_init() 里有四条兜底断言盯着这里，被改回 8N1 会直接开机停机，
- *       而不是变成「能收但全是乱码」。
  */
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true, 115200U});
+__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart2({&huart2, true, 115200U}); // RS485，DE 由 USART2 硬件控制
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart3({&huart3, true, 115200U});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart4({&huart4, true, 115200U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart5({&huart5, false, 100000U}); ///< SBUS：100000/8E2（CubeMX 里写 9B 含校验）+ 外部反相；仅接收（未配 TX DMA）
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart7({&huart7, true, 921600U});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart8({&huart8, true, 115200U});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true, 115200U});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true, 921600U});
+
+// UART5 = SBUS 接收机：只收不发，中断接收即可，不占 DMA 流
+BspSbus bsp_sbus5({&huart5});
 
 
 // ----------------

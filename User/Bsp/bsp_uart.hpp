@@ -1,16 +1,20 @@
 /**
  * @file bsp_uart.hpp
  * @author Rh
- * @brief 串口驱动（FreeRTOS 流缓冲区 + IDLE 中断 + DMA）
- * @version 0.3
- * @date 2026-09-10
+ * @brief 串口驱动（DMA 全双工 + SBUS 中断接收）
+ * @version 0.4
+ * @date 2026-10-19
  *
  * @todo 收上来的数据要交给应用层分发（app_message 或上层总线注册）
  *
  * @copyright Copyright (c) 2026
  *
- * @details 接收端用 IDLE 中断判断一帧收完，发送端由 TX Complete 中断接着发下一批，
- *          收发都走 DMA，不需要 CPU 逐字节搬运。
+ * @details 本文件包含两个独立的驱动类：
+ *
+ *          1) BspUart：通用串口，IDLE 中断 + DMA 收发 + FreeRTOS 流缓冲区；
+ *          2) BspSbus：SBUS 接收机专用，只收不发，UART 中断 + FreeRTOS 流缓冲区，不占 DMA。
+ *
+ *          两者互不依赖，按外设需要选一个用。
  *
  * @note 模板参数是缓冲区大小（字节）。DMA 收发缓冲区与流缓冲区都用这个尺寸，
  *       所以单次 send() 也不能超过它。
@@ -22,6 +26,7 @@
  *
  *   // 2) 全局实例在 bsp_cfg.cpp：句柄 + 是否启用发送 + 波特率
  *   __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true, 115200});
+ *
  *   // 3) init() 在 bsp_init() 里统一调用（必须在调度器启动之后）
  *   bsp_uart1.init();
  *
@@ -184,9 +189,7 @@ public:
    * @return true=这次确实重建了一次（累计次数见 rx_diag().error_cnt）
    */
   bool rx_recover();
-
   // ----------------
-
   // ---------------- ISR 入口 ----------------
 
   /**
@@ -211,7 +214,6 @@ public:
    *       中断里不能用。RX 交给任务侧的 rx_recover()，TX 交给 tx_recover()。
    */
   void on_error_isr();
-
   // ----------------
   // ---------------- 查询接口 ----------------
 
@@ -233,9 +235,7 @@ public:
 
   /** @brief 读 TX 诊断计数 */
   TxDiag tx_diag() const;
-
   // ----------------
-
 private:
   // ---------------- 私有实现 ----------------
 
@@ -290,9 +290,137 @@ private:
 
   /** @brief 从发送流缓冲区取一包交给 DMA；wait=0 表示取不到锁就立刻返回 */
   bool start_transmission(TickType_t wait = portMAX_DELAY);
-
   // ----------------
 };
+
+
+// ---------------- SBUS 类 ----------------
+// ----------------
+
+/**
+ * @brief SBUS 串口接收驱动
+ *
+ * @details R9DS 这类 SBUS 接收机是**只收不发**的：100000 bps、8 数据位、偶校验、
+ *          2 停止位，每 7 ~ 14 ms 才来 25 字节。这个数据量用 UART 中断完全够，
+ *          没必要长期占一条 DMA 流，所以本驱动：
+ *
+ *          1) 用 HAL_UARTEx_ReceiveToIdle_IT() 把数据收进 32 字节临时缓冲；
+ *          2) 在 HAL_UARTEx_RxEventCallback() 里写进 128 字节流缓冲区；
+ *          3) 上层用 read() 按字节流读，没数据立刻返回，也可以按超时等待。
+ *
+ * @note 为什么不用 HAL_UART_Receive_IT() 一字节一中断：SBUS 一帧 25 字节，
+ *       一字节一中断会白跑 25 次中断；ReceiveToIdle 一次 IDLE 就把整帧交上来。
+ * @note 为什么流缓冲区要比一帧大：如果两帧之间没有 IDLE（或线上有噪声），HAL 会按
+ *       缓冲大小交一次数据，剩下的字节继续排队，解析层按字节流处理，不受分片影响。
+ * @note 本类会创建 1 个 FreeRTOS 流缓冲区，init() 必须在调度器启动后调用。
+ * @note 只负责“把串口收到的字节放进流缓冲区”，不解释 SBUS 帧；
+ *       帧同步与通道解析在 DeviceR9ds 里做。
+ */
+class BspSbus
+{
+public:
+  /** @brief 串口配置（可匿名按序传入：{huart}） */
+  struct Config
+  {
+    /** @brief 按序构造（参数顺序 = 字段顺序） */
+    Config(UART_HandleTypeDef *huart = nullptr) : huart(huart)
+    {
+    }
+
+    UART_HandleTypeDef *huart; ///< UART 句柄（必须已由 CubeMX 配成 SBUS 帧格式）
+  };
+
+  /** @brief 绑定串口（只赋值，不碰硬件） */
+  explicit BspSbus(const Config &cfg);
+
+  /** @brief 析构：释放接收流缓冲区 */
+  ~BspSbus();
+
+  BspSbus(const BspSbus &)            = delete;
+  BspSbus &operator=(const BspSbus &) = delete;
+
+  /**
+   * @brief 创建接收流缓冲区，校验 SBUS 串口参数并启动第一次中断接收
+   *
+   * @return OK=已启动；BAD_ARG=句柄为空或串口帧格式不是 SBUS；IO_ERROR=流缓冲区创建失败或接收启动失败
+   *
+   * @note 帧格式（100000 / 9B 含偶校验 / 2 停止位）只能由 CubeMX 写进 huart，
+   *       本驱动一个字段都不改；参数不对就直接报错，免得变成“能收但全是乱码”。
+   * @note 重复调用安全：开头会先把上一次创建的流缓冲区释放掉。
+   */
+  Status init(void);
+
+  /**
+   * @brief 从接收流缓冲区读取数据
+   *
+   * @param buffer     接收缓冲区
+   * @param size       最多读取的字节数
+   * @param timeout_ms 超时时间（毫秒）；0 = 不等待，portMAX_DELAY = 一直等
+   * @param received   实际读到的字节数（可为 nullptr）
+   * @return OK=读到数据；TIMEOUT=无数据；BAD_ARG=参数非法；IO_ERROR=流缓冲区未创建
+   *
+   * @note 字节流语义：不保证一次读到完整 SBUS 帧，帧边界由 DeviceR9ds 自己切。
+   * @note 如果上一次中断接收因为错误停了，这里会顺手重新启动接收。
+   */
+  Status read(uint8_t *buffer, size_t size, uint32_t timeout_ms = 0U, size_t *received = nullptr);
+
+  /**
+   * @brief 中断入口：HAL 收到一段数据（IDLE 或缓冲满）
+   *
+   * @param size 本次收到的字节数（不超过 RX_CHUNK_SIZE）
+   * @param pxHigherPriorityTaskWoken 中断里需要唤醒的高优先级任务
+   *
+   * @note 由 bsp_uart.cpp 的 HAL_UARTEx_RxEventCallback() 按句柄分发进来；
+   *       写入流缓冲区后立即重新启动接收，准备下一段。
+   */
+  void on_rx_event(uint16_t size, BaseType_t *pxHigherPriorityTaskWoken);
+
+  /** @brief 中断入口：UART 错误，标记接收已停，由任务侧 read() 重新启动 */
+  void on_error_isr(void);
+
+  /** @brief 任务侧恢复：接收停了就重新启动（可放进周期任务） */
+  void recover(void);
+
+  /** @brief 流缓冲区满而丢掉的字节数（只增不减，正常应为 0） */
+  uint32_t drop_bytes(void) const;
+
+  /** @brief 重新启动接收的次数（只增不减，正常应只有 init 那一次） */
+  uint32_t restart_cnt(void) const;
+
+  /** @brief UART 错误回调次数（只增不减，正常应为 0） */
+  uint32_t error_cnt(void) const;
+
+private:
+  // ---------------- 缓冲尺寸 ----------------
+
+  /** @brief 单次中断接收的临时缓冲：比一帧 25 字节大一点，允许噪声/连续帧 */
+  static constexpr uint32_t RX_CHUNK_SIZE = 32U;
+
+  /** @brief 接收流缓冲区容量（字节） */
+  static constexpr size_t RX_STREAM_SIZE = 128U;
+  // ----------------
+  // ---------------- 内部函数 ----------------
+
+  /** @brief 启动一次 HAL 中断接收；已经在收就直接返回 */
+  void _arm(void);
+
+  /** @brief 释放接收流缓冲区 */
+  void _cleanup(void);
+  // ----------------
+  // ---------------- 成员变量 ----------------
+
+  UART_HandleTypeDef *_huart = nullptr; ///< 被接收的串口（不拥有）
+
+  StreamBufferHandle_t _rx_stream_buffer = nullptr; ///< 接收流缓冲区（中断写、任务读）
+  uint8_t              _chunk[RX_CHUNK_SIZE] {};    ///< HAL 中断接收的落点
+
+  volatile bool     _armed = false;     ///< 当前是否已启动 HAL 接收
+  volatile uint32_t _drop_cnt    = 0U;  ///< 流缓冲区满丢字节数
+  volatile uint32_t _restart_cnt = 0U;  ///< 重新启动接收次数
+  volatile uint32_t _error_cnt   = 0U;  ///< UART 错误回调次数
+  // ----------------
+};
+
 
 
 #endif // __BSP_UART_HPP__

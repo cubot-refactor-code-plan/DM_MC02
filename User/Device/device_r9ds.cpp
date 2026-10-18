@@ -6,21 +6,17 @@
 
 // ---------------- 构造与析构 ----------------
 
-
 /**
  * @brief 绑定串口
  *
  * @note 构造函数只做赋值，不碰硬件、不读串口：真正的复位在 init() 里，
  *       所以可以在 main() 之前的静态初始化阶段构造（见 device_cfg.cpp）。
  */
-DeviceR9ds::DeviceR9ds(BspUart<128> &uart) : _uart(uart)
+DeviceR9ds::DeviceR9ds(BspSbus &uart) : _uart(uart)
 {
 }
-
-
 // ----------------
 // ---------------- 生命周期 ----------------
-
 
 /**
  * @brief 复位解析状态、诊断计数与帧时刻
@@ -53,7 +49,7 @@ Status DeviceR9ds::init(void)
 }
 
 /**
- * @brief 把这对应串口里的字节全部接收并且存入
+ * @brief 把 BspSbus 接收流缓冲区里的字节全部消化掉
  *
  * @note 状态机只有三档：_fill == 0 时在找 0x0F；0 < _fill < 25 时在拼帧；
  *       拼满 25 字节后用帧尾 0x00 确认，不匹配就整帧丢掉、重新找帧头。
@@ -66,8 +62,8 @@ void DeviceR9ds::update(void)
     uint8_t byte = 0U;
     size_t  got  = 0U;
 
-    // 超时 0：没有数据立刻返回，不阻塞调用它的任务
-    if ((_uart.receive(&byte, 1U, 0U, &got) != Status::OK) || (got == 0U))
+    // 超时 0：流缓冲区没有数据就立刻返回，不阻塞调用它的任务
+    if ((_uart.read(&byte, 1U, 0U, &got) != Status::OK) || (got == 0U))
     {
       return; // 这一拍的字节取完了
     }
@@ -103,10 +99,8 @@ void DeviceR9ds::update(void)
     _fill = 0U;
   }
 }
-
 // ----------------
 // ---------------- 查询接口 ----------------
-
 
 /**
  * @brief 在线判定：帧到 + 没失控 + 没在连续丢帧
@@ -164,8 +158,6 @@ DeviceR9ds::Diag DeviceR9ds::diag(void) const
 {
   return _diag;
 }
-
-
 // ----------------
 // ---------------- 帧解析 ----------------
 
@@ -237,10 +229,8 @@ void DeviceR9ds::_parse_frame(const uint8_t *frame)
   // 注意这里只记“接收机还在发帧”这一件事：遥控器跟它有没有失联，由 is_online() 用 flags 判。
   _last_frame_tick = static_cast<uint32_t>(xTaskGetTickCount());
 }
-
 // ----------------
 // ---------------- 原始值换算 ----------------
-
 
 /**
  * @brief 原始值 → 遥控器语义值（连续通道）
@@ -258,11 +248,8 @@ int16_t DeviceR9ds::_to_rc_value(uint16_t raw)
 {
   return static_cast<int16_t>((static_cast<int32_t>(CHANNEL_MID) - static_cast<int32_t>(raw)) / RAW_PER_UNIT);
 }
-
-
 // ----------------
 // ---------------- 开关判挡 ----------------
-
 
 /** @brief 两挡开关判挡：比离 200 / 1800 哪个近，分界正好是中位 1000 */
 DeviceR9ds::Switch DeviceR9ds::_to_switch_2pos(uint16_t raw)
@@ -288,6 +275,4 @@ DeviceR9ds::Switch DeviceR9ds::_to_switch_3pos(uint16_t raw)
   }
   return Switch::DOWN;
 }
-
-
 // ----------------

@@ -2,6 +2,7 @@
 
 #include "FreeRTOS.h" // IWYU pragma: keep (configASSERT)
 #include "bsp_cfg.hpp"  // IWYU pragma: keep（bsp_pwm_buzzer）
+#include "status.hpp"   // IWYU pragma: keep（device_init 里的 Status）
 
 
 // ---------------- 全局实例 ----------------
@@ -22,9 +23,13 @@ DjiMotorGroup can3_dji_group({&bsp_can3,
                               &gm6020_1, nullptr, nullptr, nullptr,
                               nullptr, &gm6020_6, nullptr});
 
-// R9DS 遥控接收机：走 UART5（SBUS，100000/8E2 + 外部反相，见 bsp_cfg.cpp 的 bsp_uart5）。
+// R9DS 遥控接收机：走 UART5（SBUS，100000/8E2 + 外部反相），由 bsp_sbus5 中断接收，不占 DMA。
 // 四个摇杆的零飘偏移用默认全 0：死区已经把"没动杆但不在 1000"处理掉了。
-DeviceR9ds r9ds(bsp_uart5);
+DeviceR9ds r9ds(bsp_sbus5);
+
+// 张大头 EmmV5.0：UART7，地址 1（单串口单电机）。
+// ⚠ UART7 在 CubeMX 里是 921600 bps，电机的通信波特率必须也是 921600，否则收不到任何回复。
+DeviceEmmv5 emm_motor1({bsp_uart7, 1});
 
 // 舵机：BSP 层那 4 路排针预留的 PWM 已经配成 50 Hz / 20 ms、1 计数 = 1 µs，
 // 所以脉宽可以直接按 µs 填。Config 参数顺序 = {通道, 脉宽下限, 脉宽上限, 行程, 限速, 加速度, 反向, 微调}。
@@ -35,7 +40,7 @@ DeviceR9ds r9ds(bsp_uart5);
 //     限速写 0 就是不限速（update() 下一拍直接把脉宽落到目标，与 BspPwm 的瞬时语义一致）；
 //   - 能用起来的前提：由**一个任务周期调用 servoN.update()**，它是唯一的脉宽写入者
 //     （线程模型见 device_servo.hpp 文件头，set_angle() / off() 可以跨任务）。
-DeviceServo servo1({&bsp_pwm1, 500.0f, 2500.0f, 270.0f, 300.0f, 1500.0f});
+DeviceServo servo1({&bsp_pwm1, 600.0f, 2400.0f, 270.0f, 0.0f, 0.0f});
 DeviceServo servo2({&bsp_pwm2, 500.0f, 2500.0f, 180.0f, 300.0f, 1500.0f});
 DeviceServo servo3({&bsp_pwm3, 500.0f, 2500.0f, 180.0f, 300.0f, 1500.0f});
 DeviceServo servo4({&bsp_pwm4, 500.0f, 2500.0f, 180.0f, 300.0f, 1500.0f});
@@ -50,6 +55,7 @@ void device_init(void)
 {
   configASSERT(can3_dji_group.init() == Status::OK);
   configASSERT(r9ds.init() == Status::OK);
+  configASSERT(emm_motor1.init() == Status::OK);
 
   // 舵机：init() 只校验配置、不写脉宽，所以这一步不会让舵机动起来
   configASSERT(servo1.init() == Status::OK); // PE13 TIM1_CH3

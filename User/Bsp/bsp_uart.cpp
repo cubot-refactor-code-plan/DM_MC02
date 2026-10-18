@@ -4,17 +4,15 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+// ---------------- UART ----------------
+// ----------------
 
 // ---------------- 模板实例化 ----------------
 
 // 显式实例化：BUFFER_SIZE = 128
 template class BspUart<128>;
 template class BspUart<256>;
-
-
 // ----------------
-
-
 // ---------------- HAL 回调分发 ----------------
 
 extern "C"
@@ -31,6 +29,10 @@ extern "C"
     {
       bsp_uart1.on_idle_isr(Size, &xHigherPriorityTaskWoken);
     }
+    else if (huart == &huart2)
+    {
+      bsp_uart2.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+    }
     else if (huart == &huart3)
     {
       bsp_uart3.on_idle_isr(Size, &xHigherPriorityTaskWoken);
@@ -41,7 +43,7 @@ extern "C"
     }
     else if (huart == &huart5)
     {
-      bsp_uart5.on_idle_isr(Size, &xHigherPriorityTaskWoken);
+      bsp_sbus5.on_rx_event(Size, &xHigherPriorityTaskWoken);
     }
     else if (huart == &huart7)
     {
@@ -71,10 +73,14 @@ extern "C"
   {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    // 注：UART5 无发送功能（未配 TX DMA），不会触发本回调，故无 huart5 分支
+    // 注：UART5 不使用 BspUart，不会触发本回调，故无 huart5 分支
     if (huart == &huart1)
     {
       bsp_uart1.start_transmission_from_isr(&xHigherPriorityTaskWoken);
+    }
+    else if (huart == &huart2)
+    {
+      bsp_uart2.start_transmission_from_isr(&xHigherPriorityTaskWoken);
     }
     else if (huart == &huart3)
     {
@@ -115,6 +121,10 @@ extern "C"
     {
       bsp_uart1.on_error_isr();
     }
+    else if (huart == &huart2)
+    {
+      bsp_uart2.on_error_isr();
+    }
     else if (huart == &huart3)
     {
       bsp_uart3.on_error_isr();
@@ -125,7 +135,7 @@ extern "C"
     }
     else if (huart == &huart5)
     {
-      bsp_uart5.on_error_isr();
+      bsp_sbus5.on_error_isr();
     }
     else if (huart == &huart7)
     {
@@ -153,10 +163,7 @@ extern "C"
  * 发送：任务或 TX Complete 中断从流缓冲区取一包，交给 DMA 发出。
  * 线程安全：FreeRTOS 流缓冲区自带锁；任务侧启动发送由 _tx_lock 串行化，printf() 由 _printf_lock 保护格式化缓冲。
  */
-
 // ----------------
-
-
 // ---------------- 公有接口 ----------------
 
 /** @brief 只做赋值，RTOS 资源与接收启动放在 init() */
@@ -509,10 +516,7 @@ bool BspUart<BUFFER_SIZE>::rx_recover()
   _rx_error_cnt++; // 诊断：确实重建了一次
   return true;
 }
-
 // ----------------
-
-
 // ---------------- ISR 入口 ----------------
 
 /**
@@ -617,10 +621,7 @@ void BspUart<BUFFER_SIZE>::on_error_isr()
     _tx_error_cnt++;
   }
 }
-
 // ----------------
-
-
 // ---------------- 查询接口 ----------------
 
 /** @brief 发送流缓冲区剩余空间（字节） */
@@ -707,10 +708,7 @@ typename BspUart<BUFFER_SIZE>::TxDiag BspUart<BUFFER_SIZE>::tx_diag() const
   diag.error_cnt         = _tx_error_cnt;
   return diag;
 }
-
 // ----------------
-
-
 // ---------------- 私有实现 ----------------
 
 /**
@@ -850,5 +848,223 @@ void BspUart<BUFFER_SIZE>::cleanup_resources()
     _printf_lock = nullptr;
   }
 }
+// ----------------
 
+// ---------------- SBUS ----------------
+// ----------------
+
+
+// ---------------- 构造与析构 ----------------
+
+/** @brief 绑定串口（只赋值，不碰硬件、不启动接收） */
+BspSbus::BspSbus(const Config &cfg)
+    : _huart(cfg.huart),
+      _rx_stream_buffer(nullptr),
+      _chunk {},
+      _armed(false),
+      _drop_cnt(0U),
+      _restart_cnt(0U),
+      _error_cnt(0U)
+{
+}
+
+/** @brief 析构：释放接收流缓冲区 */
+BspSbus::~BspSbus()
+{
+  _cleanup();
+}
+// ----------------
+// ---------------- 生命周期 ----------------
+
+/**
+ * @brief 创建接收流缓冲区，校验 SBUS 帧格式并启动第一次中断接收
+ *
+ * @note 这里的四个参数是 SBUS 的硬性规定，不是随便配的：
+ *       100000 bps、8 数据位、偶校验、2 停止位。
+ *       HAL 里 WordLength 要写 9B：校验位会顶掉一个数据位，写 8B + Even 实际只剩
+ *       7 个数据位（见 stm32h7xx_hal_uart.c 对校验位的处理）。
+ */
+Status BspSbus::init(void)
+{
+  if (_huart == nullptr)
+  {
+    return Status::BAD_ARG;
+  }
+
+  if ((_huart->Init.BaudRate != 100000U) ||
+      (_huart->Init.WordLength != UART_WORDLENGTH_9B) ||
+      (_huart->Init.Parity != UART_PARITY_EVEN) ||
+      (_huart->Init.StopBits != UART_STOPBITS_2))
+  {
+    return Status::BAD_ARG;
+  }
+
+  // 重复调用安全：先把上一次创建的流缓冲区释放掉
+  _cleanup();
+
+  _rx_stream_buffer = xStreamBufferCreate(RX_STREAM_SIZE, 1U);
+  if (_rx_stream_buffer == nullptr)
+  {
+    return Status::IO_ERROR;
+  }
+
+  _armed       = false;
+  _drop_cnt    = 0U;
+  _restart_cnt = 0U;
+  _error_cnt   = 0U;
+
+  _arm();
+  if (!_armed)
+  {
+    _cleanup();
+    return Status::IO_ERROR;
+  }
+
+  return Status::OK;
+}
+
+/**
+ * @brief 从接收流缓冲区读取数据
+ *
+ * @note 与 BspUart::receive() 同样的字节流语义：不保证一次读到完整一帧，
+ *       帧边界由协议层（DeviceR9ds）自己切。
+ */
+Status BspSbus::read(uint8_t *buffer, size_t size, uint32_t timeout_ms, size_t *received)
+{
+  if ((buffer == nullptr) || (size == 0U))
+  {
+    return Status::BAD_ARG;
+  }
+
+  if (_rx_stream_buffer == nullptr)
+  {
+    return Status::IO_ERROR;
+  }
+
+  if (!_armed)
+  {
+    _arm(); // 上一次接收因错误停了，任务侧顺手补一次
+  }
+
+  const size_t bytes_read = xStreamBufferReceive(_rx_stream_buffer, buffer, size, pdMS_TO_TICKS(timeout_ms));
+  if (received != nullptr)
+  {
+    *received = bytes_read;
+  }
+
+  return (bytes_read > 0U) ? Status::OK : Status::TIMEOUT;
+}
+
+/** @brief 任务侧恢复：接收停了就重新启动（可放进周期任务） */
+void BspSbus::recover(void)
+{
+  if (!_armed)
+  {
+    _arm();
+  }
+}
+// ----------------
+// ---------------- 中断入口 ----------------
+
+/**
+ * @brief HAL 收到一段数据：写进流缓冲区并立即重新启动接收
+ *
+ * @param size 本次收到的字节数
+ * @param pxHigherPriorityTaskWoken 中断里需要唤醒的高优先级任务
+ *
+ * @note 流缓冲区满了就丢新字节并累加 _drop_cnt：正常 1 kHz 的 update() 取数，
+ *       128 字节足够盖住 4 帧以上，真满了说明任务被卡住或串口噪声异常。
+ */
+void BspSbus::on_rx_event(uint16_t size, BaseType_t *pxHigherPriorityTaskWoken)
+{
+  if (size > RX_CHUNK_SIZE)
+  {
+    size = RX_CHUNK_SIZE;
+  }
+
+  if (_rx_stream_buffer != nullptr)
+  {
+    const size_t sent = xStreamBufferSendFromISR(_rx_stream_buffer, _chunk, size, pxHigherPriorityTaskWoken);
+    if (sent < size)
+    {
+      _drop_cnt += static_cast<uint32_t>(size - sent);
+    }
+  }
+  else
+  {
+    _drop_cnt += size;
+  }
+
+  _armed = false;
+  _arm();
+}
+
+/** @brief UART 错误：只标记停止，真正的重新启动放到任务侧 read()/recover() */
+void BspSbus::on_error_isr(void)
+{
+  ++_error_cnt;
+  _armed = false;
+}
+// ----------------
+// ---------------- 查询接口 ----------------
+
+/** @brief 流缓冲区因满而丢掉的字节数 */
+uint32_t BspSbus::drop_bytes(void) const
+{
+  return _drop_cnt;
+}
+
+/** @brief 重新启动接收的次数 */
+uint32_t BspSbus::restart_cnt(void) const
+{
+  return _restart_cnt;
+}
+
+/** @brief UART 错误回调次数 */
+uint32_t BspSbus::error_cnt(void) const
+{
+  return _error_cnt;
+}
+// ----------------
+// ---------------- 内部函数 ----------------
+
+/**
+ * @brief 启动一次 HAL 中断接收
+ *
+ * @note 已经在收（RxState == BUSY_RX）时直接返回，不重复调用 HAL；
+ *       任务侧和中断侧都可能调用本函数，靠 HAL 的 RxState 判忙，不会把接收打乱。
+ */
+void BspSbus::_arm(void)
+{
+  if (_huart == nullptr)
+  {
+    return;
+  }
+
+  if (_huart->RxState == HAL_UART_STATE_BUSY_RX)
+  {
+    _armed = true;
+    return;
+  }
+
+  if (HAL_UARTEx_ReceiveToIdle_IT(_huart, _chunk, RX_CHUNK_SIZE) == HAL_OK)
+  {
+    _armed = true;
+  }
+  else
+  {
+    _armed = false;
+    ++_restart_cnt;
+  }
+}
+
+/** @brief 释放接收流缓冲区 */
+void BspSbus::_cleanup(void)
+{
+  if (_rx_stream_buffer != nullptr)
+  {
+    vStreamBufferDelete(_rx_stream_buffer);
+    _rx_stream_buffer = nullptr;
+  }
+}
 // ----------------

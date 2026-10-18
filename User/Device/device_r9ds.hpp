@@ -1,19 +1,19 @@
 /**
  * @file device_r9ds.hpp
  * @author Rh
- * @brief R9DS 遥控接收机设备 —— 在 BspUart 之上把 SBUS 字节流解成通道值
- * @version 0.1
- * @date 2026-10-07
+ * @brief R9DS 遥控接收机设备 —— 在 BspSbus 之上把 SBUS 字节流解成通道值
+ * @version 0.2
+ * @date 2026-10-18
  *
  * @copyright Copyright (c) 2026
  *
- * @details 只做三件事：从现在 BspUart 的接收流缓冲区里切出 25 字节的 SBUS 帧、把那
+ * @details 只做三件事：从 BspSbus 的接收流缓冲区里切出 25 字节的 SBUS 帧、把那
  *          16 × 11 bit 拆成 16 个通道、再把通道映射成「摇杆 / 旋钮 / 开关」的语义。
  *
  * @note SBUS 协议（来源：R9DS 使用说明）：
  *       100000 bps、8 数据位、偶校验、2 停止位（每字节 12 位）、**反相 TTL**；
  *       一帧 25 字节 = 0x0F 帧头 + 22 字节通道数据（16 通道 × 11 bit，小端）+ flags + 0x00 帧尾。
- *       串口参数在 CubeMX 里配，见 bsp_cfg.cpp 的 bsp_uart5 与 bsp_init() 里的兜底断言；
+ *       串口参数在 CubeMX 里配，见 bsp_cfg.cpp 的 bsp_sbus5 与 BspSbus::init() 里的兜底校验；
  *       本类一个字节的串口配置都不改。接收机侧要拨到 SBUS 模式。
  *
  * @note flags = frame[23]：bit0/bit1 是数字通道 17/18，bit2 = 本帧丢失，bit3 = 失控保护激活。
@@ -66,7 +66,7 @@
 #ifndef __DEVICE_R9DS_HPP__
 #define __DEVICE_R9DS_HPP__
 
-#include "bsp_uart.hpp" // 被解析的串口（配成 100000 / 9B 含偶校验 / 2 停止位）
+#include "bsp_uart.hpp" // 被解析的串口（其中 BspSbus：SBUS 中断接收，不占 DMA）
 #include "status.hpp"
 
 #include <stdint.h>
@@ -88,7 +88,6 @@ public:
   static constexpr uint8_t  FRAME_FOOTER = 0x00U;   ///< 帧尾标识（扩展帧另有取值，本类只认它）
   static constexpr uint32_t CHANNEL_NUM  = 16U;     ///< 通道数
   static constexpr uint16_t CHANNEL_MASK = 0x07FFU; ///< 单个通道占 11 bit
-
   // ----------------
   // ---------------- 协议数值常量 ----------------
 
@@ -102,7 +101,6 @@ public:
    * @note 两端 200 / 1800 对应 +100 / -100 ⇒ (1800 - 200) / (100 + 100) = 8。
    */
   static constexpr int32_t RAW_PER_UNIT = 8;
-
   // ----------------
   // ---------------- 时基常量 ----------------
 
@@ -124,7 +122,6 @@ public:
    *       说明链路本身在零星丢帧，把它调大（5 或 8）。
    */
   static constexpr uint32_t LOST_STREAK_TO_OFFLINE = 5U;
-
   // ----------------
   // ---------------- 开关挡位 ----------------
 
@@ -140,7 +137,6 @@ public:
     MID  = 0,  ///< 中挡（原始值 1000；语义值 0）
     DOWN = -1, ///< 下挡（原始值 1800；语义值 -100）
   };
-
   // ----------------
   // ---------------- 遥控器通道 ----------------
 
@@ -164,7 +160,6 @@ public:
     Switch  switch_b;         ///< CH9 正面 B 开关：只会是 UP / DOWN
     Switch  switch_a;         ///< CH10 正面 A 开关：只会是 UP / DOWN
   };
-
   // ----------------
   // ---------------- 接收诊断 ----------------
 
@@ -182,7 +177,6 @@ public:
     uint32_t skip_byte_cnt;  ///< 为了找帧头而丢掉的字节数（正常应远小于 byte_cnt）
     uint32_t lost_streak;    ///< 【实时值】连续多少帧带「本帧丢失」，收到一帧不带就清 0
   };
-
   // ----------------
   // ---------------- 构造与析构 ----------------
 
@@ -190,7 +184,7 @@ public:
   DeviceR9ds() = delete;
 
   /** @brief 绑定串口（只赋值，不碰硬件、不读串口） */
-  explicit DeviceR9ds(BspUart<128> &uart);
+  explicit DeviceR9ds(BspSbus &uart);
 
   /** @brief 默认析构（不持有任何需要释放的资源） */
   ~DeviceR9ds() = default;
@@ -200,7 +194,6 @@ public:
   DeviceR9ds &operator=(const DeviceR9ds &) = delete;
   DeviceR9ds(DeviceR9ds &&)                 = delete;
   DeviceR9ds &operator=(DeviceR9ds &&)      = delete;
-
   // ----------------
   // ---------------- 生命周期 ----------------
 
@@ -222,7 +215,6 @@ public:
    * @note 没有数据时立刻返回，不会阻塞调用它的任务。
    */
   void update(void);
-
   // ----------------
   // ---------------- 查询接口 ----------------
 
@@ -256,20 +248,17 @@ public:
 
   /** @brief 诊断计数快照 */
   Diag diag(void) const;
-
   // ----------------
 private:
   // ---------------- 帧解析 ----------------
 
   /** @brief 解析一帧已通过帧尾校验的数据：16 通道 → 语义值 → flags → 记录帧时刻 */
   void _parse_frame(const uint8_t *frame);
-
   // ----------------
   // ---------------- 原始值换算 ----------------
 
   /** @brief 原始值 → 遥控器语义值：raw 200 → +100、1000 → 0、1800 → -100（截断取整） */
   static int16_t _to_rc_value(uint16_t raw);
-
   // ----------------
   // ---------------- 开关判挡 ----------------
 
@@ -278,11 +267,10 @@ private:
 
   /** @brief 三挡开关判挡：比离 200 / 1000 / 1800 哪个近 */
   static Switch _to_switch_3pos(uint16_t raw);
-
   // ----------------
   // ---------------- 成员变量 ----------------
 
-  BspUart<128> &_uart; ///< 被解析的串口（不拥有）
+  BspSbus &_uart; ///< 被解析的串口（不拥有；中断接收、无 DMA）
 
   Rc       _rc {};                ///< 最近一帧的遥控器语义值
   uint16_t _raw[CHANNEL_NUM] {};  ///< 最近一帧的原始通道值（协议侧）
@@ -292,7 +280,6 @@ private:
   bool     _failsafe   = false;   ///< 最近一帧 flags 的 bit3：失控保护激活
   Diag     _diag {};              ///< 诊断计数（frame_cnt 顺带当“收到过帧吗”的标志用）
   uint32_t _last_frame_tick = 0U; ///< 最近一帧的 tick，is_online() 拿它算“接收机静默了多久”
-
   // ----------------
 };
 
