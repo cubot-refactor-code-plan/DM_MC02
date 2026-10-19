@@ -1,3 +1,13 @@
+/**
+ * @file online_check_test.cpp
+ * @author Rh
+ * @brief Online 状态机自检：阈值 20 ms，验“初始超时 / refresh 置在线 / 未超时仍在线 / 超时转离线”
+ * @date 2026-10-03
+ *
+ * 结论写进 volatile 全局：stage 走 1→5，passed=1 表示四步全对，供调试器直接看。
+ * 状态由 sys_task 的 Online::update()（10 ms 一拍）锁存，因此等待时间取“阈值 + 2 个任务周期”。
+ */
+
 #include "app_test.hpp"
 
 #if APP_TEST_ONLINE_CHECK_ENABLED

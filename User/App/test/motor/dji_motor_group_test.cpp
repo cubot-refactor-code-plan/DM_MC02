@@ -1,3 +1,12 @@
+/**
+ * @file dji_motor_group_test.cpp
+ * @author Rh
+ * @brief CAN3 DJI 电机组自检：开环恒定指令、1 kHz 收发、每 200 ms 轮着打印一个位置
+ * @date 2026-10-03
+ *
+ * 打印：[DJIGRP] pos=4 fb=0x204 online=1 cmd=350 vel=1234 mrad/s ang=5678 mrad
+ */
+
 #include "app_test.hpp"
 
 
@@ -13,37 +22,33 @@
 
 
 /**
- * @brief 开环恒定指令（原始值），下标 = 位置；没有闭环，直接把这一档电流一直给着让它转
- *
- * @note 只有挂了电机的位置会被用到。两台 GM6020 各给一档，方便从反馈里区分是哪一台在响应：
- *       位置 4（电调 ID 1，反馈 0x205）= 250，位置 5（电调 ID 2，反馈 0x206）= 350。
+ * @brief 开环恒定指令（原始值），下标 = 位置；只给挂了电机的位置写
+ * @note 位置 4 和 9 各给一档，方便从反馈里分辨是哪一台在响应。
  */
 constexpr int16_t CMD_BY_POS[DjiMotorGroup::MOTOR_NUM] = {
-  0, 0, 0, 0,     // 位置 0~3：未挂电机
-  350, 0, 0, 0, // 位置 4~7：两台 GM6020 各一档
-  0, 350, 0,        // 位置 8~10：未挂电机
+  0, 0, 0, 0,    // 0~3：未挂电机
+  350, 0, 0, 0,  // 4 = 挂一台，5~7 未挂
+  0, 350, 0,     // 8 空，9 = 挂一台，10 空
 };
-/** @brief 串口汇报周期，单位 ms；每次只打一个位置，轮着来 */
+
+/** @brief 汇报周期 (ms)；每次只打一个位置，轮着来 */
 constexpr uint32_t REPORT_PERIOD_MS = 200U;
 
-namespace
-{
-/** @brief 汇报一行：位置 / 反馈标识符 / 在线 / 指令 / 输出轴角速度与累计角度 */
-void report(uint8_t index)
-{
-  const MotorData &md = can3_dji_group.data(index);
-  bsp_uart1.printf("[DJIGRP] pos=%u fb=0x%03X online=%u cmd=%d vel=%d mrad/s ang=%d mrad\r\n",
-                   static_cast<unsigned>(index),
-                   static_cast<unsigned>(DjiMotorGroup::RX_ID_BASE + index),
-                   can3_dji_group.is_online(index) ? 1U : 0U,
-                   static_cast<int>(CMD_BY_POS[index]),
-                   static_cast<int>(md.radian_data.velocity * 1000.0f),
-                   static_cast<int>(md.radian_data.angle_multi_round * 1000.0f));
-}
 
-/** @brief 打印成员表与各位置的开环指令：一台一行，末尾给总数 */
-void report_layout()
+extern "C" void dji_motor_group_test_task(void *argument)
 {
+  (void)argument;
+  sys_state.wait_running();
+  static_assert(configTICK_RATE_HZ == 1000U, "DJI motor group test requires a 1 kHz tick");
+
+  if (can3_dji_group.init() != Status::OK)
+  {
+    bsp_uart1.printf("[DJIGRP] can3_dji_group.init() failed\r\n");
+    vTaskDelete(NULL);
+    return;
+  }
+
+  // 开跑前先把成员表打出来：谁挂在哪个位置、给多少指令
   uint32_t used = 0U;
   for (uint8_t index = 0U; index < DjiMotorGroup::MOTOR_NUM; ++index)
   {
@@ -58,24 +63,7 @@ void report_layout()
                      static_cast<unsigned>(DjiMotorGroup::RX_ID_BASE + index),
                      static_cast<int>(CMD_BY_POS[index]));
   }
-
   bsp_uart1.printf("[DJIGRP] CAN3 open-loop constant: %u motor(s)\r\n", static_cast<unsigned>(used));
-}
-} // namespace
-
-extern "C" void dji_motor_group_test_task(void *argument)
-{
-  (void)argument;
-  sys_state.wait_running();
-  static_assert(configTICK_RATE_HZ == 1000U, "DJI motor group test requires a 1 kHz tick");
-
-  if (can3_dji_group.init() != Status::OK)
-  {
-    bsp_uart1.printf("[DJIGRP] can3_dji_group.init() failed\r\n");
-    vTaskDelete(NULL);
-    return;
-  }
-  report_layout();
 
   TickType_t wake_time = xTaskGetTickCount();
   uint32_t   tick      = 0U;
@@ -107,7 +95,14 @@ extern "C" void dji_motor_group_test_task(void *argument)
       const uint8_t index = static_cast<uint8_t>((tick / REPORT_PERIOD_MS) % DjiMotorGroup::MOTOR_NUM);
       if (can3_dji_group.has_motor(index))
       {
-        report(index);
+        const MotorData &md = can3_dji_group.data(index);
+        bsp_uart1.printf("[DJIGRP] pos=%u fb=0x%03X online=%u cmd=%d vel=%d mrad/s ang=%d mrad\r\n",
+                         static_cast<unsigned>(index),
+                         static_cast<unsigned>(DjiMotorGroup::RX_ID_BASE + index),
+                         can3_dji_group.is_online(index) ? 1U : 0U,
+                         static_cast<int>(CMD_BY_POS[index]),
+                         static_cast<int>(md.radian_data.velocity * 1000.0f),
+                         static_cast<int>(md.radian_data.angle_multi_round * 1000.0f));
       }
     }
 

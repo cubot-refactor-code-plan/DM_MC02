@@ -158,6 +158,97 @@ bool InPositionScanner::feed(uint8_t addr, const uint8_t *data, size_t size)
 }
 
 
+/**
+ * @brief 清空 0x36 位置扫描窗口
+ */
+void PositionScanner::reset()
+{
+  length = 0;
+}
+
+/**
+ * @brief 喂入串口字节并尝试拼出 `addr 36 sign v3 v2 v1 v0 6B`
+ *
+ * @note 窗口固定 8 字节，满了就左移一格；这样即使一帧被串口拆成两三块，
+ *       下一次调用也能把首尾接起来。
+ * @note 命中后窗口立即清空，同一块里如果还粘着第二帧，循环会继续扫完。
+ */
+bool PositionScanner::feed(uint8_t addr, const uint8_t *data, size_t size, int32_t &position)
+{
+  if (data == nullptr || size == 0U)
+  {
+    return false;
+  }
+
+  for (size_t i = 0; i < size; i++)
+  {
+    if (length == sizeof(window))
+    {
+      memmove(window, window + 1, sizeof(window) - 1U);
+      length = sizeof(window) - 1U;
+    }
+
+    window[length++] = data[i];
+
+    if (length == sizeof(window) && window[0] == addr && window[1] == 0x36 && window[7] == CHECKSUM)
+    {
+      const uint32_t magnitude = (static_cast<uint32_t>(window[3]) << 24) | (static_cast<uint32_t>(window[4]) << 16)
+                                 | (static_cast<uint32_t>(window[5]) << 8) | static_cast<uint32_t>(window[6]);
+
+      // 用 int64 取负，避开 magnitude == INT32_MIN 时的溢出
+      const int64_t value = (window[2] == 0U) ? static_cast<int64_t>(magnitude) : -static_cast<int64_t>(magnitude);
+
+      position = static_cast<int32_t>(value);
+      length   = 0;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * @brief 清空 0x3A 状态扫描窗口
+ */
+void StatusScanner::reset()
+{
+  length = 0;
+}
+
+/**
+ * @brief 喂入串口字节并尝试拼出 `addr 3A status 6B`
+ *
+ * @note 状态位含义见说明书 6.3.4；本函数只负责把状态字节原样交出去。
+ */
+bool StatusScanner::feed(uint8_t addr, const uint8_t *data, size_t size, uint8_t &status)
+{
+  if (data == nullptr || size == 0U)
+  {
+    return false;
+  }
+
+  for (size_t i = 0; i < size; i++)
+  {
+    if (length == sizeof(window))
+    {
+      memmove(window, window + 1, sizeof(window) - 1U);
+      length = sizeof(window) - 1U;
+    }
+
+    window[length++] = data[i];
+
+    if (length == sizeof(window) && window[0] == addr && window[1] == 0x3A && window[3] == CHECKSUM)
+    {
+      status = window[2];
+      length = 0;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
 // ----------------
 // ---------------- MMCL 总帧编码 ----------------
 
@@ -182,7 +273,9 @@ size_t build_multi_frame(uint8_t target, const uint8_t *payload, size_t payload_
   }
 
   const size_t total = payload_size + MULTI_OVERHEAD;
-  if (total > out_capacity)
+
+  // 总帧长度字段只有 2 字节；哪怕调用方给了大缓冲，也不能越过协议上限
+  if (total > 0xFFFFU || total > out_capacity)
   {
     return 0;
   }
@@ -295,19 +388,19 @@ Frame restore_defaults(uint8_t addr)
  * @brief 电机使能/关闭
  * @param addr 电机地址
  * @param on   true=使能，false=关闭
- * @param sync true=先挂起，等 sync_start() 再动作
- * @return 帧：addr F3 AB on sync 6B
+ * @return 帧：addr F3 AB on 00 6B
  *
+ * @note sync 字节固定写 0；本工程不使用多机同步模式。
  * @note 速度/位置命令在未使能时会返回“条件不满足”状态码（E2）。
  */
-Frame enable(uint8_t addr, bool on, bool sync)
+Frame enable(uint8_t addr, bool on)
 {
   Frame f;
   f.append_u8(addr);
   f.append_u8(0xF3);
   f.append_u8(0xAB);
   f.append_u8(to_u8(on));
-  f.append_u8(to_u8(sync));
+  f.append_u8(0U); // sync：固定 0
   f.seal();
   return f;
 }
@@ -318,13 +411,13 @@ Frame enable(uint8_t addr, bool on, bool sync)
  * @param dir   0=CW，1=CCW
  * @param rpm   速度，0~5000 RPM
  * @param accel 加速度档位 0~255；0=直接启动
- * @param sync  true=挂起，等 sync_start()
- * @return 帧：addr F6 dir rpm_H rpm_L accel sync 6B
+ * @return 帧：addr F6 dir rpm_H rpm_L accel 00 6B
  *
  * @note acc>0 时每提升 1 RPM 用时 (256-acc)*50us；
  *       acc=50 时 0→300 RPM 约 3.09s，移动时间要按这个公式估。
+ * @note sync 字节固定写 0；本工程不使用多机同步模式。
  */
-Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, bool sync)
+Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel)
 {
   Frame f;
   f.append_u8(addr);
@@ -332,7 +425,7 @@ Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, bool sy
   f.append_u8(static_cast<uint8_t>(dir));
   f.append_u16(rpm);
   f.append_u8(accel);
-  f.append_u8(to_u8(sync));
+  f.append_u8(0U); // sync：固定 0
   f.seal();
   return f;
 }
@@ -343,15 +436,15 @@ Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, bool sy
  * @param dir    0=CW，1=CCW
  * @param rpm    速度，0~5000 RPM
  * @param accel  加速度档位 0~255
- * @param pulses 脉冲数，0~2^32-1；16 细分下 3200=1 圈
+ * @param pulses 带符号脉冲数；绝对模式按 32 位补码写入
  * @param mode   0=相对运动，1=绝对运动（EmmV5.0 按布尔解释 raF）
- * @param sync   true=挂起，等 sync_start()
- * @return 帧：addr FD dir rpm_H rpm_L accel clk3 clk2 clk1 clk0 mode sync 6B
+ * @return 帧：addr FD dir rpm_H rpm_L accel clk3 clk2 clk1 clk0 mode 00 6B
  *
  * @note 相对模式参考“上一输入目标位置”，不是当前实时位置；
  *       绝对模式目标为 0 时表示回位置零点，方向字节通常被忽略。
+ * @note sync 字节固定写 0；本工程不使用多机同步模式。
  */
-Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, uint32_t pulses, PositionMode mode, bool sync)
+Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, PositionMode mode)
 {
   Frame f;
   f.append_u8(addr);
@@ -359,9 +452,9 @@ Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, uint32_
   f.append_u8(static_cast<uint8_t>(dir));
   f.append_u16(rpm);
   f.append_u8(accel);
-  f.append_u32(pulses);
+  f.append_u32(static_cast<uint32_t>(pulses));
   f.append_u8(static_cast<uint8_t>(mode));
-  f.append_u8(to_u8(sync));
+  f.append_u8(0U); // sync：固定 0
   f.seal();
   return f;
 }
@@ -372,12 +465,12 @@ Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, uint32_
  * @param rpm   速度，0~5000 RPM
  * @param accel 加速度档位 0~255
  * @param mode  0=相对，1=绝对
- * @param sync  true=挂起，等 sync_start()
- * @return 帧：addr F1 rpm_H rpm_L accel mode sync 6B
+ * @return 帧：addr F1 rpm_H rpm_L accel mode 00 6B
  *
  * @note 只设置参数，不产生运动；后续 quick_position() 使用这组参数。
+ * @note sync 字节固定写 0；本工程不使用多机同步模式。
  */
-Frame quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, PositionMode mode, bool sync)
+Frame quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, PositionMode mode)
 {
   Frame f;
   f.append_u8(addr);
@@ -385,7 +478,7 @@ Frame quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, PositionM
   f.append_u16(rpm);
   f.append_u8(accel);
   f.append_u8(static_cast<uint8_t>(mode));
-  f.append_u8(to_u8(sync));
+  f.append_u8(0U); // sync：固定 0
   f.seal();
   return f;
 }
@@ -411,39 +504,21 @@ Frame quick_position(uint8_t addr, int32_t pulses)
 /**
  * @brief 立即停止
  * @param addr 电机地址
- * @param sync true=挂起，等 sync_start()
- * @return 帧：addr FE 98 sync 6B
+ * @return 帧：addr FE 98 00 6B
  *
  * @note 速度模式和位置模式都可用，属于紧急刹车。
+ * @note sync 字节固定写 0；本工程不使用多机同步模式。
  */
-Frame stop(uint8_t addr, bool sync)
+Frame stop(uint8_t addr)
 {
   Frame f;
   f.append_u8(addr);
   f.append_u8(0xFE);
   f.append_u8(0x98);
-  f.append_u8(to_u8(sync));
+  f.append_u8(0U); // sync：固定 0
   f.seal();
   return f;
 }
-
-/**
- * @brief 触发多机同步开始
- * @param addr 电机地址（通常广播 0）
- * @return 帧：addr FF 66 6B
- *
- * @note 之前所有带 sync=1 的速度/位置/停止命令都在收到本帧后同时动作。
- */
-Frame sync_start(uint8_t addr)
-{
-  Frame f;
-  f.append_u8(addr);
-  f.append_u8(0xFF);
-  f.append_u8(0x66);
-  f.seal();
-  return f;
-}
-
 
 // ----------------
 // ---------------- 原点回零命令 ----------------
@@ -471,18 +546,18 @@ Frame set_home_zero(uint8_t addr, bool store)
  * @brief 触发回零
  * @param addr 电机地址
  * @param mode 0=单圈就近 / 1=单圈方向 / 2=多圈无限位碰撞 / 3=多圈有限位开关
- * @param sync true=挂起，等 sync_start()
- * @return 帧：addr 9A mode sync 6B
+ * @return 帧：addr 9A mode 00 6B
  *
  * @note 单圈模式要求先 set_home_zero()；碰撞/限位模式使用 HomeParams 里的阈值。
+ * @note sync 字节固定写 0；本工程不使用多机同步模式。
  */
-Frame home(uint8_t addr, HomingMode mode, bool sync)
+Frame home(uint8_t addr, HomingMode mode)
 {
   Frame f;
   f.append_u8(addr);
   f.append_u8(0x9A);
   f.append_u8(static_cast<uint8_t>(mode));
-  f.append_u8(to_u8(sync));
+  f.append_u8(0U); // sync：固定 0
   f.seal();
   return f;
 }
@@ -598,9 +673,17 @@ Frame set_home_return_angle(uint8_t addr, bool store, uint16_t tenth_deg)
  */
 Frame read(uint8_t addr, SystemParam param)
 {
+  const uint8_t code = sys_param_code(param);
+
+  // 非法枚举不拼帧：返回空 Frame，由设备层 _send() 转为 BAD_ARG
+  if (code == 0U)
+  {
+    return Frame {};
+  }
+
   Frame f;
   f.append_u8(addr);
-  f.append_u8(sys_param_code(param));
+  f.append_u8(code);
   f.seal();
   return f;
 }
@@ -614,11 +697,18 @@ Frame read(uint8_t addr, SystemParam param)
  */
 Frame auto_report(uint8_t addr, SystemParam param, uint16_t period_ms)
 {
+  const uint8_t code = sys_param_code(param);
+
+  if (code == 0U)
+  {
+    return Frame {};
+  }
+
   Frame f;
   f.append_u8(addr);
   f.append_u8(0x11);
   f.append_u8(0x18);
-  f.append_u8(sys_param_code(param));
+  f.append_u8(code);
   f.append_u16(period_ms);
   f.seal();
   return f;

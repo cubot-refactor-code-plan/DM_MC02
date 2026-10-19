@@ -11,10 +11,25 @@
  *
  *          1. 调 emmv5 协议层生成命令帧；
  *          2. 把帧写进 BspUart 的发送流缓冲区；
- *          3. 从 BspUart 读字节，识别「到位返回帧」（地址 + 0xFD 0x9F 0x6B）。
+ *          3. 周期读取串口，识别三类应答：
+ *             - 到位帧：`addr FD 9F 6B`
+ *             - 位置应答：`addr 36 sign v3 v2 v1 v0 6B`
+ *             - 状态应答：`addr 3A status 6B`
+ *          4. 用 Online 节点记录“最近是否收到过有效应答”。
  *
- *          它不创建任务、不注册全局表、不管理信号量，和 BspCan / DjiMotorGroup 的
- *          「设备只做设备的事」保持一致。
+ *          它不创建全局表、不管理信号量，但会在 init() 时创建一个**内部 RX 任务**：
+ *          该任务每 10 ms 调一次 update()，把串口字节喂给三个扫描器。
+ *          任务入口是本类独有的静态函数，地址与 DeviceEmmv5Group 不同。
+ *
+ * @note 扫描器与超时模型：
+ *
+ *       - 内部 RX 任务只做“读字节 + 喂扫描器”，非阻塞，不做业务判断；
+ *       - 到位帧 / 0x36 / 0x3A 命中后分别锁存，`take_*()` 取走并清有效标志；
+ *       - 任意一类有效应答都会刷新本实例的 Online 节点；
+ *       - Online 阈值 **100 ms**，计时由 sys_task 里的 `Online::update()` 统一推进；
+ *       - 应用层的查询周期应小于 100 ms，否则电机只是“没被问”也会显示离线。
+ *
+ * @warning 本对象必须是全局/静态生命周期；不要在 RX 任务自身里销毁对象。
  *
  * @note 适用场景：**一路串口只接一台电机**。此时本类是这路串口唯一的接收消费者，
  *       可以直接调 update() 轮询。如果一路串口要挂多台电机（地址不同、需要 MMCL
@@ -28,23 +43,21 @@
  * @note 运动控制：
  *
  *       motor.enable(true);                                    // 使能
- *       motor.set_velocity(emmv5::Direction::CW, 1000, 50);   // CW, 1000 RPM, 加速度 50
+ *       motor.set_velocity(emmv5::Direction::CW, 1000, 50);    // CW, 1000 RPM, 加速度 50
  *       motor.set_position(emmv5::Direction::CW, 500, 50, 3200,
  *                          emmv5::PositionMode::Absolute);    // 绝对位置，走 3200 个脉冲
  *       motor.stop();
  *
- * @note 周期接收（在一个任务里调用，非阻塞）：
+ * @note 周期接收由本类的内部 RX 任务自动完成，业务层只需要取数据：
  *
- *       if (motor.update())
- *       {
- *         // 本次读到了到位帧
- *       }
+ *       int32_t position = 0;
+ *       if (motor.take_position(position)) { ... }   // 新到的 0x36 位置
  *
- * @note 改 ID、细分、保护阈值用对应的语义方法；不要在 App 层拼协议帧。
- *       其余不常用的配置命令，需要时在设备层补一个方法即可。
+ *       uint8_t status = 0;
+ *       if (motor.take_status(status)) { ... }       // 新到的 0x3A 状态
  *
- * @warning update() 只能由同一个任务调用，不能并发；
- *          否则同一个流缓冲区会被两个消费者抢字节。
+ * @warning 内部 RX 任务是本路串口唯一的接收消费者；业务层不要直接调 `update()`，
+ *          也不要直接读 BspUart。take_position() / take_status() 可从任意任务调用。
  * @warning 命令帧的发送失败会通过 Status 返回；上层如果只关心控制周期，可以忽略返回值，
  *          失败计数在 BspUart::tx_diag() 里查。
  */
@@ -54,7 +67,11 @@
 
 #include "bsp_uart.hpp"
 #include "emmv5_protocol.hpp"
+#include "online_check.hpp"
 #include "status.hpp"
+
+#include "FreeRTOS.h" // IWYU pragma: keep
+#include "task.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -100,8 +117,8 @@ public:
    */
   explicit DeviceEmmv5(const Config &cfg);
 
-  /** @brief 不持有需要释放的资源 */
-  ~DeviceEmmv5() = default;
+  /** @brief 停止内部 RX 任务；Online 节点随成员析构自动注销 */
+  ~DeviceEmmv5();
 
   // 内部有接收窗口状态，复制会让两份状态各自推进
   DeviceEmmv5(const DeviceEmmv5 &)            = delete;
@@ -113,9 +130,10 @@ public:
   // ---------------- 生命周期 ----------------
 
   /**
-   * @brief 校验地址并复位接收窗口
-   * @return OK=可用；BAD_ARG=地址为 0
-   * @note 幂等，不发送任何命令。
+   * @brief 校验地址、复位接收状态，并创建内部 RX 任务
+   * @return OK=可用；BAD_ARG=地址为 0；FULL=内部 RX 任务创建失败（堆/TCB 不足）
+   * @note 幂等：重复调用不会重复创建任务。
+   * @warning 应在调度器启动前调用；运行期重复 init() 会复位扫描器，可能丢掉正在接收的半帧。
    */
   Status init();
 
@@ -136,39 +154,35 @@ public:
 
   /**
    * @brief 使能/关闭电机
-   * @param on   true=使能
-   * @param sync 多机同步标志（单机一般填 false）
+   * @param on true=使能
    */
-  Status enable(bool on, bool sync = false);
+  Status enable(bool on);
 
   /**
    * @brief 速度模式
    * @param dir   方向
    * @param rpm   速度（0~5000 RPM）
    * @param accel 加速度（0~255，0=直接启动）
-   * @param sync  多机同步标志
    */
-  Status set_velocity(emmv5::Direction dir, uint16_t rpm, uint8_t accel, bool sync = false);
+  Status set_velocity(emmv5::Direction dir, uint16_t rpm, uint8_t accel);
 
   /**
    * @brief 位置模式
    * @param dir    方向
    * @param rpm    速度（0~5000 RPM）
    * @param accel  加速度（0~255）
-   * @param pulses 脉冲数
+   * @param pulses 带符号脉冲数；绝对模式按 32 位补码写入
    * @param mode   位置模式
-   * @param sync   多机同步标志
    */
-  Status set_position(emmv5::Direction dir, uint16_t rpm, uint8_t accel, uint32_t pulses, emmv5::PositionMode mode, bool sync = false);
+  Status set_position(emmv5::Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, emmv5::PositionMode mode);
 
   /**
    * @brief 设置快速位置模式的运动参数
    * @param rpm   速度（0~5000 RPM）
    * @param accel 加速度（0~255）
    * @param mode  位置模式
-   * @param sync  多机同步标志
    */
-  Status set_quick_position_params(uint16_t rpm, uint8_t accel, emmv5::PositionMode mode, bool sync = false);
+  Status set_quick_position_params(uint16_t rpm, uint8_t accel, emmv5::PositionMode mode);
 
   /**
    * @brief 快速位置控制
@@ -178,12 +192,8 @@ public:
 
   /**
    * @brief 立即停止
-   * @param sync 多机同步标志
    */
-  Status stop(bool sync = false);
-
-  ///< 触发多机同步开始运动
-  Status sync_start();
+  Status stop();
 
   ///< 触发编码器校准
   Status calibrate_encoder();
@@ -203,9 +213,8 @@ public:
   /**
    * @brief 触发回零
    * @param mode 回零模式
-   * @param sync 多机同步标志
    */
-  Status home(emmv5::HomingMode mode, bool sync = false);
+  Status home(emmv5::HomingMode mode);
 
   ///< 强制中断并退出回零
   Status abort_home();
@@ -213,9 +222,18 @@ public:
   /**
    * @brief 读取一次系统参数
    * @param param 要读取的参数
-   * @note 回复由上层从串口读取；本驱动只负责把命令发出去。
+   *
+   * @note 本类只解析两种应答：`CurrentPosition`（0x36）和 `StatusFlag`（0x3A），
+   *       其余参数的应答会被 update() 丢弃；需要时在设备层再补解析器。
+   * @note 非阻塞：发完立即返回，结果用 take_position() / take_status() 取。
    */
   Status read(emmv5::SystemParam param);
+
+  ///< 请求一次 0x36 实时位置
+  Status request_position();
+
+  ///< 请求一次 0x3A 状态标志
+  Status request_status();
 
   /**
    * @brief 定时自动返回系统参数（Y42）
@@ -240,6 +258,9 @@ public:
    * @brief 修改电机 ID
    * @param store true = 存进电机
    * @param id    新地址（1~255）
+   *
+   * @note 改完后本实例仍按旧地址发送；需要重建实例，或由上层自行维护新地址。
+   *       本类不会自动改 `_addr`，避免在运行期把“身份”换掉。
    */
   Status set_id(bool store, uint8_t id);
 
@@ -263,48 +284,118 @@ public:
   // ---------------- 接收 ----------------
 
   /**
-   * @brief 把串口里当前攒的字节全部读完，并识别到位帧（非阻塞）
-   * @return true=本次读到至少一个完整到位帧
+   * @brief 取走最近一次 0x36 实时位置
+   * @param out 位置，单位 counts（65536/圈，带符号）
+   * @return true=有新数据；false=没有新数据
    *
-   * @note 每次最多读 8 块 × 16 字节，避免数据持续到达时把调用任务卡在这里。
-   * @note 只能由唯一一个任务调用，不能并发。
+   * @note 读后清有效标志；数值与标志在短临界区内一起拷贝，允许在其他任务调用。
+   * @note 内部 RX 任务每 10 ms update()，控制任务按自己的节奏 take_position()。
    */
-  bool update();
+  bool take_position(int32_t &out);
+
+  /**
+   * @brief 取走最近一次 0x3A 状态字节
+   * @param out 状态字节（位定义见说明书 6.3.4）
+   * @return true=有新数据；false=没有新数据
+   */
+  bool take_status(uint8_t &out);
+
+  /**
+   * @brief 最近 100 ms 内是否收到过该电机的有效应答
+   * @return true=在线；false=超时
+   *
+   * @note 由 Online 节点判定，计时由 sys_task 里的 Online::update() 推进。
+   *       应用层应保证查询周期小于 100 ms，否则空闲时也会显示离线。
+   */
+  bool is_online() const;
 
   // ----------------
 private:
   // ---------------- 私有实现 ----------------
 
   /**
+   * @brief 把串口里当前攒的字节全部读完，并喂给三个扫描器（非阻塞）
+   * @return true=本次至少识别到一个到位帧
+   *
+   * @note 只由内部 RX 任务调用；业务层不要直接调。
+   *       每次最多读 8 块 × 16 字节，数据持续到达时也会把控制权还给其他任务。
+   * @note 返回值只反映“到位帧”；0x36/0x3A 的结果通过 take_position()/take_status() 取。
+   */
+  bool update();
+
+  /**
    * @brief 发送一帧协议命令（内部使用）
    * @param frame 由 emmv5 协议层生成的帧
-   * @return OK=整帧已入发送缓冲；NOT_INIT=未 init；BAD_ARG=空帧；
-   *         TIMEOUT=发送缓冲长时间没腾出空间；IO_ERROR=串口未启用发送
+   * @return OK=整帧已入发送缓冲；NOT_INIT=未 init；BAD_ARG=空帧/无效帧；
+   *         TIMEOUT=发送缓冲 20 ms 内没腾出空间；IO_ERROR=串口未启用发送
    *
-   * @note 使用 portMAX_DELAY 入队：单条命令最长约 20 字节，宁可短暂等待，
-   *       也不要把半条命令留在缓冲区里造成协议错位。
+   * @note 入队超时 20 ms：短帧在 115200 下最慢也就几 ms，20 ms 足够；
+   *       宁可返回 TIMEOUT 让调用方重试，也不无限挂住控制任务。
    */
   Status _send(const emmv5::Frame &frame);
 
   /**
-   * @brief 把一块字节喂进 4 字节滑动窗口（内部使用）
+   * @brief 把一块字节喂给到位/位置/状态三个扫描器（内部使用）
    * @param data 数据
    * @param size 字节数
-   * @return true=本次凑齐了完整到位帧
+   * @return true=本次至少凑齐一个到位帧
    */
   bool feed_rx(const uint8_t *data, size_t size);
+
+  ///< rpm 合法范围（说明书：0~5000）
+  static bool _valid_rpm(uint16_t rpm);
+
+  ///< 方向枚举合法性
+  static bool _valid_direction(emmv5::Direction dir);
+
+  ///< 回零模式合法性（0~3）
+  static bool _valid_homing(emmv5::HomingMode mode);
+
+  ///< 发布位置（短临界区）
+  void _publish_position(int32_t position);
+
+  ///< 发布状态（短临界区）
+  void _publish_status(uint8_t status);
+
+  /**
+   * @brief 内部 RX 任务入口
+   * @param argument 本对象指针（this）
+   *
+   * @note 每个类使用自己的静态入口函数，地址与 DeviceEmmv5Group 的入口不同。
+   *       同类多实例共享入口地址，但各自有独立的 TCB、栈和 this 参数。
+   */
+  static void _rx_task_entry(void *argument);
+
+  ///< 内部接收循环：固定周期调用 update()
+  void _run_rx_loop();
   // ----------------
 
   // ---------------- 成员变量 ----------------
 
-  static constexpr size_t RX_CHUNK_SIZE  = 16U; ///< 单次从流缓冲区读多少字节
-  static constexpr size_t RX_MAX_CHUNKS  = 8U;  ///< update() 每次最多读几块
+  static constexpr size_t   RX_CHUNK_SIZE     = 16U; ///< 单次从流缓冲区读多少字节
+  static constexpr size_t   RX_MAX_CHUNKS     = 8U;  ///< update() 每次最多读几块
+  static constexpr uint16_t ONLINE_TIMEOUT_MS = 100U; ///< 超过 100 ms 无有效应答判离线
+
+  static constexpr uint32_t    RX_TASK_PERIOD_MS   = 10U; ///< 内部 RX 任务周期
+  static constexpr UBaseType_t RX_TASK_PRIORITY    = tskIDLE_PRIORITY + 6U; ///< 低于 sys_task(+7)
+  static constexpr uint32_t    RX_TASK_STACK_WORDS = 384U; ///< 384 words = 1.5 KB
 
   Uart    &_uart; ///< 被驱动的串口（不拥有）
   uint8_t  _addr; ///< 电机地址
 
-  bool    _ready = false;                  ///< init() 是否成功
-  emmv5::InPositionScanner _scanner;      ///< 到位帧识别（协议层实现）
+  bool    _ready = false;                     ///< init() 是否成功
+  emmv5::InPositionScanner _inpos_scanner;    ///< 到位帧识别
+  emmv5::PositionScanner   _position_scanner; ///< 0x36 位置应答
+  emmv5::StatusScanner     _status_scanner;   ///< 0x3A 状态应答
+
+  int32_t _position       = 0;     ///< 最近一次 0x36 位置
+  uint8_t _status         = 0;     ///< 最近一次 0x3A 状态
+  bool    _position_valid = false; ///< 位置是否未被取走
+  bool    _status_valid   = false; ///< 状态是否未被取走
+
+  Online _online; ///< 在线判定节点（默认阈值见 ONLINE_TIMEOUT_MS）
+
+  TaskHandle_t _task_handle = nullptr; ///< 内部 RX 任务句柄；init() 创建，析构时删除
 
   // ----------------
 };

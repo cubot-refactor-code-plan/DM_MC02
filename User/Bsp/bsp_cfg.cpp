@@ -98,7 +98,7 @@ __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart8({&huart8, true, 1
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true, 115200U});
 __attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true, 921600U});
 
-// UART5 = SBUS 接收机：只收不发，中断接收即可，不占 DMA 流
+// UART5 = SBUS 接收机：只收不发，中断接收即可，不占 DMA 流，100000波特率并且数据量很小
 BspSbus bsp_sbus5({&huart5});
 
 
@@ -134,6 +134,7 @@ BspGpio spi1_cs({SPI1_CS_GPIO_Port, SPI1_CS_Pin}); // PE15
  *       于是脉宽可以直接按 µs 理解：set_pulse_us(1500.0f) 就是舵机中位。
  * @note PSC 由 MX_TIM1_Init() / MX_TIM2_Init() 写入，本驱动只用它做换算、不改寄存器；
  *       这两个数必须与 CubeMX 保持一致，否则脉宽/频率换算是错的（bsp_pwm.hpp 有 @warning）。
+ *
  * @warning 同一定时器的两个通道共用计数器与 ARR：PE9/PE13 必须同频，PA0/PA2 必须同频。
  */
 BspPwm bsp_pwm1({&htim1, TIM_CHANNEL_3, 275000000UL, 274U, 19999U}); // PE13 TIM1_CH3

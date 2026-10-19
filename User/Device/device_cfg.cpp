@@ -31,6 +31,9 @@ DeviceR9ds r9ds(bsp_sbus5);
 // ⚠ UART7 在 CubeMX 里是 921600 bps，电机的通信波特率必须也是 921600，否则收不到任何回复。
 DeviceEmmv5 emm_motor1({bsp_uart7, 1});
 
+// 张大头 EmmV5.0 双电机组：USART2（RS485，115200），地址 1、2。
+DeviceEmmv5Group emm_group({bsp_uart2, {1, 2}});
+
 // 舵机：BSP 层那 4 路排针预留的 PWM 已经配成 50 Hz / 20 ms、1 计数 = 1 µs，
 // 所以脉宽可以直接按 µs 填。Config 参数顺序 = {通道, 脉宽下限, 脉宽上限, 行程, 限速, 加速度, 反向, 微调}。
 // ⚠ 脉宽端点与限速/加速度仍是**占位值，等实机标定**：
@@ -56,6 +59,7 @@ void device_init(void)
   configASSERT(can3_dji_group.init() == Status::OK);
   configASSERT(r9ds.init() == Status::OK);
   configASSERT(emm_motor1.init() == Status::OK);
+  configASSERT(emm_group.init() == Status::OK);
 
   // 舵机：init() 只校验配置、不写脉宽，所以这一步不会让舵机动起来
   configASSERT(servo1.init() == Status::OK); // PE13 TIM1_CH3

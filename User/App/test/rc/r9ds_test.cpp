@@ -1,42 +1,26 @@
 /**
  * @file r9ds_test.cpp
  * @author Rh
- * @brief R9DS 遥控接收机自检：打印 10 个通道的语义值，或打印在线状态（由 R9DS_TEST_PRINT_CHANNELS 二选一）
+ * @brief R9DS 接收机自检：打印 10 个通道的语义值，或打印在线状态
  * @date 2026-10-07
  *
- * @note **两种打印互斥**，由下面的 R9DS_TEST_PRINT_CHANNELS 选：
+ * 两种打印互斥，由下面的 R9DS_TEST_PRINT_CHANNELS 选：
  *
- *       1（默认）—— 只打 10 个通道的语义值，200 ms 一次，确认“拨哪个部件、哪个数在动”。
- *                    期望看到（接收机拨到 SBUS 模式、蓝灯）：
+ *   1 = 通道值，200 ms 一次。拨右摇杆上下 → 第 1 个数动；C 三挡开关 → 第 5 个数动
+ *       [R9DS] CH1..CH5   +100    +0    +0    +0  +100
+ *       [R9DS] CH6..CH10    +0    +0    +0  -100  +100
+ *       开关换算成同一量纲：上 +100、中 0、下 -100。通道含义见 device_r9ds.hpp 的表。
  *
- *                    [R9DS] CH1..CH5   +100    +0    +0    +0  +100
- *                    [R9DS] CH6..CH10    +0    +0    +0  -100  +100
+ *   0 = 在线状态，20 ms 一次，盯遥控开关机时 on / fs 的跳变
+ *       [R9DS] on=0 fs=1 lost=1 ls=12 byte=63250 frame=2530 badtail=0
+ *       on   = is_online()：有帧 + 没失控 + 没连续丢帧
+ *       fs   = 失控保护位（遥控器确认失联后才置）
+ *       lost = 本帧丢失（链路一变差就置，比 fs 早）
+ *       ls   = 连续丢帧数，收到干净帧就清 0
  *
- *                    拨右摇杆上下 → 只有第 1 个数在动；拨 C 三挡开关 → 只有第 5 个数在
- *                    +100/0/-100 之间跳。通道含义见 device_r9ds.hpp 文件头那张表。
- *                    开关也换算到同一量纲：上 +100、中 0、下 -100。
- *
- *       0        —— 只打在线状态，20 ms 一次（比上一种快 10 倍），盯遥控开关机时 on / fs 的跳变：
- *
- *                    [R9DS] on=0 fs=1 lost=1 ls=12 byte=63250 frame=2530 badtail=0
- *
- *                    on   = is_online()：帧到 + 没失控 + 没在连续丢帧，三个都满足才是 1
- *                    fs   = flags 的失控保护（bit3，电平量）—— 遥控器确认失联后才置起来
- *                    lost = flags 的本帧丢失（bit2，瞬时量）—— 链路一变差就置，比 fs 早
- *                    ls   = 连续丢帧数（lost_streak），收到一帧干净的帧就清 0
- *
- *                    实测的跳变顺序（关机 → 再开机）：
- *                      遥控器开着            on=1 fs=0 lost=0 ls=0
- *                      刚关掉、射频在断        on=0 fs=0 lost=1 ls≥3   ← 靠 ls 提前判离线
- *                      确认失联              on=0 fs=1 lost=1 ls 继续涨
- *                      遥控器重新开机          on=1 fs=0 lost=0 ls=0
- *
- *                    计数用来区分三种“收不到”：byte 不涨 = UART5 没数据（查接线 / 波特率 /
- *                    反相）；byte 涨而 frame 不涨 = 切不出帧（查帧格式 / 反相）；byte 和 frame
- *                    都在涨而 on=0 = 接收机在发帧，但遥控器与它失联（关机 / 超距）。
- *
- * @note 遥控器关机后接收机不会安静下来：它继续按帧周期发 SBUS，只把 fs 置起来，
- *       所以 frame 一直涨而 on 变 0 —— 这就是“遥控器失联”，判据见 device_r9ds.hpp 的 is_online()。
+ * 收不到时按计数判断：byte 不涨 = UART5 没数据（接线/波特率/反相）；
+ * byte 涨而 frame 不涨 = 切不出帧（帧格式/反相）；两者都涨而 on=0 = 遥控器失联。
+ * 注意遥控器关机后接收机仍在发帧，只把 fs 置起来，所以 frame 一直涨而 on 变 0。
  */
 
 #include "app_test.hpp"
@@ -54,9 +38,8 @@
 
 
 /**
- * @brief 打印内容开关：1 = 只打 10 个通道的语义值；0 = 只打在线状态（频率更高）
- *
- * @note 做成二选一而不是两路叠加：同时打会把串口 1 刷满，跳变时刻反而看不清是哪条引起的。
+ * @brief 打印开关：1 = 通道值（200 ms）；0 = 在线状态（20 ms）
+ * @note 二选一不叠加：同时打会把串口刷满，跳变时刻反而看不清。
  */
 #define R9DS_TEST_PRINT_CHANNELS 0
 
@@ -89,12 +72,12 @@ extern "C" void r9ds_test_task(void *argument)
 
   for (;;)
   {
-    r9ds.update(); // 收帧：把这一拍串口里攒的字节全消化掉（非阻塞，可能解出 0 ~ n 帧）
+    r9ds.update(); // 收帧：把串口里攒的字节消化完（非阻塞）
 
     if ((tick % PRINT_PERIOD_MS) == 0U)
     {
 #if R9DS_TEST_PRINT_CHANNELS
-      // 打语义值：拨哪个部件，对应的那个数就会动
+      // 拨哪个部件，对应的那个数就会动
       const DeviceR9ds::Rc &rc = r9ds.rc();
 
       bsp_uart1.printf("[R9DS] CH1..CH5  %+4d %+4d %+4d %+4d %+4d\r\n",
@@ -105,7 +88,7 @@ extern "C" void r9ds_test_task(void *argument)
                        rc.knob_left, rc.slider_left, rc.knob_right,
                        static_cast<int>(rc.switch_b) * 100, static_cast<int>(rc.switch_a) * 100);
 #else
-      // 打在线状态：带上计数，免得“值没变”其实是“根本没数据进来”
+      // 带上计数：免得好久没变其实是根本没数据进来
       const DeviceR9ds::Diag d = r9ds.diag();
 
       bsp_uart1.printf("[R9DS] on=%u fs=%u lost=%u ls=%lu byte=%.0f frame=%.0f badtail=%lu\r\n",

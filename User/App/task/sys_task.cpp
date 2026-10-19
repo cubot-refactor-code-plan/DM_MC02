@@ -50,7 +50,7 @@ extern "C" void sys_task(void *argument)
     // SBUS 只收不发：中断接收因错误停了就补一次，没有 BspUart 的收发结构
     bsp_sbus5.recover();
 
-    // 在线状态更新
+    // 在线状态更新（emmv5 节点由各设备自己的内部 RX 任务刷新）
     Online::update();
 
     // 打印占用时间降低打印次数

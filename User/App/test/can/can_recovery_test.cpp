@@ -1,3 +1,16 @@
+/**
+ * @file can_recovery_test.cpp
+ * @author Rh
+ * @brief CAN1 Bus-Off 故障注入与恢复实机测试：arm=1 自动注入，arm=2 等物理断连
+ * @date 2026-09-30
+ *
+ * 接线：CAN1 + C620 ID2，所有控制帧都是零电流。
+ * 结论看 volatile 全局：stage=8 / passed=1 / failure=0 表示通过，失败码见 test/can/README.md。
+ * 本测试直连 BspCan：接收缓冲由本文件自己消费，不经 Any 注册表 / 分发层。
+ *
+ * 主机状态机测试：python3 User/App/test/can/test_recovery_host.py
+ */
+
 #include "app_test.hpp"
 
 
@@ -9,7 +22,6 @@
 #  include "task.h"
 
 // CAN1/C620 ID2，所有控制帧均为零。arm=1 自动故障注入，arm=2 等待物理断连。
-// 本测试直连 BspCan：接收缓冲由本文件自己消费，不经任何注册表 / 分发层。
 volatile uint32_t   can_recovery_test_arm                = 0;
 volatile uint32_t   can_recovery_test_stage              = 0;
 volatile uint32_t   can_recovery_test_failure            = 0;
@@ -27,13 +39,7 @@ volatile Status     can_recovery_test_init_status        = Status::NOT_INIT;
 
 namespace
 {
-/**
- * @brief 取空 BspCan 接收缓冲，只统计 0x202 的有效反馈
- *
- * @note 本测试不再注册接收节点，消费接收缓冲的责任落在本函数上；
- *       非 0x202 的帧与测试无关，取出即丢弃。
- * @note 与旧回调一致：编码器值越界的帧不计入有效反馈。
- */
+/** @brief 取空接收缓冲，只统计 0x202 的有效反馈（编码器值越界的不算） */
 void drain_rx()
 {
   CanRxMsg rx = {};

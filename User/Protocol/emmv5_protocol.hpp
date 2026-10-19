@@ -13,12 +13,12 @@
  *
  * @note 帧格式（协议手册）：
  *
- *       | 字段     | 长度 | 说明                                      |
- *       | -------- | ---- | ----------------------------------------- |
- *       | 地址     | 1    | 1~255；0 为广播地址                        |
- *       | 功能码   | 1~2  | 命令码，部分命令带辅助码                    |
- *       | 数据     | 0~N  | 多字节字段一律**大端**                      |
- *       | 校验     | 1    | 固定 0x6B                                  |
+ *       | 字段     | 长度 | 说明                    |
+ *       | ------- | ---- | ---------------------- |
+ *       | 地址     | 1    | 1~255；0 为广播地址      |
+ *       | 功能码   | 1~2  | 命令码，部分命令带辅助码   |
+ *       | 数据     | 0~N  | 多字节字段一律**大端**    |
+ *       | 校验     | 1    | 固定 0x6B               |
  *
  * @note 用法：先让工厂函数生成 Frame，再交给设备层发送：
  *
@@ -277,20 +277,26 @@ struct ProtectionParams
  * @brief 协议帧（值类型，可直接返回、拷贝）
  *
  * @note 只提供顺序追加接口，多字节字段按协议要求写大端。
- *       越界写入会被安静丢弃，但本文件的工厂函数最长只有约 20 字节，不会触发。
+ *       越界写入或封口后继续写入会置 `overflow`，`valid()` 随即为 false；
+ *       设备层发送前会统一检查 `valid()`，不会把截断帧发上总线。
  */
 struct Frame
 {
   uint8_t data[FRAME_MAX_SIZE] = {}; ///< 帧内容
   uint8_t size                 = 0;  ///< 有效字节数
+  bool    overflow             = false; ///< 写入超长或封口后继续写入
+  bool    sealed               = false; ///< 是否已追加校验字节
 
-  ///< 追加 1 字节
+  ///< 追加 1 字节；超出容量或已封口时置 overflow，不再写入
   void append_u8(uint8_t value)
   {
-    if (size < FRAME_MAX_SIZE)
+    if (sealed || size >= FRAME_MAX_SIZE)
     {
-      data[size++] = value;
+      overflow = true;
+      return;
     }
+
+    data[size++] = value;
   }
 
   ///< 追加 2 字节（大端）
@@ -309,10 +315,22 @@ struct Frame
     append_u8(static_cast<uint8_t>(value));
   }
 
-  ///< 追加固定校验字节
+  ///< 追加固定校验字节；已封口或已溢出时保持原状态
   void seal()
   {
+    if (sealed || overflow)
+    {
+      return;
+    }
+
     append_u8(CHECKSUM);
+    sealed = true;
+  }
+
+  ///< 是否是可直接发送的完整帧
+  bool valid() const
+  {
+    return sealed && !overflow && (size > 0U);
   }
 };
 
@@ -344,12 +362,71 @@ struct InPositionScanner
   bool feed(uint8_t addr, const uint8_t *data, size_t size);
 };
 
+/**
+ * @brief 0x36 实时位置应答扫描器
+ *
+ * @details 帧格式：`addr 36 sign v3 v2 v1 v0 6B`，共 8 字节。
+ *          sign = 0 表示正，其余表示负；数值为大端。
+ *
+ *          串口可能把一帧拆成多块，所以扫描器内部保留 8 字节滑动窗口，跨块拼帧。
+ *          每个电机地址一个扫描器；命中后窗口清空，可以继续处理同一块里的下一帧。
+ *
+ * @note 这是**被动解析器**，不发送任何命令。调用方先发 `read(addr, CurrentPosition)`，
+ *       再把收到的字节喂给 `feed()`。
+ */
+struct PositionScanner
+{
+  uint8_t window[8] = {}; ///< 滑动窗口
+  uint8_t length    = 0;  ///< 窗口当前有效字节数
+
+  ///< 清空窗口
+  void reset();
+
+  /**
+   * @brief 喂一块字节
+   * @param addr     本电机的地址
+   * @param data     数据
+   * @param size     字节数
+   * @param position 命中时写入带符号位置（65536 counts/圈）
+   * @return true=本块中至少命中一帧位置应答
+   */
+  bool feed(uint8_t addr, const uint8_t *data, size_t size, int32_t &position);
+};
+
+/**
+ * @brief 0x3A 状态标志应答扫描器
+ *
+ * @details 帧格式：`addr 3A status 6B`，共 4 字节。
+ *          状态位定义以《Emm_V5.0 说明书》6.3.4 为准（使能/到位/堵转等）。
+ *
+ * @note 同样是跨块滑动窗口；每个地址一个实例。
+ */
+struct StatusScanner
+{
+  uint8_t window[4] = {}; ///< 滑动窗口
+  uint8_t length    = 0;  ///< 窗口当前有效字节数
+
+  ///< 清空窗口
+  void reset();
+
+  /**
+   * @brief 喂一块字节
+   * @param addr   本电机的地址
+   * @param data   数据
+   * @param size   字节数
+   * @param status 命中时写入状态字节
+   * @return true=本块中至少命中一帧状态应答
+   */
+  bool feed(uint8_t addr, const uint8_t *data, size_t size, uint8_t &status);
+};
+
 
 // ----------------
 // ---------------- MMCL 总帧编码 ----------------
 
-constexpr uint8_t MULTI_MARK     = 0xAA; ///< MMCL 总帧的功能码
-constexpr size_t  MULTI_OVERHEAD = 5U;   ///< 地址(1) + 功能码(1) + 长度(2) + 校验(1)
+constexpr uint8_t MULTI_MARK        = 0xAA; ///< MMCL 总帧的功能码
+constexpr size_t  MULTI_PREFIX_SIZE = 4U;   ///< 地址(1) + 功能码(1) + 长度(2)
+constexpr size_t  MULTI_OVERHEAD    = MULTI_PREFIX_SIZE + 1U; ///< 再加校验字节
 
 /**
  * @brief 把 MMCL 子命令打包成一帧总帧
@@ -387,13 +464,8 @@ Frame restore_defaults(uint8_t addr);
 // ----------------
 // ---------------- 运动控制命令 ----------------
 
-/**
- * @brief 使能/关闭电机
- * @param addr 电机地址
- * @param on   true=使能，false=关闭
- * @param sync 多机同步标志
- */
-Frame enable(uint8_t addr, bool on, bool sync = false);
+///< 使能/关闭电机（sync 字节固定写 0，本工程不使用多机同步）
+Frame enable(uint8_t addr, bool on);
 
 /**
  * @brief 速度模式
@@ -401,9 +473,8 @@ Frame enable(uint8_t addr, bool on, bool sync = false);
  * @param dir   方向
  * @param rpm   速度（0~5000 RPM）
  * @param accel 加速度（0~255，0=直接启动）
- * @param sync  多机同步标志
  */
-Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, bool sync = false);
+Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel);
 
 /**
  * @brief 位置模式
@@ -411,11 +482,10 @@ Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, bool sy
  * @param dir    方向
  * @param rpm    速度（0~5000 RPM）
  * @param accel  加速度（0~255）
- * @param pulses 脉冲数
+ * @param pulses 带符号脉冲数；绝对模式按 32 位补码写入
  * @param mode   位置模式
- * @param sync   多机同步标志
  */
-Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, uint32_t pulses, PositionMode mode, bool sync = false);
+Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, PositionMode mode);
 
 /**
  * @brief 设置快速位置模式的运动参数
@@ -423,9 +493,8 @@ Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, uint32_
  * @param rpm   速度（0~5000 RPM）
  * @param accel 加速度（0~255）
  * @param mode  位置模式
- * @param sync  多机同步标志
  */
-Frame quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, PositionMode mode, bool sync = false);
+Frame quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, PositionMode mode);
 
 /**
  * @brief 快速位置控制（带符号脉冲数）
@@ -437,13 +506,8 @@ Frame quick_position(uint8_t addr, int32_t pulses);
 /**
  * @brief 立即停止
  * @param addr 电机地址
- * @param sync 多机同步标志
  */
-Frame stop(uint8_t addr, bool sync = false);
-
-///< 触发多机同步开始运动
-Frame sync_start(uint8_t addr);
-
+Frame stop(uint8_t addr);
 
 // ----------------
 // ---------------- 原点回零命令 ----------------
@@ -459,9 +523,8 @@ Frame set_home_zero(uint8_t addr, bool store);
  * @brief 触发回零
  * @param addr 电机地址
  * @param mode 回零模式
- * @param sync 多机同步标志
  */
-Frame home(uint8_t addr, HomingMode mode, bool sync = false);
+Frame home(uint8_t addr, HomingMode mode);
 
 ///< 强制中断并退出回零
 Frame abort_home(uint8_t addr);

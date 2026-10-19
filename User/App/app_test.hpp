@@ -33,7 +33,13 @@
 #define APP_TEST_SERVO_ENABLED 0
 
 /** @brief 张大头 EmmV5.0 单电机点动测试（UART7，地址 1，正转 2 圈 / 反转 2 圈） */
-#define APP_TEST_EMMV5_ENABLED 1
+#define APP_TEST_EMMV5_ENABLED 0
+
+/** @brief 张大头 EmmV5.0 双电机 RS485 轮询测试（USART2，地址 1、2，逐台正反 2 圈） */
+#define APP_TEST_EMMV5_GROUP_ENABLED 1
+
+/** @brief DWT 计时自检（1 s 延时里 DWT 应走≈1.000 s，delay_ms(1) 实测应≈0.001 s） */
+#define APP_TEST_DWT_ENABLED 0
 
 
 #ifdef __cplusplus
@@ -78,6 +84,9 @@ extern "C"
 
   /** @brief EmmV5.0 单电机正反转测试任务（UART7，地址 1） */
   void emmv5_test_task(void *argument);
+
+  /** @brief EmmV5.0 双电机 RS485 轮询测试任务（USART2，地址 1、2） */
+  void emmv5_group_test_task(void *argument);
 
 #ifdef __cplusplus
 }

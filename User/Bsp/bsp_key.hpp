@@ -46,7 +46,7 @@
  *           break;
  *         case BspKey::Event::LONG:        // 长按：按住 1s，仅触发一次
  *           buzzer.beep(4000, 500);        // 鸣叫 500 ms
- *           break;                         // 注意：此后的松手不再产生 SHORT
+ *           break;                         
  *         case BspKey::Event::NONE:
  *         default:
  *           break;
