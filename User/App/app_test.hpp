@@ -36,7 +36,13 @@
 #define APP_TEST_EMMV5_ENABLED 0
 
 /** @brief 张大头 EmmV5.0 双电机 RS485 轮询测试（USART2，地址 1、2，逐台正反 2 圈） */
-#define APP_TEST_EMMV5_GROUP_ENABLED 1
+#define APP_TEST_EMMV5_GROUP_ENABLED 0
+
+/** @brief UART8(IT) 与 UART9(DMA) 921600 双向回环自检 */
+#define APP_TEST_UART_LOOPBACK_ENABLED 0
+
+/** @brief UART8(IT) 与 UART9(DMA) 921600 全双工满速压力测试 */
+#define APP_TEST_UART_STRESS_ENABLED 1
 
 /** @brief DWT 计时自检（1 s 延时里 DWT 应走≈1.000 s，delay_ms(1) 实测应≈0.001 s） */
 #define APP_TEST_DWT_ENABLED 0
@@ -49,6 +55,12 @@ extern "C"
 
   /** @brief DWT 计时测试任务（串口打印） */
   void dwt_test_task(void *argument);
+
+  /** @brief UART8(IT) 与 UART9(DMA) 921600 双向回环自检任务 */
+  void uart_loopback_test_task(void *argument);
+
+  /** @brief UART8(IT) 与 UART9(DMA) 921600 全双工满速压力测试任务 */
+  void uart_stress_test_task(void *argument);
 
   /** @brief UART 极限测试：uart8 发、uart9 收 */
   void uart_test_task_8to9(void *argument);

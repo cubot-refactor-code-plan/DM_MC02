@@ -11,8 +11,8 @@
 // 维护周期
 constexpr uint32_t SYS_TASK_PERIOD_MS = 10U;
 
-// 串口组
-BspUart<128> *const patrol_uarts[] = {&bsp_uart1, &bsp_uart2, &bsp_uart3, &bsp_uart4, &bsp_uart7, &bsp_uart8, &bsp_uart9, &bsp_uart10};
+// 串口组（DMA）
+BspUartT<uart_detail::DmaTransport, 128, 128> *const patrol_uarts[] = {&bsp_uart1, &bsp_uart2, &bsp_uart3, &bsp_uart4, &bsp_uart7, &bsp_uart9, &bsp_uart10};
 
 // CAN 组（收发由各设备任务负责，这里只做总线级补救）
 BspCan *const patrol_cans[] = {&bsp_can1, &bsp_can2, &bsp_can3};
@@ -47,8 +47,11 @@ extern "C" void sys_task(void *argument)
       uart->rx_recover();
     }
 
-    // SBUS 只收不发：中断接收因错误停了就补一次，没有 BspUart 的收发结构
-    bsp_sbus5.recover();
+    // UART5 = SBUS，UART8 = 回环测试口：中断收发，单独巡检
+    bsp_uart_it5.tx_recover();
+    bsp_uart_it5.rx_recover();
+    bsp_uart8.tx_recover();
+    bsp_uart8.rx_recover();
 
     // 在线状态更新（emmv5 节点由各设备自己的内部 RX 任务刷新）
     Online::update();

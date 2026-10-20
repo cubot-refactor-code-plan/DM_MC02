@@ -23,16 +23,16 @@ DjiMotorGroup can3_dji_group({&bsp_can3,
                               &gm6020_1, nullptr, nullptr, nullptr,
                               nullptr, &gm6020_6, nullptr});
 
-// R9DS 遥控接收机：走 UART5（SBUS，100000/8E2 + 外部反相），由 bsp_sbus5 中断接收，不占 DMA。
+// R9DS 遥控接收机：走 UART5（SBUS，100000/8E2 + 外部反相），由 bsp_uart_it5 中断接收，不占 DMA。
 // 四个摇杆的零飘偏移用默认全 0：死区已经把"没动杆但不在 1000"处理掉了。
-DeviceR9ds r9ds(bsp_sbus5);
+DeviceR9dsT<decltype(bsp_uart_it5)> r9ds(bsp_uart_it5);
 
 // 张大头 EmmV5.0：UART7，地址 1（单串口单电机）。
 // ⚠ UART7 在 CubeMX 里是 921600 bps，电机的通信波特率必须也是 921600，否则收不到任何回复。
-DeviceEmmv5 emm_motor1({bsp_uart7, 1});
+DeviceEmmv5T<decltype(bsp_uart7)> emm_motor1({bsp_uart7, 1});
 
 // 张大头 EmmV5.0 双电机组：USART2（RS485，115200），地址 1、2。
-DeviceEmmv5Group emm_group({bsp_uart2, {1, 2}});
+DeviceEmmv5GroupT<decltype(bsp_uart2)> emm_group({bsp_uart2, {1, 2}});
 
 // 舵机：BSP 层那 4 路排针预留的 PWM 已经配成 50 Hz / 20 ms、1 计数 = 1 µs，
 // 所以脉宽可以直接按 µs 填。Config 参数顺序 = {通道, 脉宽下限, 脉宽上限, 行程, 限速, 加速度, 反向, 微调}。

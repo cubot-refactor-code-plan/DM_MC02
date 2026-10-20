@@ -4,7 +4,8 @@
 
 // ---------------- 构造与生命周期 ----------------
 
-DeviceEmmv5::DeviceEmmv5(const Config &cfg)
+template <typename Uart>
+DeviceEmmv5T<Uart>::DeviceEmmv5T(const Config &cfg)
   : _uart(cfg.uart),
     _addr(cfg.addr),
     _online(ONLINE_TIMEOUT_MS)
@@ -12,7 +13,8 @@ DeviceEmmv5::DeviceEmmv5(const Config &cfg)
   // 构造函数只做赋值；地址校验和状态复位在 init() 里
 }
 
-Status DeviceEmmv5::init()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::init()
 {
   // 0 是广播地址：实例带广播地址会把别人的到位帧也算成自己的，必须拦住
   if (_addr == 0)
@@ -42,7 +44,8 @@ Status DeviceEmmv5::init()
   return Status::OK;
 }
 
-DeviceEmmv5::~DeviceEmmv5()
+template <typename Uart>
+DeviceEmmv5T<Uart>::~DeviceEmmv5T()
 {
   // 全局/静态对象通常不会走到这里；显式销毁时先把内部任务停掉，避免悬空 this
   if (_task_handle != nullptr)
@@ -55,12 +58,13 @@ DeviceEmmv5::~DeviceEmmv5()
 /**
  * @brief 内部 RX 任务入口
  *
- * @note 这是 DeviceEmmv5 独有的入口地址；DeviceEmmv5Group 用自己的入口函数。
+ * @note 这是 DeviceEmmv5T<Uart> 独有的入口地址；DeviceEmmv5T<Uart>Group 用自己的入口函数。
  *       同类多实例共享入口地址，但 this 不同，各自有独立 TCB 和栈。
  */
-void DeviceEmmv5::_rx_task_entry(void *argument)
+template <typename Uart>
+void DeviceEmmv5T<Uart>::_rx_task_entry(void *argument)
 {
-  auto *self = static_cast<DeviceEmmv5 *>(argument);
+  auto *self = static_cast<DeviceEmmv5T<Uart> *>(argument);
 
   if (self != nullptr)
   {
@@ -73,7 +77,8 @@ void DeviceEmmv5::_rx_task_entry(void *argument)
 /**
  * @brief 内部接收循环：固定 10 ms 调一次 update()
  */
-void DeviceEmmv5::_run_rx_loop()
+template <typename Uart>
+void DeviceEmmv5T<Uart>::_run_rx_loop()
 {
   TickType_t wake_time = xTaskGetTickCount();
 
@@ -88,7 +93,8 @@ void DeviceEmmv5::_run_rx_loop()
 // ----------------
 // ---------------- 发送 ----------------
 
-Status DeviceEmmv5::_send(const emmv5::Frame &frame)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::_send(const emmv5::Frame &frame)
 {
   if (!_ready)
   {
@@ -109,12 +115,14 @@ Status DeviceEmmv5::_send(const emmv5::Frame &frame)
 // ----------------
 // ---------------- 常用命令 ----------------
 
-Status DeviceEmmv5::enable(bool on)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::enable(bool on)
 {
   return _send(emmv5::enable(_addr, on));
 }
 
-Status DeviceEmmv5::set_velocity(emmv5::Direction dir, uint16_t rpm, uint8_t accel)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_velocity(emmv5::Direction dir, uint16_t rpm, uint8_t accel)
 {
   if (!_valid_direction(dir) || !_valid_rpm(rpm))
   {
@@ -124,7 +132,8 @@ Status DeviceEmmv5::set_velocity(emmv5::Direction dir, uint16_t rpm, uint8_t acc
   return _send(emmv5::velocity(_addr, dir, rpm, accel));
 }
 
-Status DeviceEmmv5::set_position(emmv5::Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, emmv5::PositionMode mode)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_position(emmv5::Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, emmv5::PositionMode mode)
 {
   if (!_valid_direction(dir) || !_valid_rpm(rpm))
   {
@@ -134,7 +143,8 @@ Status DeviceEmmv5::set_position(emmv5::Direction dir, uint16_t rpm, uint8_t acc
   return _send(emmv5::position(_addr, dir, rpm, accel, pulses, mode));
 }
 
-Status DeviceEmmv5::set_quick_position_params(uint16_t rpm, uint8_t accel, emmv5::PositionMode mode)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_quick_position_params(uint16_t rpm, uint8_t accel, emmv5::PositionMode mode)
 {
   if (!_valid_rpm(rpm))
   {
@@ -144,42 +154,50 @@ Status DeviceEmmv5::set_quick_position_params(uint16_t rpm, uint8_t accel, emmv5
   return _send(emmv5::quick_position_params(_addr, rpm, accel, mode));
 }
 
-Status DeviceEmmv5::set_quick_position(int32_t pulses)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_quick_position(int32_t pulses)
 {
   return _send(emmv5::quick_position(_addr, pulses));
 }
 
-Status DeviceEmmv5::stop()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::stop()
 {
   return _send(emmv5::stop(_addr));
 }
 
-Status DeviceEmmv5::calibrate_encoder()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::calibrate_encoder()
 {
   return _send(emmv5::calibrate_encoder(_addr));
 }
 
-Status DeviceEmmv5::zero_position()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::zero_position()
 {
   return _send(emmv5::zero_position(_addr));
 }
 
-Status DeviceEmmv5::clear_stall()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::clear_stall()
 {
   return _send(emmv5::clear_stall(_addr));
 }
 
-Status DeviceEmmv5::reset()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::reset()
 {
   return _send(emmv5::reset(_addr));
 }
 
-Status DeviceEmmv5::restore_defaults()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::restore_defaults()
 {
   return _send(emmv5::restore_defaults(_addr));
 }
 
-Status DeviceEmmv5::home(emmv5::HomingMode mode)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::home(emmv5::HomingMode mode)
 {
   if (!_valid_homing(mode))
   {
@@ -189,38 +207,45 @@ Status DeviceEmmv5::home(emmv5::HomingMode mode)
   return _send(emmv5::home(_addr, mode));
 }
 
-Status DeviceEmmv5::abort_home()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::abort_home()
 {
   return _send(emmv5::abort_home(_addr));
 }
 
-Status DeviceEmmv5::read(emmv5::SystemParam param)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::read(emmv5::SystemParam param)
 {
   return _send(emmv5::read(_addr, param));
 }
 
-Status DeviceEmmv5::request_position()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::request_position()
 {
   return read(emmv5::SystemParam::CurrentPosition);
 }
 
-Status DeviceEmmv5::request_status()
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::request_status()
 {
   return read(emmv5::SystemParam::StatusFlag);
 }
 
-Status DeviceEmmv5::auto_report(emmv5::SystemParam param, uint16_t period_ms)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::auto_report(emmv5::SystemParam param, uint16_t period_ms)
 {
   return _send(emmv5::auto_report(_addr, param, period_ms));
 }
 
-Status DeviceEmmv5::set_pid(bool store, uint32_t kp, uint32_t ki, uint32_t kd)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_pid(bool store, uint32_t kp, uint32_t ki, uint32_t kd)
 {
   const emmv5::PidParams params(kp, ki, kd, store);
   return _send(emmv5::set_pid(_addr, params));
 }
 
-Status DeviceEmmv5::set_id(bool store, uint8_t id)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_id(bool store, uint8_t id)
 {
   // 0 是广播地址；允许改成 0 会让总线上多台同时应答，直接拒绝
   if (id == 0U)
@@ -231,12 +256,14 @@ Status DeviceEmmv5::set_id(bool store, uint8_t id)
   return _send(emmv5::set_id(_addr, store, id));
 }
 
-Status DeviceEmmv5::set_microstep(bool store, uint8_t microstep)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_microstep(bool store, uint8_t microstep)
 {
   return _send(emmv5::set_microstep(_addr, store, microstep));
 }
 
-Status DeviceEmmv5::set_protection(bool store, uint16_t over_temp_c, uint16_t over_current_ma, uint16_t detect_ms)
+template <typename Uart>
+Status DeviceEmmv5T<Uart>::set_protection(bool store, uint16_t over_temp_c, uint16_t over_current_ma, uint16_t detect_ms)
 {
   const emmv5::ProtectionParams params(over_temp_c, over_current_ma, detect_ms, store);
   return _send(emmv5::set_protection(_addr, params));
@@ -246,7 +273,8 @@ Status DeviceEmmv5::set_protection(bool store, uint16_t over_temp_c, uint16_t ov
 // ----------------
 // ---------------- 接收 ----------------
 
-bool DeviceEmmv5::update()
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::update()
 {
   if (!_ready)
   {
@@ -274,7 +302,8 @@ bool DeviceEmmv5::update()
   return hit;
 }
 
-bool DeviceEmmv5::feed_rx(const uint8_t *data, size_t size)
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::feed_rx(const uint8_t *data, size_t size)
 {
   if (!_ready || data == nullptr || size == 0U)
   {
@@ -312,7 +341,8 @@ bool DeviceEmmv5::feed_rx(const uint8_t *data, size_t size)
   return in_position;
 }
 
-bool DeviceEmmv5::take_position(int32_t &out)
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::take_position(int32_t &out)
 {
   taskENTER_CRITICAL();
 
@@ -327,7 +357,8 @@ bool DeviceEmmv5::take_position(int32_t &out)
   return valid;
 }
 
-bool DeviceEmmv5::take_status(uint8_t &out)
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::take_status(uint8_t &out)
 {
   taskENTER_CRITICAL();
 
@@ -342,12 +373,14 @@ bool DeviceEmmv5::take_status(uint8_t &out)
   return valid;
 }
 
-bool DeviceEmmv5::is_online() const
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::is_online() const
 {
   return _online.is_online() == Status::OK;
 }
 
-void DeviceEmmv5::_publish_position(int32_t position)
+template <typename Uart>
+void DeviceEmmv5T<Uart>::_publish_position(int32_t position)
 {
   taskENTER_CRITICAL();
   _position       = position;
@@ -355,7 +388,8 @@ void DeviceEmmv5::_publish_position(int32_t position)
   taskEXIT_CRITICAL();
 }
 
-void DeviceEmmv5::_publish_status(uint8_t status)
+template <typename Uart>
+void DeviceEmmv5T<Uart>::_publish_status(uint8_t status)
 {
   taskENTER_CRITICAL();
   _status       = status;
@@ -363,19 +397,26 @@ void DeviceEmmv5::_publish_status(uint8_t status)
   taskEXIT_CRITICAL();
 }
 
-bool DeviceEmmv5::_valid_rpm(uint16_t rpm)
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::_valid_rpm(uint16_t rpm)
 {
   return rpm <= 5000U;
 }
 
-bool DeviceEmmv5::_valid_direction(emmv5::Direction dir)
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::_valid_direction(emmv5::Direction dir)
 {
   return (dir == emmv5::Direction::CW) || (dir == emmv5::Direction::CCW);
 }
 
-bool DeviceEmmv5::_valid_homing(emmv5::HomingMode mode)
+template <typename Uart>
+bool DeviceEmmv5T<Uart>::_valid_homing(emmv5::HomingMode mode)
 {
   return static_cast<uint8_t>(mode) <= 3U;
 }
 
 // ----------------
+
+// 显式实例化：按项目实际使用的串口类型生成
+template class DeviceEmmv5T<BspUartT<uart_detail::DmaTransport, 128, 128>>;
+template class DeviceEmmv5T<BspUartT<uart_detail::ItTransport, 128, 32>>;

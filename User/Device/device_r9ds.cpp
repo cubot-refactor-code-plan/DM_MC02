@@ -12,7 +12,8 @@
  * @note 构造函数只做赋值，不碰硬件、不读串口：真正的复位在 init() 里，
  *       所以可以在 main() 之前的静态初始化阶段构造（见 device_cfg.cpp）。
  */
-DeviceR9ds::DeviceR9ds(BspSbus &uart) : _uart(uart)
+template <typename Uart>
+DeviceR9dsT<Uart>::DeviceR9dsT(Uart &uart) : _uart(uart)
 {
 }
 // ----------------
@@ -24,8 +25,14 @@ DeviceR9ds::DeviceR9ds(BspSbus &uart) : _uart(uart)
  * @note 重复调用安全：丢掉的只是"半截帧"和统计数字，下一次 update() 会重新找帧头。
  *       通道值一并置成安全默认，这样还没收到过任何帧时上层读到的不是野值。
  */
-Status DeviceR9ds::init(void)
+template <typename Uart>
+Status DeviceR9dsT<Uart>::init(void)
 {
+  if (!_uart.check_format(100000U, UART_WORDLENGTH_9B, UART_PARITY_EVEN, UART_STOPBITS_2))
+  {
+    return Status::BAD_ARG;
+  }
+
   // 解析状态：从"找帧头"重新开始
   _fill            = 0U;
   _frame_lost      = false;
@@ -49,13 +56,14 @@ Status DeviceR9ds::init(void)
 }
 
 /**
- * @brief 把 BspSbus 接收流缓冲区里的字节全部消化掉
+ * @brief 把 BspUartT 接收流缓冲区里的字节全部消化掉
  *
  * @note 状态机只有三档：_fill == 0 时在找 0x0F；0 < _fill < 25 时在拼帧；
  *       拼满 25 字节后用帧尾 0x00 确认，不匹配就整帧丢掉、重新找帧头。
  * @note 帧体内部出现 0x0F 不会误判 —— 拼帧期间不看内容，只看长度和帧尾。
  */
-void DeviceR9ds::update(void)
+template <typename Uart>
+void DeviceR9dsT<Uart>::update(void)
 {
   for (;;)
   {
@@ -63,7 +71,7 @@ void DeviceR9ds::update(void)
     size_t  got  = 0U;
 
     // 超时 0：流缓冲区没有数据就立刻返回，不阻塞调用它的任务
-    if ((_uart.read(&byte, 1U, 0U, &got) != Status::OK) || (got == 0U))
+    if ((_uart.receive(&byte, 1U, 0U, &got) != Status::OK) || (got == 0U))
     {
       return; // 这一拍的字节取完了
     }
@@ -116,7 +124,8 @@ void DeviceR9ds::update(void)
  * @note 单独判一次 frame_cnt <= 0，是为了让“从没收到过帧”的初始状态就是离线，
  *       而不必在 init() 里提前去读 tick。
  */
-bool DeviceR9ds::is_online(void) const
+template <typename Uart>
+bool DeviceR9dsT<Uart>::is_online(void) const
 {
   // ① 收到过帧，且最近一帧还在 ONLINE_TIMEOUT_MS 之内（无符号差值，tick 回绕安全）
   if ((_diag.frame_cnt <= 0.0f) ||
@@ -130,31 +139,36 @@ bool DeviceR9ds::is_online(void) const
 }
 
 /** @brief 遥控器语义值（控制逻辑用这个返回值），实时引用 */
-const DeviceR9ds::Rc &DeviceR9ds::rc(void) const
+template <typename Uart>
+const typename DeviceR9dsT<Uart>::Rc &DeviceR9dsT<Uart>::rc(void) const
 {
   return _rc;
 }
 
 /** @brief 最近一帧的 16 个原始通道值（协议侧） */
-const uint16_t *DeviceR9ds::raw_channels(void) const
+template <typename Uart>
+const uint16_t *DeviceR9dsT<Uart>::raw_channels(void) const
 {
   return _raw;
 }
 
 /** @brief 最近一帧的「本帧丢失」标志 */
-bool DeviceR9ds::frame_lost(void) const
+template <typename Uart>
+bool DeviceR9dsT<Uart>::frame_lost(void) const
 {
   return _frame_lost;
 }
 
 /** @brief 最近一帧的「失控保护激活」标志 */
-bool DeviceR9ds::failsafe(void) const
+template <typename Uart>
+bool DeviceR9dsT<Uart>::failsafe(void) const
 {
   return _failsafe;
 }
 
 /** @brief 诊断计数快照 */
-DeviceR9ds::Diag DeviceR9ds::diag(void) const
+template <typename Uart>
+typename DeviceR9dsT<Uart>::Diag DeviceR9dsT<Uart>::diag(void) const
 {
   return _diag;
 }
@@ -174,7 +188,8 @@ DeviceR9ds::Diag DeviceR9ds::diag(void) const
  * @note 用统一下标循环算，不手抄 16 条移位表达式 —— 手抄一旦有一位下标写错，现象会是
  *       某个通道只在特定范围才不对，很难查。
  */
-void DeviceR9ds::_parse_frame(const uint8_t *frame)
+template <typename Uart>
+void DeviceR9dsT<Uart>::_parse_frame(const uint8_t *frame)
 {
   uint32_t bit_index = 0U;
   for (uint32_t i = 0U; i < CHANNEL_NUM; ++i)
@@ -244,7 +259,8 @@ void DeviceR9ds::_parse_frame(const uint8_t *frame)
  * @note 故意不限幅到 ±100：原始值跑出 200 ~ 1800（噪声或通道异常）时结果会跟着超出去，
  *       一眼看得见；限了幅反而会把"通道根本没接上"这种故障糊过去。
  */
-int16_t DeviceR9ds::_to_rc_value(uint16_t raw)
+template <typename Uart>
+int16_t DeviceR9dsT<Uart>::_to_rc_value(uint16_t raw)
 {
   return static_cast<int16_t>((static_cast<int32_t>(CHANNEL_MID) - static_cast<int32_t>(raw)) / RAW_PER_UNIT);
 }
@@ -252,7 +268,8 @@ int16_t DeviceR9ds::_to_rc_value(uint16_t raw)
 // ---------------- 开关判挡 ----------------
 
 /** @brief 两挡开关判挡：比离 200 / 1800 哪个近，分界正好是中位 1000 */
-DeviceR9ds::Switch DeviceR9ds::_to_switch_2pos(uint16_t raw)
+template <typename Uart>
+typename DeviceR9dsT<Uart>::Switch DeviceR9dsT<Uart>::_to_switch_2pos(uint16_t raw)
 {
   return (raw < CHANNEL_MID) ? Switch::UP : Switch::DOWN;
 }
@@ -263,7 +280,8 @@ DeviceR9ds::Switch DeviceR9ds::_to_switch_2pos(uint16_t raw)
  * @note 分界取相邻两挡的中点：400 与 1400。物理开关是硬换向的，实测就落在三个标称值上，
  *       所以"就近"比"划阈值区间"稳。
  */
-DeviceR9ds::Switch DeviceR9ds::_to_switch_3pos(uint16_t raw)
+template <typename Uart>
+typename DeviceR9dsT<Uart>::Switch DeviceR9dsT<Uart>::_to_switch_3pos(uint16_t raw)
 {
   if (raw < (CHANNEL_MIN + CHANNEL_MID) / 2U) // < 600
   {
@@ -276,3 +294,7 @@ DeviceR9ds::Switch DeviceR9ds::_to_switch_3pos(uint16_t raw)
   return Switch::DOWN;
 }
 // ----------------
+
+// 显式实例化：按项目实际使用的串口类型生成
+template class DeviceR9dsT<BspUartT<uart_detail::ItTransport, 128, 32>>;
+template class DeviceR9dsT<BspUartT<uart_detail::DmaTransport, 128, 128>>;

@@ -41,16 +41,16 @@ extern BspCan bsp_can2; ///< CAN2
 extern BspCan bsp_can3; ///< CAN3
 
 
-extern BspUart<128> bsp_uart1;  ///< USART1
-extern BspUart<128> bsp_uart2;  ///< USART2（RS485，硬件 DE）
-extern BspUart<128> bsp_uart3;  ///< USART3
-extern BspUart<128> bsp_uart4;  ///< UART4
-extern BspUart<128> bsp_uart7;  ///< UART7
-extern BspUart<128> bsp_uart8;  ///< UART8
-extern BspUart<128> bsp_uart9;  ///< UART9
-extern BspUart<128> bsp_uart10; ///< USART10
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart1;  ///< USART1
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart2;  ///< USART2（RS485，硬件 DE）
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart3;  ///< USART3
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart4;  ///< UART4
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart7;  ///< UART7
+extern BspUartT<uart_detail::ItTransport, 128, 128>  bsp_uart8;  ///< UART8（回环测试时用中断收发）
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart9;  ///< UART9
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart10; ///< USART10
 
-extern BspSbus bsp_sbus5; ///< UART5（SBUS 接收机；中断接收，不占 DMA）
+extern BspUartT<uart_detail::ItTransport, 128, 32> bsp_uart_it5; ///< UART5（SBUS 接收机；中断收发）
 
 
 extern BspGpio power_24v_2;  ///< 电源控制

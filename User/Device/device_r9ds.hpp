@@ -1,19 +1,19 @@
 /**
  * @file device_r9ds.hpp
  * @author Rh
- * @brief R9DS 遥控接收机设备 —— 在 BspSbus 之上把 SBUS 字节流解成通道值
+ * @brief R9DS 遥控接收机设备 —— 在 BspUartT 之上把 SBUS 字节流解成通道值
  * @version 0.2
  * @date 2026-10-18
  *
  * @copyright Copyright (c) 2026
  *
- * @details 只做三件事：从 BspSbus 的接收流缓冲区里切出 25 字节的 SBUS 帧、把那
+ * @details 只做三件事：从 BspUartT 的接收流缓冲区里切出 25 字节的 SBUS 帧、把那
  *          16 × 11 bit 拆成 16 个通道、再把通道映射成「摇杆 / 旋钮 / 开关」的语义。
  *
  * @note SBUS 协议（来源：R9DS 使用说明）：
  *       100000 bps、8 数据位、偶校验、2 停止位（每字节 12 位）、**反相 TTL**；
  *       一帧 25 字节 = 0x0F 帧头 + 22 字节通道数据（16 通道 × 11 bit，小端）+ flags + 0x00 帧尾。
- *       串口参数在 CubeMX 里配，见 bsp_cfg.cpp 的 bsp_sbus5 与 BspSbus::init() 里的兜底校验；
+ *       串口参数在 CubeMX 里配，见 bsp_cfg.cpp 的 bsp_uart_it5 与 DeviceR9dsT::init() 里的兜底校验；
  *       本类一个字节的串口配置都不改。接收机侧要拨到 SBUS 模式。
  *
  * @note flags = frame[23]：bit0/bit1 是数字通道 17/18，bit2 = 本帧丢失，bit3 = 失控保护激活。
@@ -52,9 +52,9 @@
  *       r9ds.update();                            // 把这一拍串口里攒的字节全消化掉
  *       if (r9ds.is_online() && !r9ds.failsafe())
  *       {
- *         const DeviceR9ds::Rc &rc = r9ds.rc();
+ *         const DeviceR9dsT::Rc &rc = r9ds.rc();
  *         float fwd   = rc.left_vertical * 0.01f;                  // 左摇杆上下：-1.0 ~ +1.0
- *         bool  a_up  = (rc.switch_a == DeviceR9ds::Switch::UP);   // A 开关在上挡
+ *         bool  a_up  = (rc.switch_a == DeviceR9dsT::Switch::UP);   // A 开关在上挡
  *       }
  *
  * @warning 不是线程安全的：update() 只允许由一个任务调用；查询接口返回实时引用，
@@ -66,7 +66,7 @@
 #ifndef __DEVICE_R9DS_HPP__
 #define __DEVICE_R9DS_HPP__
 
-#include "bsp_uart.hpp" // 被解析的串口（其中 BspSbus：SBUS 中断接收，不占 DMA）
+#include "bsp_uart.hpp" // 被解析的串口（BspUartT：SBUS 中断接收）
 #include "status.hpp"
 
 #include <stdint.h>
@@ -78,7 +78,8 @@
  * @note 不拥有串口、不创建任务、不创建 RTOS 资源、也不注册到 Online 链表：只解析调用方喂进来的
  *       时间片，在线判定自己按 tick 算。
  */
-class DeviceR9ds
+template <typename Uart>
+class DeviceR9dsT
 {
 public:
   // ---------------- 帧结构常量 ----------------
@@ -181,19 +182,19 @@ public:
   // ---------------- 构造与析构 ----------------
 
   /** @brief 必须绑定一路已配成 SBUS 的串口，禁用默认构造 */
-  DeviceR9ds() = delete;
+  DeviceR9dsT() = delete;
 
   /** @brief 绑定串口（只赋值，不碰硬件、不读串口） */
-  explicit DeviceR9ds(BspSbus &uart);
+  explicit DeviceR9dsT(Uart &uart);
 
   /** @brief 默认析构（不持有任何需要释放的资源） */
-  ~DeviceR9ds() = default;
+  ~DeviceR9dsT() = default;
 
   // 内部持有解析状态（半截帧、通道值等），复制会让两份状态各自推进
-  DeviceR9ds(const DeviceR9ds &)            = delete;
-  DeviceR9ds &operator=(const DeviceR9ds &) = delete;
-  DeviceR9ds(DeviceR9ds &&)                 = delete;
-  DeviceR9ds &operator=(DeviceR9ds &&)      = delete;
+  DeviceR9dsT(const DeviceR9dsT &)            = delete;
+  DeviceR9dsT &operator=(const DeviceR9dsT &) = delete;
+  DeviceR9dsT(DeviceR9dsT &&)                 = delete;
+  DeviceR9dsT &operator=(DeviceR9dsT &&)      = delete;
   // ----------------
   // ---------------- 生命周期 ----------------
 
@@ -270,7 +271,7 @@ private:
   // ----------------
   // ---------------- 成员变量 ----------------
 
-  BspSbus &_uart; ///< 被解析的串口（不拥有；中断接收、无 DMA）
+  Uart &_uart; ///< 被解析的串口（不拥有）
 
   Rc       _rc {};                ///< 最近一帧的遥控器语义值
   uint16_t _raw[CHANNEL_NUM] {};  ///< 最近一帧的原始通道值（协议侧）

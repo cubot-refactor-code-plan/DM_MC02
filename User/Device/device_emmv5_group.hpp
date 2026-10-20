@@ -31,7 +31,7 @@
  *
  * @note 初始化（实例一般写在 device_cfg.cpp）：
  *
- *       DeviceEmmv5Group group({bsp_uart4, {1, 2, 3}});  // 串口 + 地址表
+ *       DeviceEmmv5GroupT group({bsp_uart4, {1, 2, 3}});  // 串口 + 地址表
  *       group.init();
  *
  * @note 普通命令（直接发给某个地址）：
@@ -59,7 +59,7 @@
  *          take_* / 发送接口可从其他任务调用，但 **MMCL 缓冲（multi_clear、queue_ 系列、multi_send）
  *          必须由同一个任务串行操作**，否则子命令会互相拼接。
  * @warning 本对象必须是全局/静态生命周期；不要在 RX 任务自身里销毁对象。
- * @warning MMCL 子命令总字节数最多 123（BspUart<128> 的整帧上限）；
+ * @warning MMCL 子命令总字节数最多 123（发送流缓冲区 128 字节的整帧上限）；
  *          queue_* 放不下时返回 FULL，不会留下半条子命令。
  */
 
@@ -85,12 +85,13 @@
  * @note 地址表在构造时一次定完，运行期不增删；地址重复或为 0 时 init() 返回 BAD_ARG。
  * @note 未 init() 时所有发送接口返回 NOT_INIT，update() 返回 0。
  */
-class DeviceEmmv5Group
+template <typename Uart>
+class DeviceEmmv5GroupT
 {
 private:
   // ---------------- 内部常量 ----------------
 
-  static constexpr size_t UART_BUFFER_SIZE  = 128U; ///< 与 bsp_cfg.cpp 里的 BspUart<128> 保持一致
+  static constexpr size_t UART_BUFFER_SIZE  = 128U; ///< 与 bsp_cfg.cpp 的 DMA 串口发送缓冲区一致
   static constexpr size_t MAX_MOTORS        = 8U;   ///< 组内最大电机数
   static constexpr uint16_t ONLINE_TIMEOUT_MS = 100U; ///< 超过 100 ms 无有效应答判离线
 
@@ -100,8 +101,6 @@ private:
   // ----------------
 public:
   // ---------------- 类型与配置 ----------------
-
-  using Uart = BspUart<UART_BUFFER_SIZE>;
 
   /**
    * @brief 组配置
@@ -146,16 +145,16 @@ public:
    * @param cfg 组配置
    * @note 只做赋值；地址校验在 init() 里做。
    */
-  explicit DeviceEmmv5Group(const Config &cfg);
+  explicit DeviceEmmv5GroupT(const Config &cfg);
 
   /** @brief 停止内部 RX 任务；各电机的 Online 节点随成员析构自动注销 */
-  ~DeviceEmmv5Group();
+  ~DeviceEmmv5GroupT();
 
   // 内部有接收窗口与 MMCL 缓冲，复制会让两份状态互相打架
-  DeviceEmmv5Group(const DeviceEmmv5Group &)            = delete;
-  DeviceEmmv5Group &operator=(const DeviceEmmv5Group &) = delete;
-  DeviceEmmv5Group(DeviceEmmv5Group &&)                 = delete;
-  DeviceEmmv5Group &operator=(DeviceEmmv5Group &&)      = delete;
+  DeviceEmmv5GroupT(const DeviceEmmv5GroupT &)            = delete;
+  DeviceEmmv5GroupT &operator=(const DeviceEmmv5GroupT &) = delete;
+  DeviceEmmv5GroupT(DeviceEmmv5GroupT &&)                 = delete;
+  DeviceEmmv5GroupT &operator=(DeviceEmmv5GroupT &&)      = delete;
 
   // ----------------
   // ---------------- 生命周期与查询 ----------------
@@ -382,7 +381,7 @@ private:
    * @brief 内部 RX 任务入口
    * @param argument 本对象指针（this）
    *
-   * @note 这是 DeviceEmmv5Group 独有的入口地址，与 DeviceEmmv5 的入口不同。
+   * @note 这是 DeviceEmmv5GroupT 独有的入口地址，与 DeviceEmmv5 的入口不同。
    *       同类多实例共享入口地址，但各自有独立 TCB、栈和 this。
    */
   static void _rx_task_entry(void *argument);

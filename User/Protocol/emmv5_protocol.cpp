@@ -263,7 +263,7 @@ bool StatusScanner::feed(uint8_t addr, const uint8_t *data, size_t size, uint8_t
  *
  * @note 总帧布局：地址(1) + 0xAA(1) + 总长度(2, 大端) + 子命令(N) + 0x6B(1)
  *       总长度包含头尾 5 字节；子命令里的地址仍是各电机自己的地址。
- *       说明书要求总帧一次发完；BspUart<128> 下子命令最多 123 字节。
+ *       说明书要求总帧一次发完；发送流缓冲区 128 字节下子命令最多 123 字节。
  */
 size_t build_multi_frame(uint8_t target, const uint8_t *payload, size_t payload_size, uint8_t *out, size_t out_capacity)
 {

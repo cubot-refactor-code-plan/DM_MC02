@@ -16,9 +16,9 @@
  *        ✅ USART2     → bsp_uart2.init()     [RS485，硬件 DE；IDLE RX DMA + TX DMA]
  *        ✅ USART3     → bsp_uart3.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ UART4      → bsp_uart4.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ UART5      → bsp_sbus5.init()     [SBUS 中断接收，无 DMA]
+ *        ✅ UART5      → bsp_uart_it5.init()  [SBUS 中断收发]
  *        ✅ UART7      → bsp_uart7.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ UART8      → bsp_uart8.init()     [IDLE RX DMA + FreeRTOS stream buffer]
+ *        ✅ UART8      → bsp_uart8.init()     [IDLE RX IT + FreeRTOS stream buffer]
  *        ✅ UART9      → bsp_uart9.init()     [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ USART10    → bsp_uart10.init()    [IDLE RX DMA + FreeRTOS stream buffer]
  *        ✅ GPIO       → MX_GPIO_Init()       [BspGpio 仅封装]
@@ -46,8 +46,8 @@ void bsp_init(void)
   configASSERT(bsp_uart9.init() == Status::OK);
   configASSERT(bsp_uart10.init() == Status::OK);
 
-  // UART5 = SBUS：帧格式（100000 / 9B 含偶校验 / 2 停止位）在 BspSbus::init() 里校验
-  configASSERT(bsp_sbus5.init() == Status::OK);
+  // UART5 = SBUS：帧格式校验由 DeviceR9ds::init() 负责
+  configASSERT(bsp_uart_it5.init() == Status::OK);
 
   // PWM×6（参数取自 CubeMX；先清 CCR 再启动 → 上电全部 0% 占空比）
   configASSERT(bsp_pwm1.init() == Status::OK);       // PE13 TIM1_CH3  排针预留（舵机 50 Hz）
@@ -79,27 +79,43 @@ BspCan bsp_can3({&hfdcan3, "CAN3"});
 // ---------------- UART ----------------
 
 /**
- * @brief UART 全局实例，构造参数为 {句柄, 是否启用发送, 波特率}
+ * @brief UART 全局实例，构造参数为 {句柄, 模式, 波特率}
  *
  * @note __attribute__((section(".dma_buffer"))) 把这些实例放进 .dma_buffer 段：
  *       该段在 STM32H723XG_FLASH.ld 中定义在 RAM_D1，而普通全局变量所在的 .bss 在 DTCMRAM；
- *       DTCM 不能被 DMA 访问，而这些实例里含 DMA 收发缓冲区，所以必须放到这里。
+ *       DTCM 不能被 DMA 访问，DMA 实例里含收发缓冲区，所以必须放到这里。
+ *       中断实例不要求放这里；bsp_uart8 测试期间仍沿用该段，便于与 DMA 实例统一。
  *
  * @note Config 里的 baudrate 只给发送侧用（算一包发完要多久、判 TX 卡不卡死）；接收侧的波特率
  *       与帧格式一律由 CubeMX 写进 huartX，本驱动一个字段都不改 —— 所以协议参数要么在 CubeMX
  *       里配，要么就是错的，不能在 Config 里改。
  */
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart1({&huart1, true, 115200U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart2({&huart2, true, 115200U}); // RS485，DE 由 USART2 硬件控制
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart3({&huart3, true, 115200U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart4({&huart4, true, 115200U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart7({&huart7, true, 921600U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart8({&huart8, true, 115200U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart9({&huart9, true, 115200U});
-__attribute__((section(".dma_buffer"))) BspUart<128> bsp_uart10({&huart10, true, 921600U});
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart1({&huart1, UartMode::TxRx, 115200U});
 
-// UART5 = SBUS 接收机：只收不发，中断接收即可，不占 DMA 流，100000波特率并且数据量很小
-BspSbus bsp_sbus5({&huart5});
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart2({&huart2, UartMode::TxRx, 115200U}); // RS485，DE 由 USART2 硬件控制
+
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart3({&huart3, UartMode::TxRx, 115200U});
+
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart4({&huart4, UartMode::TxRx, 115200U});
+
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart7({&huart7, UartMode::TxRx, 921600U});
+
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::ItTransport, 128, 128> bsp_uart8({&huart8, UartMode::TxRx, 921600U});
+
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart9({&huart9, UartMode::TxRx, 921600U});
+
+__attribute__((section(".dma_buffer")))
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart10({&huart10, UartMode::TxRx, 921600U});
+
+// UART5 = SBUS：只收不发，中断接收；不使用 DMA
+BspUartT<uart_detail::ItTransport, 128, 32> bsp_uart_it5({&huart5, UartMode::RxOnly, 100000U});
 
 
 // ----------------

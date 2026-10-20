@@ -76,6 +76,14 @@ void all_init()
   configASSERT(xTaskCreate(emmv5_group_test_task, "emm_grp", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
+#if APP_TEST_UART_LOOPBACK_ENABLED
+  configASSERT(xTaskCreate(uart_loopback_test_task, "uart_loop", 768, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
+
+#if APP_TEST_UART_STRESS_ENABLED
+  configASSERT(xTaskCreate(uart_stress_test_task, "uart_strs", 768, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
+
   /* 维护任务：sys_task 为 10 ms（Online 计时 + UART/CAN 断链兜底，优先级 +7） */
   configASSERT(xTaskCreate(sys_task, "sys", 256, NULL, tskIDLE_PRIORITY + 7, NULL) == pdPASS);
 

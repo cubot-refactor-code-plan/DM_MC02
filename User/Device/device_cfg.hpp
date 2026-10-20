@@ -14,6 +14,7 @@
 #ifndef __DEVICE_CFG_HPP__
 #define __DEVICE_CFG_HPP__
 
+#include "bsp_cfg.hpp"
 #include "device_buzzer.hpp"
 #include "device_emmv5.hpp"
 #include "device_emmv5_group.hpp"
@@ -36,13 +37,13 @@ void device_init(void);
 
 extern DeviceBuzzer  buzzer;         ///< 蜂鸣器，绑定 BSP 层的 bsp_pwm_buzzer
 extern DjiMotorGroup can3_dji_group; ///< CAN3 上的 DJI 电机组，成员表见 device_cfg.cpp
-extern DeviceR9ds    r9ds;           ///< R9DS 遥控接收机，绑定 BSP 层的 bsp_sbus5（UART5，中断接收）
+extern DeviceR9dsT<decltype(bsp_uart_it5)> r9ds; ///< R9DS 遥控接收机（UART5，中断接收）
 
 /// 张大头 EmmV5.0 单电机：UART7，地址 1（单串口单电机）
-extern DeviceEmmv5 emm_motor1;
+extern DeviceEmmv5T<decltype(bsp_uart7)> emm_motor1;
 
 /// 张大头 EmmV5.0 双电机组：USART2（RS485，115200），地址 1、2
-extern DeviceEmmv5Group emm_group;
+extern DeviceEmmv5GroupT<decltype(bsp_uart2)> emm_group;
 
 /// 舵机：绑定 BSP 层排针预留的 4 路 50 Hz PWM（bsp_pwm1~4 = PE13 / PE9 / PA2 / PA0）
 extern DeviceServo servo1; ///< PE13 TIM1_CH3

@@ -10,7 +10,7 @@
  * @details 一个实例 = 一路串口上的一个电机地址。串口由 BSP 层初始化，本类只负责：
  *
  *          1. 调 emmv5 协议层生成命令帧；
- *          2. 把帧写进 BspUart 的发送流缓冲区；
+ *          2. 把帧写进 BspUartT 的发送流缓冲区；
  *          3. 周期读取串口，识别三类应答：
  *             - 到位帧：`addr FD 9F 6B`
  *             - 位置应答：`addr 36 sign v3 v2 v1 v0 6B`
@@ -19,7 +19,7 @@
  *
  *          它不创建全局表、不管理信号量，但会在 init() 时创建一个**内部 RX 任务**：
  *          该任务每 10 ms 调一次 update()，把串口字节喂给三个扫描器。
- *          任务入口是本类独有的静态函数，地址与 DeviceEmmv5Group 不同。
+ *          任务入口是本类独有的静态函数，地址与 DeviceEmmv5TGroup 不同。
  *
  * @note 扫描器与超时模型：
  *
@@ -33,11 +33,11 @@
  *
  * @note 适用场景：**一路串口只接一台电机**。此时本类是这路串口唯一的接收消费者，
  *       可以直接调 update() 轮询。如果一路串口要挂多台电机（地址不同、需要 MMCL
- *       多机命令），请改用 DeviceEmmv5Group。
+ *       多机命令），请改用 DeviceEmmv5TGroup。
  *
  * @note 初始化（实例一般写在 device_cfg.cpp）：
  *
- *       DeviceEmmv5 motor({bsp_uart1, 1});   // 地址 1，地址必须 1~255
+ *       DeviceEmmv5T motor({bsp_uart1, 1});   // 地址 1，地址必须 1~255
  *       motor.init();
  *
  * @note 运动控制：
@@ -59,7 +59,7 @@
  * @warning 内部 RX 任务是本路串口唯一的接收消费者；业务层不要直接调 `update()`，
  *          也不要直接读 BspUart。take_position() / take_status() 可从任意任务调用。
  * @warning 命令帧的发送失败会通过 Status 返回；上层如果只关心控制周期，可以忽略返回值，
- *          失败计数在 BspUart::tx_diag() 里查。
+ *          失败计数在 BspUartT::tx_diag() 里查。
  */
 
 #ifndef __DEVICE_EMMV5_HPP__
@@ -82,12 +82,11 @@
  *
  * @note 未 init() 时所有发送接口返回 NOT_INIT，update() 返回 false。
  */
-class DeviceEmmv5
+template <typename Uart>
+class DeviceEmmv5T
 {
 public:
   // ---------------- 类型与配置 ----------------
-
-  using Uart = BspUart<128>; ///< 本工程统一使用的串口类型
 
   /**
    * @brief 电机配置（可匿名按序传入）
@@ -115,16 +114,16 @@ public:
    * @param cfg 电机配置
    * @note 只做赋值；地址校验在 init() 里做。
    */
-  explicit DeviceEmmv5(const Config &cfg);
+  explicit DeviceEmmv5T(const Config &cfg);
 
   /** @brief 停止内部 RX 任务；Online 节点随成员析构自动注销 */
-  ~DeviceEmmv5();
+  ~DeviceEmmv5T();
 
   // 内部有接收窗口状态，复制会让两份状态各自推进
-  DeviceEmmv5(const DeviceEmmv5 &)            = delete;
-  DeviceEmmv5 &operator=(const DeviceEmmv5 &) = delete;
-  DeviceEmmv5(DeviceEmmv5 &&)                 = delete;
-  DeviceEmmv5 &operator=(DeviceEmmv5 &&)      = delete;
+  DeviceEmmv5T(const DeviceEmmv5T &)            = delete;
+  DeviceEmmv5T &operator=(const DeviceEmmv5T &) = delete;
+  DeviceEmmv5T(DeviceEmmv5T &&)                 = delete;
+  DeviceEmmv5T &operator=(DeviceEmmv5T &&)      = delete;
 
   // ----------------
   // ---------------- 生命周期 ----------------
@@ -361,7 +360,7 @@ private:
    * @brief 内部 RX 任务入口
    * @param argument 本对象指针（this）
    *
-   * @note 每个类使用自己的静态入口函数，地址与 DeviceEmmv5Group 的入口不同。
+   * @note 每个类使用自己的静态入口函数，地址与 DeviceEmmv5TGroup 的入口不同。
    *       同类多实例共享入口地址，但各自有独立的 TCB、栈和 this 参数。
    */
   static void _rx_task_entry(void *argument);
