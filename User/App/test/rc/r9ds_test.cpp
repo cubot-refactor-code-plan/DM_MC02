@@ -89,7 +89,7 @@ extern "C" void r9ds_test_task(void *argument)
                        static_cast<int>(rc.switch_b) * 100, static_cast<int>(rc.switch_a) * 100);
 #else
       // 带上计数：免得好久没变其实是根本没数据进来
-      const DeviceR9ds::Diag d = r9ds.diag();
+      const auto d = r9ds.get_diag();
 
       bsp_uart1.printf("[R9DS] on=%u fs=%u lost=%u ls=%lu byte=%.0f frame=%.0f badtail=%lu\r\n",
                        r9ds.is_online() ? 1U : 0U,

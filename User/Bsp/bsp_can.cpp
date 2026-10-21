@@ -4,8 +4,16 @@
 #include <string.h>
 
 
+// ---------------- 模板实例化 ----------------
+
+// 显式实例化：按项目实际使用的缓冲深度生成（与 bsp_cfg.cpp 的实例保持一致）
+template class BspCanT<16, 16>;
+
+// ----------------
 // ---------------- 中断回调函数 ----------------
 
+// HAL 的 FDCAN 回调没有实例参数，只能按 hfdcanX 查表。
+// 新增 CAN 时要同步改这里的分发分支，以及 bsp_cfg.cpp 的实例定义。
 extern "C"
 {
   /**
@@ -86,12 +94,14 @@ extern "C"
 // ---------------- 类函数实现 ----------------
 
 /** @brief 只绑定句柄，RTOS 资源在 init() 里创建（初始化列表顺序 = 成员声明顺序） */
-BspCan::BspCan(const Config &cfg) : diagnostics {}, _hfdcan(cfg.hfdcan), _tx_message_buffer(nullptr), _rx_message_buffer(nullptr), _name(cfg.name), _tx_lock(nullptr), _recovery_started(0), _recovery_attempted(0)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+BspCanT<RX_DEPTH, TX_DEPTH>::BspCanT(const Config &cfg) : diagnostics {}, _hfdcan(cfg.hfdcan), _tx_message_buffer(nullptr), _rx_message_buffer(nullptr), _name(cfg.name), _tx_lock(nullptr), _recovery_started(0), _recovery_attempted(0)
 {
 }
 
 /** @brief 先停外设并关中断，再释放软件资源 */
-BspCan::~BspCan()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+BspCanT<RX_DEPTH, TX_DEPTH>::~BspCanT()
 {
   _reset_hardware();
   _cleanup_resources();
@@ -105,7 +115,8 @@ BspCan::~BspCan()
  * @note 可重复调用：开头先 _reset_hardware() + _cleanup_resources()；任一步失败都走
  *       _rollback_init()，不留下半初始化状态。
  */
-Status BspCan::init()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+Status BspCanT<RX_DEPTH, TX_DEPTH>::init()
 {
   if (_hfdcan == nullptr)
   {
@@ -169,7 +180,8 @@ Status BspCan::init()
 }
 
 /** @brief 硬件是否可用（只看构造时传入的句柄是否为空） */
-bool BspCan::is_ready() const
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+bool BspCanT<RX_DEPTH, TX_DEPTH>::is_ready() const
 {
   return _hfdcan != nullptr;
 }
@@ -182,7 +194,8 @@ bool BspCan::is_ready() const
  * @return Status OK=已入发送缓冲；FULL=缓冲满；BUSY=总线不可用；
  *                BAD_ARG=参数非法；NOT_INIT=未初始化
  */
-Status BspCan::send(uint32_t std_id, const uint8_t *data)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+Status BspCanT<RX_DEPTH, TX_DEPTH>::send(uint32_t std_id, const uint8_t *data)
 {
   // 标准帧 ID 只有 11 位，超范围直接拒绝（否则会被硬件截断成另一个 ID）
   if (data == nullptr || std_id > 0x7FFU)
@@ -219,7 +232,8 @@ Status BspCan::send(uint32_t std_id, const uint8_t *data)
 }
 
 /** @brief 从接收缓冲区取一帧（timeout_ms：0=不等待，portMAX_DELAY=一直等） */
-Status BspCan::receive(CanRxMsg *msg, uint32_t timeout_ms)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+Status BspCanT<RX_DEPTH, TX_DEPTH>::receive(CanRxMsg *msg, uint32_t timeout_ms)
 {
   if (msg == nullptr)
   {
@@ -246,7 +260,8 @@ Status BspCan::receive(CanRxMsg *msg, uint32_t timeout_ms)
  *       （写 FIFO 失败，或开关中断时丢了一次唤醒）。
  *       Bus-Off 期间直接返回，总线恢复交给 service_recovery()。
  */
-bool BspCan::tx_recover()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+bool BspCanT<RX_DEPTH, TX_DEPTH>::tx_recover()
 {
   if (_hfdcan == nullptr)
   {
@@ -295,7 +310,8 @@ bool BspCan::tx_recover()
  *       并清掉软件缓冲里的积压帧；随后清 CCCR.INIT 让 M_CAN 自行重同步。
  * @note 限流：两次动作之间至少间隔 100 ms，避免总线长期故障时反复打断恢复序列。
  */
-Status BspCan::service_recovery()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+Status BspCanT<RX_DEPTH, TX_DEPTH>::service_recovery()
 {
   if (_hfdcan == nullptr || _tx_message_buffer == nullptr || _rx_message_buffer == nullptr || _hfdcan->State != HAL_FDCAN_STATE_BUSY)
   {
@@ -364,7 +380,8 @@ Status BspCan::service_recovery()
  * @param its 本次触发的中断位（RF0N / RF0L 等，由 HAL 传入）
  * @param pxHigherPriorityTaskWoken 中断处理后可能唤醒的高优先级任务
  */
-void BspCan::process_fifo0_isr(uint32_t its, BaseType_t *pxHigherPriorityTaskWoken)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::process_fifo0_isr(uint32_t its, BaseType_t *pxHigherPriorityTaskWoken)
 {
   if (_hfdcan == nullptr || _rx_message_buffer == nullptr)
   {
@@ -437,7 +454,8 @@ void BspCan::process_fifo0_isr(uint32_t its, BaseType_t *pxHigherPriorityTaskWok
  *
  * @param pxHigherPriorityTaskWoken 需初始化为pdFALSE，若唤醒高优先级任务则置为pdTRUE
  */
-void BspCan::trigger_tx_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::trigger_tx_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
 {
   if (_tx_message_buffer == nullptr || _hfdcan == nullptr)
   {
@@ -472,7 +490,8 @@ void BspCan::trigger_tx_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
  * @brief 错误状态中断（ISR）：只累加计数，不做恢复动作
  * @param its 本次错误状态中断位（HAL 已按 IR & IE 过滤，只可能是 BO / EP / EW）
  */
-void BspCan::process_error_isr(uint32_t its)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::process_error_isr(uint32_t its)
 {
   // 注意：IR.BO 是「状态变化」事件，进入与退出 Bus-Off 各触发一次
   if ((its & FDCAN_IT_BUS_OFF) != 0U)
@@ -507,7 +526,8 @@ void BspCan::process_error_isr(uint32_t its)
  * @note 本函数不含临界区：任务侧调用要走 _update_tx_empty_it()，
  *       ISR 侧不需要（任务不会在中断执行期间运行）。
  */
-bool BspCan::_set_tx_empty_it(bool enable)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+bool BspCanT<RX_DEPTH, TX_DEPTH>::_set_tx_empty_it(bool enable)
 {
   if (_hfdcan == nullptr)
   {
@@ -533,7 +553,8 @@ bool BspCan::_set_tx_empty_it(bool enable)
  *       中断里刚使能的 TX_FIFO_EMPTY 会被任务写回的旧值覆盖，中断变成关闭状态，
  *       缓冲里的帧只能等下一次 tx_recover() 补发（不丢帧，但延迟一个周期）。
  */
-void BspCan::_update_tx_empty_it()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::_update_tx_empty_it()
 {
   if (_hfdcan == nullptr || _tx_message_buffer == nullptr)
   {
@@ -551,7 +572,8 @@ void BspCan::_update_tx_empty_it()
  * @param wait 取锁等待时间，单位 ticks；send() 传 portMAX_DELAY，巡检传 0
  * @return true=本次确实写入了一帧
  */
-bool BspCan::_start_transmission(TickType_t wait)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+bool BspCanT<RX_DEPTH, TX_DEPTH>::_start_transmission(TickType_t wait)
 {
   if (_tx_lock == nullptr)
   {
@@ -601,7 +623,8 @@ bool BspCan::_start_transmission(TickType_t wait)
 }
 
 /** @brief 构造 8 字节经典帧的发送头（任务与 ISR 共用，避免两处不一致） */
-void BspCan::_fill_tx_header(FDCAN_TxHeaderTypeDef &header, const CanTxMsg &msg)
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::_fill_tx_header(FDCAN_TxHeaderTypeDef &header, const CanTxMsg &msg)
 {
   header.Identifier          = msg.std_id;
   header.IdType              = FDCAN_STANDARD_ID;
@@ -615,7 +638,8 @@ void BspCan::_fill_tx_header(FDCAN_TxHeaderTypeDef &header, const CanTxMsg &msg)
 }
 
 /** @brief 释放所有已创建的 FreeRTOS 资源（消息缓冲区、锁） */
-void BspCan::_cleanup_resources()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::_cleanup_resources()
 {
   // 释放接收消息缓冲区
   if (_rx_message_buffer != nullptr)
@@ -649,7 +673,8 @@ void BspCan::_cleanup_resources()
  *
  * @note 未初始化时（State 已是 READY）Stop 返回 HAL_ERROR，属于正常情况。
  */
-void BspCan::_reset_hardware()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::_reset_hardware()
 {
   if (_hfdcan == nullptr)
   {
@@ -661,7 +686,8 @@ void BspCan::_reset_hardware()
 }
 
 /** @brief 初始化失败收尾：复位外设 + 释放软件资源 */
-void BspCan::_rollback_init()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+void BspCanT<RX_DEPTH, TX_DEPTH>::_rollback_init()
 {
   _reset_hardware(); // 先停外设、关中断，再释放缓冲
   _cleanup_resources();
@@ -676,7 +702,8 @@ void BspCan::_rollback_init()
  * @note 不使用 TX_COMPLETE 中断：FIFO 模式下 BufferIndexes 传 0 不会产生发送完成回调，
  *       发送流程只靠 FIFO 中断驱动。
  */
-Status BspCan::_configure_hardware()
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+Status BspCanT<RX_DEPTH, TX_DEPTH>::_configure_hardware()
 {
   // 滤波器：标准帧全 ID 收进 RX FIFO0（本驱动不做 ID 级过滤）
   FDCAN_FilterTypeDef sFilterConfig = {}; // 未用到的字段也清零，避免 HAL 版本差异踩到脏值

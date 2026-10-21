@@ -10,15 +10,8 @@
  * @details 仅封装电平控制；引脚方向/上下拉由 CubeMX 的 MX_GPIO_Init() 配置。
  *          构造时绑定端口+引脚，无需 init()。
  *
- * @note 使用示例：
- *
- *   BspGpio led({GPIOA, GPIO_PIN_5}); // 构造即绑定
- *
- *   led.set();           // 高电平
- *   led.reset();         // 低电平
- *   led.toggle();        // 翻转
- *   led.write(false);    // 输出低电平
- *   bool s = led.read(); // 读取引脚电平
+ * @note 接口：set() / reset() / toggle() / set_level(bool) / get_level()。
+ *       实例见 bsp_cfg.cpp，引脚对应关系见 Docs/hardware/引脚分配与冲突.md。
  */
 
 #ifndef __BSP_GPIO_HPP__
@@ -63,10 +56,10 @@ public:
   void toggle() const { HAL_GPIO_TogglePin(_port, _pin); }
 
   /** @brief 输出指定电平 */
-  void write(bool state) const { HAL_GPIO_WritePin(_port, _pin, state ? GPIO_PIN_SET : GPIO_PIN_RESET); }
+  void set_level(bool state) const { HAL_GPIO_WritePin(_port, _pin, state ? GPIO_PIN_SET : GPIO_PIN_RESET); }
 
   /** @brief 读取当前引脚电平（true=高电平） */
-  bool read() const { return (HAL_GPIO_ReadPin(_port, _pin) != GPIO_PIN_RESET); }
+  bool get_level() const { return (HAL_GPIO_ReadPin(_port, _pin) != GPIO_PIN_RESET); }
 
   // ----------------
 private:

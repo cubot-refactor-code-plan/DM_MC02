@@ -12,26 +12,13 @@
  *
  * @details 本层只做三件事：硬件收发、总线恢复、诊断计数。
  *          它不认识任何「节点」概念：取出来的帧直接交给上层的设备类，
- *          由设备类自己判断这帧属不属于自己。
+ *          由设备类自己判断这帧属不属于自己。实例与初始化见 bsp_cfg.cpp / bsp_init()。
  *
- * @note 先在 bsp_cfg.cpp 实例化并外部声明，再在 bsp_init() 中初始化：
+ * @note 收发：send() 非阻塞入队，由 TX-FIFO-EMPTY 中断送进硬件；receive() 从接收缓冲取一帧。
+ *       同一条总线的接收缓冲**只允许一个消费者**，多个任务调用 receive() 会互相抢帧。
  *
- *      BspCan bsp_can1({&hfdcan1, "CAN1"}); // 句柄 + 调试名
- *      bsp_can1.init();
- *
- * @note 收发：
- *
- *      uint8_t data[8] = {0x01, 0x02, ...};
- *      bsp_can1.send(0x101, data);   // 入发送缓冲区，由中断自动送到硬件
- *
- *      CanRxMsg rx = {};
- *      bsp_can1.receive(&rx, 0);     // 0=不等待，portMAX_DELAY=一直等
- *
- * @note 同一条总线的接收缓冲只允许存在一个消费者：上层必须保证每条总线
- *       只有一个任务调用 receive()，多个消费者会互相抢帧。
- *
- * @note 总线恢复：tx_recover() / service_recovery() 由 sys_task 周期调用（非阻塞）。
- *       运行状态用公开成员 diagnostics 查询。
+ * @note 总线恢复：tx_recover() / service_recovery() 由 sys_task 每 10 ms 调用（非阻塞）。
+ *       运行状态用公开成员 diagnostics 查询；收发链与诊断含义见同目录 README.md。
  */
 
 #ifndef __BSP_CAN_HPP__
@@ -65,13 +52,16 @@ typedef struct
 
 
 /**
- * @brief CAN驱动类（纯硬件：收发 + 恢复 + 诊断）
+ * @brief CAN 驱动模板（纯硬件：收发 + 恢复 + 诊断）
  *
- * @note CAN2.0标准帧，固定8字节数据
- * @note 收发使用FreeRTOS Message Buffer
- * @note 发送不等待硬件FIFO，直接放入缓冲区，由中断完成发送
+ * @tparam RX_DEPTH 接收消息缓冲区深度（帧）
+ * @tparam TX_DEPTH 发送消息缓冲区深度（帧）
+ *
+ * @note CAN2.0 标准帧，固定 8 字节数据；收发使用 FreeRTOS Message Buffer。
+ *       发送不等待硬件 FIFO：入缓冲后由 TX-FIFO-EMPTY 中断完成。
  */
-class BspCan
+template <size_t RX_DEPTH, size_t TX_DEPTH>
+class BspCanT
 {
 public:
   // ---------------- 配置 ----------------
@@ -127,8 +117,8 @@ public:
    * @brief 构造函数
    * @param cfg CAN 配置（句柄/调试名，可匿名按序传入）
    */
-  BspCan(const Config &cfg);
-  ~BspCan();
+  BspCanT(const Config &cfg);
+  ~BspCanT();
 
   /**
    * @brief 初始化：复位外设、创建收发消息缓冲区与 TX 锁、配置滤波器并启动
@@ -226,8 +216,8 @@ private:
   MessageBufferHandle_t _tx_message_buffer; ///< 发送消息缓冲区（任务写入，ISR 读出）
   MessageBufferHandle_t _rx_message_buffer; ///< 接收消息缓冲区（ISR 写入，任务读出）
 
-  static constexpr size_t RX_QUEUE_DEPTH = 16; ///< 接收消息缓冲区深度（帧，满即丢并计数）
-  static constexpr size_t TX_QUEUE_DEPTH = 16; ///< 发送消息缓冲区深度（帧，满即丢并计数）
+  static constexpr size_t RX_QUEUE_DEPTH = RX_DEPTH; ///< 接收消息缓冲区深度（帧，满即丢并计数）
+  static constexpr size_t TX_QUEUE_DEPTH = TX_DEPTH; ///< 发送消息缓冲区深度（帧，满即丢并计数）
 
   const char *_name; ///< 实例名（调试用）
 

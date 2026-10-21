@@ -17,49 +17,18 @@
  *             - 状态应答：`addr 3A status 6B`
  *          4. 用 Online 节点记录“最近是否收到过有效应答”。
  *
- *          它不创建全局表、不管理信号量，但会在 init() 时创建一个**内部 RX 任务**：
- *          该任务每 10 ms 调一次 update()，把串口字节喂给三个扫描器。
- *          任务入口是本类独有的静态函数，地址与 DeviceEmmv5TGroup 不同。
- *
- * @note 扫描器与超时模型：
- *
- *       - 内部 RX 任务只做“读字节 + 喂扫描器”，非阻塞，不做业务判断；
- *       - 到位帧 / 0x36 / 0x3A 命中后分别锁存，`take_*()` 取走并清有效标志；
- *       - 任意一类有效应答都会刷新本实例的 Online 节点；
- *       - Online 阈值 **100 ms**，计时由 sys_task 里的 `Online::update()` 统一推进；
- *       - 应用层的查询周期应小于 100 ms，否则电机只是“没被问”也会显示离线。
+ * @note `init()` 会创建本实例独有的**内部 RX 任务**（10 ms，优先级 +6）：它只做
+ *       “读字节 + 喂扫描器”，命中后锁存，业务层用 `get_position()` / `get_status()` 取走并清标志。
+ *       Online 阈值 **100 ms**，由 `sys_task` 里的 `Online::update()` 统一推进；
+ *       应用层的查询周期应小于 100 ms，否则电机只是“没被问”也会显示离线。
  *
  * @warning 本对象必须是全局/静态生命周期；不要在 RX 任务自身里销毁对象。
- *
- * @note 适用场景：**一路串口只接一台电机**。此时本类是这路串口唯一的接收消费者，
- *       可以直接调 update() 轮询。如果一路串口要挂多台电机（地址不同、需要 MMCL
- *       多机命令），请改用 DeviceEmmv5TGroup。
- *
- * @note 初始化（实例一般写在 device_cfg.cpp）：
- *
- *       DeviceEmmv5T motor({bsp_uart1, 1});   // 地址 1，地址必须 1~255
- *       motor.init();
- *
- * @note 运动控制：
- *
- *       motor.enable(true);                                    // 使能
- *       motor.set_velocity(emmv5::Direction::CW, 1000, 50);    // CW, 1000 RPM, 加速度 50
- *       motor.set_position(emmv5::Direction::CW, 500, 50, 3200,
- *                          emmv5::PositionMode::Absolute);    // 绝对位置，走 3200 个脉冲
- *       motor.stop();
- *
- * @note 周期接收由本类的内部 RX 任务自动完成，业务层只需要取数据：
- *
- *       int32_t position = 0;
- *       if (motor.take_position(position)) { ... }   // 新到的 0x36 位置
- *
- *       uint8_t status = 0;
- *       if (motor.take_status(status)) { ... }       // 新到的 0x3A 状态
- *
  * @warning 内部 RX 任务是本路串口唯一的接收消费者；业务层不要直接调 `update()`，
- *          也不要直接读 BspUart。take_position() / take_status() 可从任意任务调用。
+ *          也不要直接读 BspUart。`get_*()` 可从任意任务调用。
  * @warning 命令帧的发送失败会通过 Status 返回；上层如果只关心控制周期，可以忽略返回值，
- *          失败计数在 BspUartT::tx_diag() 里查。
+ *          失败计数在 BspUartT::get_tx_diag() 里查。
+ *
+ * @note 一路串口挂多台电机（地址不同）时改用 DeviceEmmv5GroupT；完整收发链与约束见 README.md。
  */
 
 #ifndef __DEVICE_EMMV5_HPP__
@@ -143,7 +112,7 @@ public:
   }
 
   ///< 电机地址
-  uint8_t addr() const
+  uint8_t get_addr() const
   {
     return _addr;
   }
@@ -194,29 +163,8 @@ public:
    */
   Status stop();
 
-  ///< 触发编码器校准
-  Status calibrate_encoder();
-
   ///< 将当前位置清零
   Status zero_position();
-
-  ///< 解除堵转保护
-  Status clear_stall();
-
-  ///< 重启电机（Y42）
-  Status reset();
-
-  ///< 恢复出厂设置
-  Status restore_defaults();
-
-  /**
-   * @brief 触发回零
-   * @param mode 回零模式
-   */
-  Status home(emmv5::HomingMode mode);
-
-  ///< 强制中断并退出回零
-  Status abort_home();
 
   /**
    * @brief 读取一次系统参数
@@ -224,7 +172,7 @@ public:
    *
    * @note 本类只解析两种应答：`CurrentPosition`（0x36）和 `StatusFlag`（0x3A），
    *       其余参数的应答会被 update() 丢弃；需要时在设备层再补解析器。
-   * @note 非阻塞：发完立即返回，结果用 take_position() / take_status() 取。
+   * @note 非阻塞：发完立即返回，结果用 get_position() / get_status() 取。
    */
   Status read(emmv5::SystemParam param);
 
@@ -233,51 +181,6 @@ public:
 
   ///< 请求一次 0x3A 状态标志
   Status request_status();
-
-  /**
-   * @brief 定时自动返回系统参数（Y42）
-   * @param param     要返回的参数
-   * @param period_ms 返回周期（ms）
-   */
-  Status auto_report(emmv5::SystemParam param, uint16_t period_ms);
-
-  /**
-   * @brief 修改 PID 参数
-   * @param store true = 存进电机
-   * @param kp    比例系数
-   * @param ki    积分系数
-   * @param kd    微分系数
-   */
-  Status set_pid(bool store, uint32_t kp, uint32_t ki, uint32_t kd);
-
-  // ----------------
-  // ---------------- 配置命令 ----------------
-
-  /**
-   * @brief 修改电机 ID
-   * @param store true = 存进电机
-   * @param id    新地址（1~255）
-   *
-   * @note 改完后本实例仍按旧地址发送；需要重建实例，或由上层自行维护新地址。
-   *       本类不会自动改 `_addr`，避免在运行期把“身份”换掉。
-   */
-  Status set_id(bool store, uint8_t id);
-
-  /**
-   * @brief 修改细分值
-   * @param store      true = 存进电机
-   * @param microstep  细分值（1~255，0=256 细分）
-   */
-  Status set_microstep(bool store, uint8_t microstep);
-
-  /**
-   * @brief 修改过热过流保护阈值（Y42）
-   * @param store           true = 存进电机
-   * @param over_temp_c     过热保护阈值（℃）
-   * @param over_current_ma 过流保护阈值（mA）
-   * @param detect_ms       检测时间（ms）
-   */
-  Status set_protection(bool store, uint16_t over_temp_c, uint16_t over_current_ma, uint16_t detect_ms);
 
   // ----------------
   // ---------------- 接收 ----------------
@@ -288,16 +191,16 @@ public:
    * @return true=有新数据；false=没有新数据
    *
    * @note 读后清有效标志；数值与标志在短临界区内一起拷贝，允许在其他任务调用。
-   * @note 内部 RX 任务每 10 ms update()，控制任务按自己的节奏 take_position()。
+   * @note 内部 RX 任务每 10 ms update()，控制任务按自己的节奏 get_position()。
    */
-  bool take_position(int32_t &out);
+  bool get_position(int32_t &out);
 
   /**
    * @brief 取走最近一次 0x3A 状态字节
    * @param out 状态字节（位定义见说明书 6.3.4）
    * @return true=有新数据；false=没有新数据
    */
-  bool take_status(uint8_t &out);
+  bool get_status(uint8_t &out);
 
   /**
    * @brief 最近 100 ms 内是否收到过该电机的有效应答
@@ -318,7 +221,7 @@ private:
    *
    * @note 只由内部 RX 任务调用；业务层不要直接调。
    *       每次最多读 8 块 × 16 字节，数据持续到达时也会把控制权还给其他任务。
-   * @note 返回值只反映“到位帧”；0x36/0x3A 的结果通过 take_position()/take_status() 取。
+   * @note 返回值只反映“到位帧”；0x36/0x3A 的结果通过 get_position()/get_status() 取。
    */
   bool update();
 
@@ -346,9 +249,6 @@ private:
 
   ///< 方向枚举合法性
   static bool _valid_direction(emmv5::Direction dir);
-
-  ///< 回零模式合法性（0~3）
-  static bool _valid_homing(emmv5::HomingMode mode);
 
   ///< 发布位置（短临界区）
   void _publish_position(int32_t position);

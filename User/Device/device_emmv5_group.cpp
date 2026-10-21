@@ -4,6 +4,12 @@
 
 #include <string.h> // memcpy
 
+// ---------------- 模板实例化 ----------------
+
+// 显式实例化：必须覆盖 device_cfg.cpp 里用到的串口类型，否则链接时找不到成员函数
+template class DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128, 128>>;
+
+// ----------------
 // ---------------- 构造与生命周期 ----------------
 
 template <typename Uart>
@@ -258,91 +264,9 @@ Status DeviceEmmv5GroupT<Uart>::stop_all()
 }
 
 template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::home(uint8_t addr, emmv5::HomingMode mode)
-{
-  if (!_valid_homing(mode))
-  {
-    return Status::BAD_ARG;
-  }
-
-  return _send_for(addr, emmv5::home(addr, mode));
-}
-
-template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::zero_position(uint8_t addr)
 {
   return _send_for(addr, emmv5::zero_position(addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::calibrate_encoder(uint8_t addr)
-{
-  return _send_for(addr, emmv5::calibrate_encoder(addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::clear_stall(uint8_t addr)
-{
-  return _send_for(addr, emmv5::clear_stall(addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::reset(uint8_t addr)
-{
-  return _send_for(addr, emmv5::reset(addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::restore_defaults(uint8_t addr)
-{
-  return _send_for(addr, emmv5::restore_defaults(addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::abort_home(uint8_t addr)
-{
-  return _send_for(addr, emmv5::abort_home(addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::set_microstep(uint8_t addr, bool store, uint8_t microstep)
-{
-  return _send_for(addr, emmv5::set_microstep(addr, store, microstep));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::set_motor_direction(uint8_t addr, bool store, emmv5::Direction dir)
-{
-  if (!_valid_direction(dir))
-  {
-    return Status::BAD_ARG;
-  }
-
-  return _send_for(addr, emmv5::set_motor_direction(addr, store, dir));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::set_control_mode(uint8_t addr, bool store, emmv5::ControlMode mode)
-{
-  if (!_valid_control_mode(mode))
-  {
-    return Status::BAD_ARG;
-  }
-
-  return _send_for(addr, emmv5::set_control_mode(addr, store, mode));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::set_position_window(uint8_t addr, bool store, uint16_t window)
-{
-  return _send_for(addr, emmv5::set_position_window(addr, store, window));
-}
-
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::set_protection(uint8_t addr, bool store, uint16_t over_temp_c, uint16_t over_current_ma, uint16_t detect_ms)
-{
-  const emmv5::ProtectionParams params(over_temp_c, over_current_ma, detect_ms, store);
-  return _send_for(addr, emmv5::set_protection(addr, params));
 }
 
 template <typename Uart>
@@ -451,17 +375,6 @@ Status DeviceEmmv5GroupT<Uart>::queue_stop(uint8_t addr)
   return _queue_for(addr, emmv5::stop(addr));
 }
 
-template <typename Uart>
-Status DeviceEmmv5GroupT<Uart>::queue_home(uint8_t addr, emmv5::HomingMode mode)
-{
-  if (!_valid_homing(mode))
-  {
-    return Status::BAD_ARG;
-  }
-
-  return _queue_for(addr, emmv5::home(addr, mode));
-}
-
 
 // ----------------
 // ---------------- 接收 ----------------
@@ -502,13 +415,15 @@ uint32_t DeviceEmmv5GroupT<Uart>::feed_rx(const uint8_t *data, size_t size)
 
   uint32_t hits = 0;
 
+  // 每台电机都有自己的三个扫描器；同一块字节交给全组扫一遍，
+  // 由扫描器内部的“地址 + 功能码”条件决定归属，避免在设备层手写协议解析。
   for (size_t i = 0; i < _count; i++)
   {
     bool alive = false;
 
     if (_motor[i].inpos_scanner.feed(_motor[i].addr, data, size))
     {
-      _motor[i].in_position = true;
+      _publish_in_position(i);
       hits |= (1UL << i);
       alive = true;
     }
@@ -537,7 +452,7 @@ uint32_t DeviceEmmv5GroupT<Uart>::feed_rx(const uint8_t *data, size_t size)
 }
 
 template <typename Uart>
-bool DeviceEmmv5GroupT<Uart>::take_position(uint8_t addr, int32_t &out)
+bool DeviceEmmv5GroupT<Uart>::get_position(uint8_t addr, int32_t &out)
 {
   if (!_ready)
   {
@@ -564,7 +479,7 @@ bool DeviceEmmv5GroupT<Uart>::take_position(uint8_t addr, int32_t &out)
 }
 
 template <typename Uart>
-bool DeviceEmmv5GroupT<Uart>::take_status(uint8_t addr, uint8_t &out)
+bool DeviceEmmv5GroupT<Uart>::get_status(uint8_t addr, uint8_t &out)
 {
   if (!_ready)
   {
@@ -627,6 +542,14 @@ void DeviceEmmv5GroupT<Uart>::_publish_status(size_t index, uint8_t status)
 }
 
 template <typename Uart>
+void DeviceEmmv5GroupT<Uart>::_publish_in_position(size_t index)
+{
+  taskENTER_CRITICAL();
+  _motor[index].in_position = true;
+  taskEXIT_CRITICAL();
+}
+
+template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::_valid_rpm(uint16_t rpm)
 {
   return rpm <= 5000U;
@@ -639,25 +562,21 @@ bool DeviceEmmv5GroupT<Uart>::_valid_direction(emmv5::Direction dir)
 }
 
 template <typename Uart>
-bool DeviceEmmv5GroupT<Uart>::_valid_homing(emmv5::HomingMode mode)
-{
-  return static_cast<uint8_t>(mode) <= 3U;
-}
-
-template <typename Uart>
-bool DeviceEmmv5GroupT<Uart>::_valid_control_mode(emmv5::ControlMode mode)
-{
-  return static_cast<uint8_t>(mode) <= 3U;
-}
-
-template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::in_position(size_t index) const
 {
-  return _ready && (index < _count) && _motor[index].in_position;
+  if (!_ready || index >= _count)
+  {
+    return false;
+  }
+
+  taskENTER_CRITICAL();
+  const bool value = _motor[index].in_position;
+  taskEXIT_CRITICAL();
+  return value;
 }
 
 template <typename Uart>
-uint32_t DeviceEmmv5GroupT<Uart>::take_in_position()
+uint32_t DeviceEmmv5GroupT<Uart>::get_in_position()
 {
   if (!_ready)
   {
@@ -666,6 +585,8 @@ uint32_t DeviceEmmv5GroupT<Uart>::take_in_position()
 
   uint32_t mask = 0;
 
+  // 接收任务写、控制任务读并清零：必须和 _publish_in_position() 用同一把短临界区
+  taskENTER_CRITICAL();
   for (size_t i = 0; i < _count; i++)
   {
     if (_motor[i].in_position)
@@ -674,11 +595,9 @@ uint32_t DeviceEmmv5GroupT<Uart>::take_in_position()
       _motor[i].in_position = false;
     }
   }
+  taskEXIT_CRITICAL();
 
   return mask;
 }
 
 // ----------------
-
-// 显式实例化：按项目实际使用的串口类型生成
-template class DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128, 128>>;

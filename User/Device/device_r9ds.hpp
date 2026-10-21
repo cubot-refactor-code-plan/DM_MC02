@@ -13,49 +13,14 @@
  * @note SBUS 协议（来源：R9DS 使用说明）：
  *       100000 bps、8 数据位、偶校验、2 停止位（每字节 12 位）、**反相 TTL**；
  *       一帧 25 字节 = 0x0F 帧头 + 22 字节通道数据（16 通道 × 11 bit，小端）+ flags + 0x00 帧尾。
- *       串口参数在 CubeMX 里配，见 bsp_cfg.cpp 的 bsp_uart_it5 与 DeviceR9dsT::init() 里的兜底校验；
- *       本类一个字节的串口配置都不改。接收机侧要拨到 SBUS 模式。
+ *       串口参数在 CubeMX 里配，`init()` 只做兜底校验，一个字节都不改；接收机侧要拨到 SBUS 模式。
  *
- * @note flags = frame[23]：bit0/bit1 是数字通道 17/18，bit2 = 本帧丢失，bit3 = 失控保护激活。
- *       这里把 bit2/bit3 用 frame_lost() / failsafe() 暴露出来 —— 遥控链路失控时怎么处置
- *       （停车 / 切手动）是上层的事，驱动不替它决定。
+ * @note flags = frame[23]：bit0/bit1 是数字通道 17/18，bit2 = 本帧丢失，bit3 = 失控保护激活
+ *       （用 `frame_lost()` / `failsafe()` 暴露；失控时怎么处置是上层的事）。
  *
- * @note 两个层次的量，别混用（1 是协议侧原始值，2 是遥控器侧语义值）：
- *
- *       1) raw_channels() —— 协议侧得到的遥控器对应量，上为200 中为1000 下为1800
- *       2) `Rc` / `rc()`　—— 遥控器侧，按实物定义的通道含义连续通道换算成-100 ~ +100
- *                            开关直接给挡位。写控制逻辑用这一套。
- *
- * @note 遥控器侧的通道（1基，就是遥控器上通道显示的那个编号）：
- *
- *       | SBUS 通道  | 物理部件    | 类型 | `Rc` 里的字段          |
- *       | --------- | ---------- | ---- | -------------------- |
- *       | CH1       | 右摇杆 上下  | 连续 | `right_vertical`     |
- *       | CH2       | 右摇杆 左右  | 连续 | `right_horizontal`   |
- *       | CH3       | 左摇杆 上下  | 连续 | `left_vertical`      |
- *       | CH4       | 左摇杆 左右  | 连续 | `left_horizontal`    |
- *       | CH5       | C 三挡开关   | 三挡 | `switch_c`           |
- *       | CH6       | 正面左旋钮   | 连续 | `knob_left`          |
- *       | CH7       | 背面左推杆   | 连续 | `slider_left`        |
- *       | CH8       | 正面右旋钮   | 连续 | `knob_right`         |
- *       | CH9       | 正面 B 开关  | 两挡 | `switch_b`           |
- *       | CH10      | 正面 A 开关  | 两挡 | `switch_a`           |
- *
- *       CH11 ~ CH16 遥控器侧未显示，但原始值依然能从 raw_channels() 读到。
- *
- * @note 开关不是连续值，按「离 200 / 1000 / 1800 哪个最近」判挡（两挡开关只比 200 / 1800）。
- *       物理开关是硬换向的，实测就是这三个值；用最近值判定比划阈值区间稳。
- * @note 整数截断自带一个小死区：raw 993 ~ 1007 都算 0（不足 1 个单位就舍掉，正好 15 个原始值宽）。
- *
- * @note 一个周期的标准用法（收帧必须在同一个任务里串行做，本类不加锁）：
- *
- *       r9ds.update();                            // 把这一拍串口里攒的字节全消化掉
- *       if (r9ds.is_online() && !r9ds.failsafe())
- *       {
- *         const DeviceR9dsT::Rc &rc = r9ds.rc();
- *         float fwd   = rc.left_vertical * 0.01f;                  // 左摇杆上下：-1.0 ~ +1.0
- *         bool  a_up  = (rc.switch_a == DeviceR9dsT::Switch::UP);   // A 开关在上挡
- *       }
+ * @note 两套量别混用：`raw_channels()` 是协议原始值（上 200 / 中 1000 / 下 1800）；
+ *       `rc()` 是遥控器语义值（连续通道 −100 ~ +100，开关给挡位），**写控制逻辑用这一套**。
+ *       通道表、开关判挡与死区说明见同目录 README.md。
  *
  * @warning 不是线程安全的：update() 只允许由一个任务调用；查询接口返回实时引用，
  *          读取期间不得并发执行 update()。
@@ -66,9 +31,8 @@
 #ifndef __DEVICE_R9DS_HPP__
 #define __DEVICE_R9DS_HPP__
 
-#include "bsp_uart.hpp" // 被解析的串口（BspUartT：SBUS 中断接收）
-#include "status.hpp"
 
+#include "status.hpp"
 #include <stdint.h>
 
 
@@ -248,7 +212,7 @@ public:
   bool failsafe(void) const;
 
   /** @brief 诊断计数快照 */
-  Diag diag(void) const;
+  Diag get_diag(void) const;
   // ----------------
 private:
   // ---------------- 帧解析 ----------------

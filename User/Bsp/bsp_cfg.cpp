@@ -5,26 +5,12 @@
 /**
  * @brief BSP 层统一初始化
  *
- * @note  必须在 FreeRTOS 内核启动后调用（这些驱动内部要创建 RTOS 对象）。
+ * @note  在 osKernelInitialize() 之后、osKernelStart() 之前调用（MX_FREERTOS_Init → all_init）：
+ *        此时可以创建 StreamBuffer / Mutex 等对象，但不能阻塞等待。
  *        每一条驱动的 init() 都已在下面用 configASSERT 验过，失败就地停机，因此本函数无返回值。
- *        串口的模板实例化只能在 bsp_uart.cpp，其余 BSP 全局实例都在 bsp_cfg.cpp 中定义。
- *        本函数初始化的外设：
+ *        串口的模板实例化在 bsp_uart.cpp，其余 BSP 全局实例都在本文件定义。
  *
- *        ✅ DWT        → bsp_dwt.init()       [内核 CYCCNT 计时，无外设]
- *        ✅ CAN1/2/3   → bsp_can1/2/3.init()  [Message Buffer 收发]
- *        ✅ USART1     → bsp_uart1.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ USART2     → bsp_uart2.init()     [RS485，硬件 DE；IDLE RX DMA + TX DMA]
- *        ✅ USART3     → bsp_uart3.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ UART4      → bsp_uart4.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ UART5      → bsp_uart_it5.init()  [SBUS 中断收发]
- *        ✅ UART7      → bsp_uart7.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ UART8      → bsp_uart8.init()     [IDLE RX IT + FreeRTOS stream buffer]
- *        ✅ UART9      → bsp_uart9.init()     [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ USART10    → bsp_uart10.init()    [IDLE RX DMA + FreeRTOS stream buffer]
- *        ✅ GPIO       → MX_GPIO_Init()       [BspGpio 仅封装]
- *        ✅ KEY (PA15) → key_user.init(...)   [纯软件轮询消抖，无 ISR；200ms 轮询 → 200ms 消抖, 1s 长按]
- *        ✅ PWM×6      → bsp_pwm*.init()      [TIM1/2/3/12 各通道，先清 CCR 再启动 → 上电 0% 占空比]
- *
+ *        初始化顺序：DWT → CAN×3 → UART×9 → PWM×6 → 按键；实例与绑定资源见 README.md。
  */
 void bsp_init(void)
 {
@@ -70,9 +56,9 @@ BspDwt bsp_dwt; ///< 内核 CYCCNT 计时（CPU 频率由 init() 从 RCC 读出�
 // ----------------
 // ---------------- CAN ----------------
 
-BspCan bsp_can1({&hfdcan1, "CAN1"}); ///< 构造参数：{句柄, 调试名}
-BspCan bsp_can2({&hfdcan2, "CAN2"});
-BspCan bsp_can3({&hfdcan3, "CAN3"});
+BspCanT<16, 16> bsp_can1({&hfdcan1, "CAN1"}); ///< 构造参数：{句柄, 调试名}
+BspCanT<16, 16> bsp_can2({&hfdcan2, "CAN2"});
+BspCanT<16, 16> bsp_can3({&hfdcan3, "CAN3"});
 
 
 // ----------------
@@ -81,14 +67,9 @@ BspCan bsp_can3({&hfdcan3, "CAN3"});
 /**
  * @brief UART 全局实例，构造参数为 {句柄, 模式, 波特率}
  *
- * @note __attribute__((section(".dma_buffer"))) 把这些实例放进 .dma_buffer 段：
- *       该段在 STM32H723XG_FLASH.ld 中定义在 RAM_D1，而普通全局变量所在的 .bss 在 DTCMRAM；
- *       DTCM 不能被 DMA 访问，DMA 实例里含收发缓冲区，所以必须放到这里。
- *       中断实例不要求放这里；bsp_uart8 测试期间仍沿用该段，便于与 DMA 实例统一。
- *
- * @note Config 里的 baudrate 只给发送侧用（算一包发完要多久、判 TX 卡不卡死）；接收侧的波特率
- *       与帧格式一律由 CubeMX 写进 huartX，本驱动一个字段都不改 —— 所以协议参数要么在 CubeMX
- *       里配，要么就是错的，不能在 Config 里改。
+ * @note .dma_buffer 段落在 RAM_D1（DTCM 不能被 DMA 访问）；中断实例不强制，bsp_uart8 沿用该段。
+ * @note Config::baudrate 只用于估算 TX 卡死阈值；真正的波特率与帧格式由 CubeMX 写进 huartX，
+ *       本驱动不改一个字段。实例分工与收发链见 README.md。
  */
 __attribute__((section(".dma_buffer")))
 BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart1({&huart1, UartMode::TxRx, 115200U});

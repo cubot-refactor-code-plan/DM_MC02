@@ -9,50 +9,20 @@
  *
  * @details 一个实例绑定一条 BspCan，按反馈标识符 0x201 ~ 0x20B 固定 11 个位置，
  *          **位置推出一切**（控制帧、帧内槽位、指令限幅、电调 ID、反馈标识符）：
+ *          位置 = 标识符 − 0x201；帧内槽位 = 位置 % 4（8~10 段为 位置 − 8）。
+ *          init() 把限幅 / 减速比 / 零位 / 控制帧 / 槽位一次算进 Slot，热路径不再看型号。
  *
- *      | 位置 | 反馈标识符  | 允许型号               | 控制帧        | 帧内槽位 |
- *      | 0~3  | 0x201~0x204 | M3508 / M2006          | 0x200         | 0~3      |
- *      | 4~7  | 0x205~0x208 | M3508 / M2006 / GM6020 | 0x1FF / 0x1FE | 0~3      |
- *      | 8~10 | 0x209~0x20B | 仅 GM6020              | 0x2FE         | 0~2      |
+ * @note 位置 4~7 是混挂区：3508/2006 归 0x1FF，GM6020 归 0x1FE；反馈标识符相同，
+ *       接收侧零额外判断。完整的位置-电调 ID 对照表、解析公式与算例见同目录 README.md。
  *
- *          位置定下来之后，下面四项全部是定值，init() 算一次、运行期不再变：
+ * @note 装车前要在 RoboMaster Assistant 里给每台电调设 ID。**电调 ID 与「位置」不是同一个数**
+ *       （同一位置 4~7，3508/2006 的 ID 是 5~8，GM6020 的 ID 是 1~4）。
  *
- *          反馈标识符 = 0x201 + 位置        ← 位置对，收帧就不用人工对表
- *          帧内槽位   = 位置 % 4
- *          控制帧     = 位置 0~3 → 0x200；4~7 → 0x1FF（GM6020 改走 0x1FE）；8~10 → 0x2FE
- *          指令限幅   = 型号决定（3508 / 6020 为 ±16384，2006 为 ±10000）
+ * @note 本类不分发接收、也不创建任务：调用方自己从 CanT 取帧交给 update()，并在自己的
+ *       任务里依次调 set_output() / poll()，三步必须在同一个任务里完成。
  *
- * @note 位置 4~7 是混挂区：3508/2006 归 0x1FF，GM6020 归 0x1FE。两类混在一起时会多发
- *       一条控制帧，但**反馈标识符完全相同，接收侧不受影响**。
- *
- * @note 装车前要在 RoboMaster Assistant 里给每台电调设 ID。**电调 ID 与「位置」不是同一个数**，
- *       对照关系如下（位置 = 反馈标识符 - 0x201）：
- *
- *      | 位置 | 型号       | 电调 ID | 控制帧 | 帧内槽位 |
- *      | 0~3  | M3508/2006 | 1 ~ 4   | 0x200  | 位置     |
- *      | 4~7  | M3508/2006 | 5 ~ 8   | 0x1FF  | 位置 - 4 |
- *      | 4~7  | GM6020     | 1 ~ 4   | 0x1FE  | 位置 - 4 |
- *      | 8~10 | GM6020     | 5 ~ 7   | 0x2FE  | 位置 - 8 |
- *
- * @note 本类不分发接收、也不创建任务：调用方自己从 BspCan 取帧交给 update()，并在自己的
- *       任务里周期调 poll()。成员表在构造时一次定完，运行期不增删。
- *
- * @note 常量取自 Docs/sheet 手册：M3508 ±16384（减速比 3591/187）、M2006 ±10000（36）、
- *       GM6020 ±16384（1）。GM6020 只支持电流模式（0x1FE / 0x2FE），要求固件 ≥ 1.0.11.2
- *       且已在 RoboMaster Assistant 中打开电流环开关。
- *
- * @note 一个控制周期的标准用法（本类不自己收发，所以这几步由调用方按顺序做，且必须在同一个任务里）：
- *
- * @code{.cpp}
- *       CanRxMsg rx = {};
- *       for (uint32_t i = 0U; i < 8U && bsp_can3.receive(&rx, 0U) == Status::OK; ++i)
- *         (void)can3_dji_group.update(rx);          // 1) 收：按反馈标识符自动分派到位置
- *
- *       (void)can3_dji_group.set_output(4U, 5000);  // 2) 算：写原始控制量，只落发送缓冲
- *       (void)can3_dji_group.poll();                // 3) 发：把有成员的控制帧一次性发出
- *
- *       const MotorData &md = can3_dji_group.data(4U); // 4) 读：该位置最新的输出轴数据
- * @endcode
+ * @note 常量取自 Docs/sheet 手册：M3508 ±16384、M2006 ±10000、GM6020 ±16384。
+ *       GM6020 只支持电流模式（0x1FE / 0x2FE），要求固件 ≥ 1.0.11.2 且已打开电流环开关。
  */
 
 #ifndef __DJI_MOTOR_GROUP_HPP__
@@ -78,11 +48,14 @@ enum class DjiMotorModel : uint8_t
 /**
  * @brief 一条 CAN 总线上的 DJI 电机组
  *
+ * @tparam CanT 总线类型（BspCanT<RX_DEPTH, TX_DEPTH>），只要求提供 send / receive / diagnostics
+ *
  * @note 必须在初始化期 init()；未 init 时所有接口安全返回，不会触碰空句柄。
  * @note **本类不是线程安全的**：约定由同一个任务依次调 update() → set_output() → poll()，
- *       所以内部不加锁。data() 返回实时引用，读取期间不得有并发的 update()。
+ *       所以内部不加锁。get_data() 返回实时引用，读取期间不得有并发的 update()。
  */
-class DjiMotorGroup
+template <typename CanT>
+class DjiMotorGroupT
 {
 public:
   // ---------------- 常量 ----------------
@@ -127,14 +100,7 @@ public:
   /**
    * @brief 一个位置上的电机描述；该位置没有电机就不传它（传 nullptr）
    *
-   * @note 实例一般写成文件级静态常量（见 device_cfg.cpp）：
-   *
-   * @code{.cpp}
-   *       static const DjiMotorGroup::Member m3508_1 {DjiMotorModel::M3508};             // 用型号默认减速比
-   *       static const DjiMotorGroup::Member m2006_2 {DjiMotorModel::M2006, 36.0f, 0.0f}; // 显式给减速比与零位
-   * @endcode
-   *
-   * @note ratio 传 0 表示「用该型号的手册默认值」，不用去查手册码数字；
+   * @note 实例写成文件级静态常量（见 device_cfg.cpp）。ratio 传 0 表示用该型号的手册默认值；
    *       只有确实要改机械零位时才用得上 offset。
    */
   struct Member
@@ -163,7 +129,7 @@ public:
   struct Config
   {
     /** @brief 按序构造配置（参数顺序 = 位置顺序） */
-    Config(BspCan       *can    = nullptr,
+    Config(CanT        *can    = nullptr,
            const Member *m0x201 = nullptr,
            const Member *m0x202 = nullptr,
            const Member *m0x203 = nullptr,
@@ -179,7 +145,7 @@ public:
     {
     }
 
-    BspCan       *can;               ///< 本组绑定的 CAN 总线（须已由 bsp_init() 初始化）
+    CanT         *can;               ///< 本组绑定的 CAN 总线（须已由 bsp_init() 初始化）
     const Member *member[MOTOR_NUM]; ///< 各位置的成员描述，下标 = 位置；nullptr = 该位没有电机
   };
 
@@ -187,13 +153,13 @@ public:
   // ---------------- 构造与析构 ----------------
 
   /** @brief 只保存配置，不碰硬件、不创建 RTOS 对象（也没有需要释放的资源） */
-  explicit DjiMotorGroup(const Config &cfg);
+  explicit DjiMotorGroupT(const Config &cfg);
 
   // 禁止复制/移动：内部持有 Online 链表节点，复制会让链表指向原对象
-  DjiMotorGroup(const DjiMotorGroup &)            = delete;
-  DjiMotorGroup &operator=(const DjiMotorGroup &) = delete;
-  DjiMotorGroup(DjiMotorGroup &&)                 = delete;
-  DjiMotorGroup &operator=(DjiMotorGroup &&)      = delete;
+  DjiMotorGroupT(const DjiMotorGroupT &)            = delete;
+  DjiMotorGroupT &operator=(const DjiMotorGroupT &) = delete;
+  DjiMotorGroupT(DjiMotorGroupT &&)                 = delete;
+  DjiMotorGroupT &operator=(DjiMotorGroupT &&)      = delete;
 
   // ----------------
   // ---------------- 公有接口 ----------------
@@ -215,7 +181,7 @@ public:
    * @return OK=已更新；BAD_ARG=标识符越界、该位没有电机或帧格式不符；NOT_INIT=未 init
    *
    * @note 位置由标识符直接推出：位置 = 标识符 - 0x201，不用查表。
-   * @note 把本周期从 BspCan 取到的帧全部喂进来即可：不属于本类的标识符只会被判
+   * @note 把本周期从 CanT 取到的帧全部喂进来即可：不属于本类的标识符只会被判
    *       BAD_ARG 丢掉，不会影响别的位置，所以调用方不需要自己做过滤。
    */
   Status update(const CanRxMsg &rx);
@@ -255,7 +221,7 @@ public:
    *       之差 / 时间差），直接差分噪声很大、滤波方式取决于用途，需要就由上层自己算。
    * @warning 返回实时引用而非快照，调用方须保证读取期间不并发执行 update()。
    */
-  const MotorData &data(uint8_t index) const;
+  const MotorData &get_data(uint8_t index) const;
 
   /**
    * @brief 某个位置是否在线
@@ -369,12 +335,7 @@ private:
    * @return 本帧的累计计数
    *
    * @note 判断依据：相邻两帧的转子位移必然小于半圈。差值超过半圈即认为跨过零点，
-   *       按反方向补/减一整圈。
-   * @note 举例（range = 8192，half = 4096）：
-   *
-   *       正转跨零：last=8000，now=200 → delta = -7800 < -4096 → delta += 8192 = 392 ✓
-   *       反转跨零：last=200，now=8000 → delta = +7800 > +4096 → delta -= 8192 = -392 ✓
-   *       正常前进：last=1000，now=1100 → delta = 100（在半圈内，不动）✓
+   *       按反方向补/减一整圈（算例见 README.md）。
    */
   static int64_t unwrap_ecd(int64_t total, int32_t last, int32_t now, uint16_t range)
   {

@@ -48,12 +48,12 @@ Status DeviceServo::init(void)
   if ((_cfg.max_speed_dps < 0.0f) || (_cfg.max_accel_dps2 < 0.0f))
     return Status::BAD_ARG;
 
-  // 脉宽必须能塞进一个 PWM 周期。counter_clk_hz() 为 0 说明 PWM 还没 init（正常流程里
+  // 脉宽必须能塞进一个 PWM 周期。get_counter_clk_hz() 为 0 说明 PWM 还没 init（正常流程里
   // bsp_init() 在前面，不会走到这），此时跳过检查而不是误判成 BAD_ARG。
-  const uint32_t clk = _cfg.pwm->counter_clk_hz();
+  const uint32_t clk = _cfg.pwm->get_counter_clk_hz();
   if (clk > 0U)
   {
-    const float period_us = static_cast<float>(_cfg.pwm->period_cnt()) * 1000000.0f / static_cast<float>(clk);
+    const float period_us = static_cast<float>(_cfg.pwm->get_period_cnt()) * 1000000.0f / static_cast<float>(clk);
     if ((_cfg.pulse_max_us + _cfg.trim_us) > period_us)
       return Status::BAD_ARG;
   }

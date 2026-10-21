@@ -14,20 +14,12 @@
  *       bit 0 = OK 标记，bit 1~21 = 状态码位（位号即 Status 枚举值，掩码用 status_bit()），
  *       bit 22 = RUNNING_BIT 运行位，bit 23 = INIT_FAIL_BIT 初始化失败位（粘滞，只置不清）。
  *
- * @note 两族登记接口：
- *       - error(s)　　　运行期错误：只记码 + 清 OK 位，不动运行位，running() 仍为 true；
- *       - init_error(s)　初始化错误：记码 + 置 INIT_FAIL_BIT + 清运行位，此后永不进入运行态。
- *
- * @note 正常流程（顺序不能错）：
- *       1. init() 建事件组，只由 service_init() 调一次；
- *       2. 系统内的各个组成部分初始化，任一步失败就 init_error()；
- *       3. 全部就绪后 complete_init() 置运行位（有过失败记录则返回 NOT_SUPPORTED 且不置位）；
- *       4. 任务入口第一句 wait_running()：阻塞到运行位；未 init 或等到失败位时任务自删，不返回。
- *
- * @note 未 init 时除 init() 外全部接口安全返回：登记类返回 NOT_INIT，查询类返回 false /
- *       NOT_INIT，wait_running() 删任务。
+ * @note 两族登记接口：error() 只记码、不动运行位（运行期错误）；init_error() 记码 + 置失败位 +
+ *       清运行位（初始化错误）。正常流程 init() → complete_init() → 任务入口 wait_running()；
+ *       未 init 时除 init() 外全部接口安全返回。
  *
  * @note 分层约定：只给「维护多个对象的系统」用；单个设备不许引用它，失败只 return Status。
+ *       生命周期、错误传播与已知局限见同目录 README.md 与 Docs/guide/系统状态标志原理.md。
  */
 
 #ifndef __SERVICE_STATUS_HPP__

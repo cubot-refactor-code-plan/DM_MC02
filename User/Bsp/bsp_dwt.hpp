@@ -12,27 +12,14 @@
  *          分辨率 = 1 个 CPU 周期（本工程 1.818 ns），HAL_GetTick() 是 1 ms，相差约 55 万倍。
  *
  * @note 用法：bsp_init() 里已统一调用 init()，之后在任何位置直接用即可。
- *
- *    // 1) 测一段代码的耗时（delta_s 无状态，可在 ISR / 临界区调用）
- *    uint32_t last = 0;                          // 同一个任务上下文才能使用
- *    (void)bsp_dwt.delta_s(&last);               // 首次调用只取基准，结果丢弃
- *    ...                                         // 被测代码
- *    const double dt_s = bsp_dwt.delta_s(&last); // 与上次调用之间的间隔（秒）
- *
- *    // 2) 读绝对时间（自 init() 起算，会推进内部累加量，仅任务上下文）
- *    const double now_s  = bsp_dwt.get_time_s();     // 秒
- *    const double now_ms = bsp_dwt.get_time_ms();    // 毫秒
- *    const double now_us = bsp_dwt.get_time_us();    // 微秒
- *
- *    // 3) 忙等（不依赖中断，临界区内可用，ns的单位是1.818；毫秒级以上改用 vTaskDelay）
- *    bsp_dwt.delay_us(500);                      // 忙等 500 us
- *    bsp_dwt.delay_ms(1.5);                      // 忙等 1.5 ms
+ *       get_delta_s() 做相对计时；get_time_*() 读绝对时间（会推进内部累加量，只能任务上下文）；
+ *       delay_* 是纯忙等。回绕处理与 7.809 s 约束见同目录 README.md。
  *
  * @todo 如果想维持准确绝对时间计数，需要每7.809s内调用一次time函数，这样才能确保时间正确积累。所以需要一个task维护
  *
- * @warning delta_s() 的时间戳由调用方保存，同一个 last 不要在多个任务间共用。
+ * @warning get_delta_s() 的时间戳由调用方保存，同一个 last 不要在多个任务间共用。
  * @warning CPU 进入sleep/stop时，停止计数
- * @warning delta_s() 无状态、可在 ISR 中调用；
+ * @warning get_delta_s() 无状态、可在 ISR 中调用；
  * @warning 32 位计数器每 7.809 s 回绕一次（本工程 550 MHz）：delta_s() 用无符号差值，两次间隔 < 7.809 s 时结果恒正
  */
 
@@ -78,7 +65,7 @@ public:
    *
    * @note 无状态、回绕安全（无符号差值），可在 ISR / 临界区中调用
    */
-  double delta_s(uint32_t *last) const;
+  double get_delta_s(uint32_t *last) const;
 
   /** @brief 当前绝对时间（秒，自 init() 起算）—— 会推进内部累加量，仅任务上下文调用 */
   double get_time_s();
@@ -127,7 +114,7 @@ private:
   void wait_cycles(double cycles) const;
 
   /** @brief 按 RCC 算出 CPU 时钟（Hz）= SYSCLK / D1CPRE 分频 */
-  static uint32_t cpu_clock_hz();
+  static uint32_t get_cpu_clock_hz();
 
   // 成员变量
 

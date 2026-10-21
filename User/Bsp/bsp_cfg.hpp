@@ -36,11 +36,13 @@ void bsp_init(void);
 extern BspDwt bsp_dwt; ///< 内核 CYCCNT 计时（不占外设、不依赖中断）
 
 
-extern BspCan bsp_can1; ///< CAN1
-extern BspCan bsp_can2; ///< CAN2
-extern BspCan bsp_can3; ///< CAN3
+extern BspCanT<16, 16> bsp_can1; ///< CAN1
+extern BspCanT<16, 16> bsp_can2; ///< CAN2
+extern BspCanT<16, 16> bsp_can3; ///< CAN3
 
 
+// 新增串口要改三处：这里的 extern → bsp_cfg.cpp 的实例定义 → bsp_uart.cpp 顶部的
+// 模板实例化与 HAL 回调分发。
 extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart1;  ///< USART1
 extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart2;  ///< USART2（RS485，硬件 DE）
 extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart3;  ///< USART3
@@ -50,7 +52,7 @@ extern BspUartT<uart_detail::ItTransport, 128, 128>  bsp_uart8;  ///< UART8（�
 extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart9;  ///< UART9
 extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart10; ///< USART10
 
-extern BspUartT<uart_detail::ItTransport, 128, 32> bsp_uart_it5; ///< UART5（SBUS 接收机；中断收发）
+extern BspUartT<uart_detail::ItTransport, 128, 32> bsp_uart_it5; ///< UART5（SBUS 接收机；中断发，TX 只用 32）
 
 
 extern BspGpio power_24v_2;  ///< 电源控制

@@ -1,10 +1,107 @@
+#include "bsp_cfg.hpp" // 中断回调中直接引用 bsp_uartX / bsp_uart_itX 全局实例
 #include "bsp_uart.hpp"
-#include "bsp_cfg.hpp" // 中断回调中直接引用 bsp_usartX / bsp_uartX 全局实例
-#include "FreeRTOS.h"  // IWYU pragma: keep
+#include "FreeRTOS.h" // IWYU pragma: keep
 #include <stdarg.h>
 #include <stdio.h>
 
 
+// ---------------- 模板实例化 ----------------
+
+// 显式实例化：按项目实际使用的串口类型生成。
+// 新增串口时要同步改三处：这里、下面的 HAL 回调分发表、bsp_cfg.cpp 的实例定义。
+template class BspUartT<uart_detail::DmaTransport, 128, 128>;
+template class BspUartT<uart_detail::DmaTransport, 256, 256>;
+template class BspUartT<uart_detail::ItTransport, 128, 32>;
+template class BspUartT<uart_detail::ItTransport, 128, 128>;
+
+// ----------------
+// ---------------- HAL 回调分发 ----------------
+
+// HAL 的 UART 回调没有实例参数，只能按 huart 指针查表。
+extern "C"
+{
+  /**
+   * @brief IDLE串口回调函数
+   * @note 按句柄分发到对应的全局实例
+   */
+  void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+  {
+    BaseType_t woken = pdFALSE;
+
+    if (huart == &huart1)
+      bsp_uart1.on_idle_isr(Size, &woken);
+    else if (huart == &huart2)
+      bsp_uart2.on_idle_isr(Size, &woken);
+    else if (huart == &huart3)
+      bsp_uart3.on_idle_isr(Size, &woken);
+    else if (huart == &huart4)
+      bsp_uart4.on_idle_isr(Size, &woken);
+    else if (huart == &huart5)
+      bsp_uart_it5.on_idle_isr(Size, &woken);
+    else if (huart == &huart7)
+      bsp_uart7.on_idle_isr(Size, &woken);
+    else if (huart == &huart8)
+      bsp_uart8.on_idle_isr(Size, &woken);
+    else if (huart == &huart9)
+      bsp_uart9.on_idle_isr(Size, &woken);
+    else if (huart == &huart10)
+      bsp_uart10.on_idle_isr(Size, &woken);
+
+    portYIELD_FROM_ISR(woken);
+  }
+
+  /** @brief 发送完成：从流缓冲区取下一包继续发（UART5 中断收发也走这里） */
+  void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+  {
+    BaseType_t woken = pdFALSE;
+
+    if (huart == &huart1)
+      bsp_uart1.start_transmission_from_isr(&woken);
+    else if (huart == &huart2)
+      bsp_uart2.start_transmission_from_isr(&woken);
+    else if (huart == &huart3)
+      bsp_uart3.start_transmission_from_isr(&woken);
+    else if (huart == &huart4)
+      bsp_uart4.start_transmission_from_isr(&woken);
+    else if (huart == &huart5)
+      bsp_uart_it5.start_transmission_from_isr(&woken);
+    else if (huart == &huart7)
+      bsp_uart7.start_transmission_from_isr(&woken);
+    else if (huart == &huart8)
+      bsp_uart8.start_transmission_from_isr(&woken);
+    else if (huart == &huart9)
+      bsp_uart9.start_transmission_from_isr(&woken);
+    else if (huart == &huart10)
+      bsp_uart10.start_transmission_from_isr(&woken);
+
+    portYIELD_FROM_ISR(woken);
+  }
+
+  /** @brief 线路错误：只累加计数，恢复交给任务侧 rx_recover() / tx_recover() */
+  void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+  {
+    if (huart == &huart1)
+      bsp_uart1.on_error_isr();
+    else if (huart == &huart2)
+      bsp_uart2.on_error_isr();
+    else if (huart == &huart3)
+      bsp_uart3.on_error_isr();
+    else if (huart == &huart4)
+      bsp_uart4.on_error_isr();
+    else if (huart == &huart5)
+      bsp_uart_it5.on_error_isr();
+    else if (huart == &huart7)
+      bsp_uart7.on_error_isr();
+    else if (huart == &huart8)
+      bsp_uart8.on_error_isr();
+    else if (huart == &huart9)
+      bsp_uart9.on_error_isr();
+    else if (huart == &huart10)
+      bsp_uart10.on_error_isr();
+  }
+}
+
+// ----------------
 // ---------------- Transport 策略 ----------------
 
 namespace
@@ -27,15 +124,15 @@ DmaRxFlags read_dma_rx_flags(const UART_HandleTypeDef *huart)
   if (huart->hdmarx != nullptr && IS_DMA_STREAM_INSTANCE(huart->hdmarx->Instance) != 0U)
   {
     const DMA_Stream_TypeDef *stream = static_cast<DMA_Stream_TypeDef *>(huart->hdmarx->Instance);
-    flags.dma_en = ((stream->CR & DMA_SxCR_EN) != 0U);
+    flags.dma_en                     = ((stream->CR & DMA_SxCR_EN) != 0U);
   }
 
   return flags;
 }
 
 /** @brief 中断接收是否已使能 RXNE 与 IDLE 中断；FIFO 模式下 HAL 改用 RXFTIE */
-constexpr uint32_t IT_RX_IRQ_BITS      = USART_CR1_RXNEIE_RXFNEIE | USART_CR1_IDLEIE;
-constexpr uint32_t IT_FIFO_RX_IRQ_BIT  = USART_CR3_RXFTIE;
+constexpr uint32_t IT_RX_IRQ_BITS     = USART_CR1_RXNEIE_RXFNEIE | USART_CR1_IDLEIE;
+constexpr uint32_t IT_FIFO_RX_IRQ_BIT = USART_CR3_RXFTIE;
 
 bool it_rx_irq_enabled(const UART_HandleTypeDef *huart)
 {
@@ -44,15 +141,14 @@ bool it_rx_irq_enabled(const UART_HandleTypeDef *huart)
   // 接收长度小于阈值时 HAL 仍可能退回逐字节 RXNEIE，所以两种都认。
   if (huart->FifoMode == UART_FIFOMODE_ENABLE)
   {
-    const bool fifo_irq = ((huart->Instance->CR3 & IT_FIFO_RX_IRQ_BIT) != 0U) &&
-                          ((huart->Instance->CR1 & USART_CR1_IDLEIE) != 0U);
+    const bool fifo_irq = ((huart->Instance->CR3 & IT_FIFO_RX_IRQ_BIT) != 0U) && ((huart->Instance->CR1 & USART_CR1_IDLEIE) != 0U);
     const bool byte_irq = (huart->Instance->CR1 & IT_RX_IRQ_BITS) == IT_RX_IRQ_BITS;
     return fifo_irq || byte_irq;
   }
 
   return (huart->Instance->CR1 & IT_RX_IRQ_BITS) == IT_RX_IRQ_BITS;
 }
-}
+} // namespace
 
 bool uart_detail::DmaTransport::arm_rx(UART_HandleTypeDef *huart, uint8_t *buffer, uint16_t size)
 {
@@ -142,161 +238,6 @@ void uart_detail::ItTransport::abort_tx(UART_HandleTypeDef *huart)
 // ---------------- UART ----------------
 // ----------------
 
-// ---------------- 模板实例化 ----------------
-
-// 显式实例化：按项目实际使用的串口类型生成
-template class BspUartT<uart_detail::DmaTransport, 128, 128>;
-template class BspUartT<uart_detail::DmaTransport, 256, 256>;
-template class BspUartT<uart_detail::ItTransport, 128, 32>;
-template class BspUartT<uart_detail::ItTransport, 128, 128>;
-// ----------------
-// ---------------- HAL 回调分发 ----------------
-
-extern "C"
-{
-  /**
-   * @brief IDLE串口回调函数
-   * @note 按句柄分发到对应的全局实例
-   */
-  void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-  {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-    if (huart == &huart1)
-    {
-      bsp_uart1.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart2)
-    {
-      bsp_uart2.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart3)
-    {
-      bsp_uart3.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart4)
-    {
-      bsp_uart4.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart5)
-    {
-      bsp_uart_it5.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart7)
-    {
-      bsp_uart7.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart8)
-    {
-      bsp_uart8.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart9)
-    {
-      bsp_uart9.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart10)
-    {
-      bsp_uart10.on_idle_isr(Size, &xHigherPriorityTaskWoken);
-    }
-
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  }
-
-  /**
-   * @brief UART TX Complete 回调函数
-   * @note 发送完成时触发，从流缓冲区取下一批数据继续发送
-   */
-  void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
-  {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-    // 注：UART5 使用中断收发，TxCplt 回调中继续从发送流缓冲区取下一包
-    if (huart == &huart1)
-    {
-      bsp_uart1.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart2)
-    {
-      bsp_uart2.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart3)
-    {
-      bsp_uart3.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart4)
-    {
-      bsp_uart4.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart5)
-    {
-      bsp_uart_it5.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart7)
-    {
-      bsp_uart7.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart8)
-    {
-      bsp_uart8.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart9)
-    {
-      bsp_uart9.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-    else if (huart == &huart10)
-    {
-      bsp_uart10.start_transmission_from_isr(&xHigherPriorityTaskWoken);
-    }
-
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  }
-
-  /**
-   * @brief UART 错误回调函数
-   * @note 这里只累加计数，不做恢复；复位与重建由任务侧 rx_recover()/tx_recover() 完成
-   */
-  void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-  {
-    // 8 路都要接：这里只累加计数，恢复由任务侧 rx_recover()/tx_recover()完成 ，因为修复这件事会阻塞，中断不能写阻塞
-    if (huart == &huart1)
-    {
-      bsp_uart1.on_error_isr();
-    }
-    else if (huart == &huart2)
-    {
-      bsp_uart2.on_error_isr();
-    }
-    else if (huart == &huart3)
-    {
-      bsp_uart3.on_error_isr();
-    }
-    else if (huart == &huart4)
-    {
-      bsp_uart4.on_error_isr();
-    }
-    else if (huart == &huart5)
-    {
-      bsp_uart_it5.on_error_isr();
-    }
-    else if (huart == &huart7)
-    {
-      bsp_uart7.on_error_isr();
-    }
-    else if (huart == &huart8)
-    {
-      bsp_uart8.on_error_isr();
-    }
-    else if (huart == &huart9)
-    {
-      bsp_uart9.on_error_isr();
-    }
-    else if (huart == &huart10)
-    {
-      bsp_uart10.on_error_isr();
-    }
-  }
-}
-
 /**
  * @brief BspUartT<Transport, RX_SIZE, TX_SIZE> 成员函数定义
  *
@@ -304,7 +245,7 @@ extern "C"
  * 发送：任务或 TX Complete 中断从流缓冲区取一包，交给 Transport 发出。
  * 线程安全：FreeRTOS 流缓冲区自带锁；任务侧启动发送由 _tx_lock 串行化，printf() 由 _printf_lock 保护格式化缓冲。
  */
-// ----------------
+
 // ---------------- 公有接口 ----------------
 
 /** @brief 只做赋值，RTOS 资源与接收启动放在 init() */
@@ -576,8 +517,10 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::tx_recover()
   // 一包耗时 = TX_SIZE × 10 bit ÷ 波特率，乘 1000 换成 ms；×2 是留余量。
   const uint32_t stall_ms = (static_cast<uint32_t>(TX_SIZE) * 20U * 1000U + _baudrate - 1U) / _baudrate;
 
-  // 没有待发数据 → 不存在卡死
-  if (xStreamBufferBytesAvailable(_tx_stream_buffer) == 0U)
+  // 没有待发数据，也没有正在传输的包 → 不存在卡死
+  const bool has_inflight = (_tx_inflight_len > 0U);
+  const bool has_queued   = (xStreamBufferBytesAvailable(_tx_stream_buffer) > 0U);
+  if (!has_inflight && !has_queued)
   {
     return false;
   }
@@ -642,7 +585,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::rx_recover()
   }
 
   // 三处状态一致表明 RX 正常 → 直接返回（正常时每次调用只做一次查询）
-  if (rx_health() == RxHealth::OK)
+  if (get_rx_health() == RxHealth::OK)
   {
     return false;
   }
@@ -691,15 +634,16 @@ void BspUartT<Transport, RX_SIZE, TX_SIZE>::on_idle_isr(uint16_t size, BaseType_
   }
 
   // 重新启动接收。若失败也不在此重试（阻塞）
-  // 任务侧 rx_recover() 会在 10 ms 内通过 rx_health() 发现异常并重建。
+  // 任务侧 rx_recover() 会在 10 ms 内通过 get_rx_health() 发现异常并重建。
   (void)arm_reception();
 }
 
 /**
  * @brief 发送完成后续传：从流缓冲区取下一批交给 Transport（ISR，由 TX Complete 中断调用）
  *
- * @note 这里不加 _tx_lock：gState 由 TX 完成中断在回调时触发：必然没有正在进行的 TX、
- *       也没有挂起的完成中断，任务侧只需互斥其他任务。
+ * @note 这里不加 _tx_lock：TX Complete 回调触发时 HAL 已把 gState 恢复到 READY，
+ *       此时不会和任务侧 start_transmission() 同时启动同一个通道；
+ *       流缓冲区本身的读写是线程安全的。
  */
 template <typename Transport, size_t RX_SIZE, size_t TX_SIZE>
 void BspUartT<Transport, RX_SIZE, TX_SIZE>::start_transmission_from_isr(BaseType_t *pxHigherPriorityTaskWoken)
@@ -803,10 +747,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::check_format(uint32_t baudrate, uint
     return false;
   }
 
-  return (_huart->Init.BaudRate == baudrate) &&
-         (_huart->Init.WordLength == word_length) &&
-         (_huart->Init.Parity == parity) &&
-         (_huart->Init.StopBits == stop_bits);
+  return (_huart->Init.BaudRate == baudrate) && (_huart->Init.WordLength == word_length) && (_huart->Init.Parity == parity) && (_huart->Init.StopBits == stop_bits);
 }
 /**
  * @brief RX 健康查询：由 Transport 核对 HAL 状态与底层通道状态
@@ -814,7 +755,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::check_format(uint32_t baudrate, uint
  * @return RxHealth OK=在收；STOPPED=已停；INCONSISTENT=状态不一致，需要重建
  */
 template <typename Transport, size_t RX_SIZE, size_t TX_SIZE>
-typename BspUartT<Transport, RX_SIZE, TX_SIZE>::RxHealth BspUartT<Transport, RX_SIZE, TX_SIZE>::rx_health() const
+typename BspUartT<Transport, RX_SIZE, TX_SIZE>::RxHealth BspUartT<Transport, RX_SIZE, TX_SIZE>::get_rx_health() const
 {
   if (_huart == nullptr || _huart->Instance == nullptr)
   {
@@ -834,7 +775,7 @@ typename BspUartT<Transport, RX_SIZE, TX_SIZE>::RxHealth BspUartT<Transport, RX_
 
 /** @brief 读取 RX 诊断计数 */
 template <typename Transport, size_t RX_SIZE, size_t TX_SIZE>
-typename BspUartT<Transport, RX_SIZE, TX_SIZE>::RxDiag BspUartT<Transport, RX_SIZE, TX_SIZE>::rx_diag() const
+typename BspUartT<Transport, RX_SIZE, TX_SIZE>::RxDiag BspUartT<Transport, RX_SIZE, TX_SIZE>::get_rx_diag() const
 {
   RxDiag diag;
   diag.arm_fail_cnt = _rx_arm_fail_cnt;
@@ -846,7 +787,7 @@ typename BspUartT<Transport, RX_SIZE, TX_SIZE>::RxDiag BspUartT<Transport, RX_SI
 
 /** @brief 读取 TX 诊断计数 */
 template <typename Transport, size_t RX_SIZE, size_t TX_SIZE>
-typename BspUartT<Transport, RX_SIZE, TX_SIZE>::TxDiag BspUartT<Transport, RX_SIZE, TX_SIZE>::tx_diag() const
+typename BspUartT<Transport, RX_SIZE, TX_SIZE>::TxDiag BspUartT<Transport, RX_SIZE, TX_SIZE>::get_tx_diag() const
 {
   TxDiag diag;
   diag.drop_bytes        = _tx_drop_bytes;

@@ -1,9 +1,16 @@
 #include "device_r9ds.hpp"
 
-#include "FreeRTOS.h" // IWYU pragma: keep (pdMS_TO_TICKS)
+#include "FreeRTOS.h"  // IWYU pragma: keep (pdMS_TO_TICKS)
+#include "bsp_uart.hpp" // IWYU pragma: keep（BspUartT 实例化与 UART 宏）
 #include "task.h"     // xTaskGetTickCount
 
+// ---------------- 模板实例化 ----------------
 
+// 显式实例化：必须覆盖 device_cfg.cpp 里用到的串口类型，否则链接时找不到成员函数
+template class DeviceR9dsT<BspUartT<uart_detail::ItTransport, 128, 32>>;
+template class DeviceR9dsT<BspUartT<uart_detail::DmaTransport, 128, 128>>;
+
+// ----------------
 // ---------------- 构造与析构 ----------------
 
 /**
@@ -168,7 +175,7 @@ bool DeviceR9dsT<Uart>::failsafe(void) const
 
 /** @brief 诊断计数快照 */
 template <typename Uart>
-typename DeviceR9dsT<Uart>::Diag DeviceR9dsT<Uart>::diag(void) const
+typename DeviceR9dsT<Uart>::Diag DeviceR9dsT<Uart>::get_diag(void) const
 {
   return _diag;
 }
@@ -294,7 +301,3 @@ typename DeviceR9dsT<Uart>::Switch DeviceR9dsT<Uart>::_to_switch_3pos(uint16_t r
   return Switch::DOWN;
 }
 // ----------------
-
-// 显式实例化：按项目实际使用的串口类型生成
-template class DeviceR9dsT<BspUartT<uart_detail::ItTransport, 128, 32>>;
-template class DeviceR9dsT<BspUartT<uart_detail::DmaTransport, 128, 128>>;

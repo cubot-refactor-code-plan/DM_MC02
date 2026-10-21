@@ -135,25 +135,25 @@ void BspPwm::_apply_duty()
 
 
 /** @brief 当前生效占空比 (%) */
-float BspPwm::duty_pct() const
+float BspPwm::get_duty_pct() const
 {
   return _duty_pct;
 }
 
 /** @brief 计数器时钟 (Hz) */
-uint32_t BspPwm::counter_clk_hz() const
+uint32_t BspPwm::get_counter_clk_hz() const
 {
   return _counter_clk_hz;
 }
 
 /** @brief 当前周期计数个数（ARR + 1） */
-uint32_t BspPwm::period_cnt() const
+uint32_t BspPwm::get_period_cnt() const
 {
   return _period + 1U;
 }
 
 /** @brief 当前频率 (Hz) */
-uint32_t BspPwm::freq_hz() const
+uint32_t BspPwm::get_freq_hz() const
 {
   if (_counter_clk_hz == 0U)
     return 0U;

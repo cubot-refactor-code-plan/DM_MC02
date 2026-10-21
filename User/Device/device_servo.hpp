@@ -14,34 +14,18 @@
  * @note 目前只覆盖 PWM 位置舵机（180° / 270°）：
  *       每实例的行程由 Config::range_deg 一句话描述：180° 舵机填 180、270° 填 270。
  *
- * @note 换算链（线性）：angle ∈ [0, range_deg] → t = angle / range_deg →
- *       pulse = pulse_min_us + t × (pulse_max_us − pulse_min_us) + trim_us；
- *       reversed = true 时先取 t = 1 − t，把行程两头对调（用于舵机装反的场合）。
- *       算例：range_deg = 180、脉宽 500 ~ 2500 µs ⇒ 90° → t = 0.5 → 1500 µs。
+ * @note 换算链（线性）：t = angle / range_deg（reversed 时取 1 − t）→
+ *       pulse = pulse_min_us + t × (pulse_max_us − pulse_min_us) + trim_us。
  *
  * @note 上电不输出：init() 只校验配置、不动硬件。BspPwm 上电是 0% 占空比
  *       （引脚恒低、舵机收不到脉冲），要它动就得先 set_angle()，**并且周期调用 update()**。
  *
- * @note 限速与加速度（Config::max_speed_dps / max_accel_dps2，都为 0 表示不限制）：
- *       限速开启后 set_angle() 只记目标，实际角度由 update() 按梯形速度规划推进。
- *       update() 用 tick 差值算 dt，因此**与调用周期无关**（1 ms 调或 10 ms 调都准），
- *       但调得越勤轨迹越平滑。标准用法（同一任务里串起来，顺序不能反）：
+ * @note 限速与加速度都为 0 表示不限制；限速开启后 set_angle() 只记目标，实际角度由 update()
+ *       按梯形速度规划推进（dt 取 tick 差值，与调用周期无关）。
  *
- *       servo.set_angle(120.0f);  // 想去的角度，随时可改
- *       servo.update();           // 按时间推进实际角度并写脉宽
- *
- * @note 线程模型（按"单写者"设计：跨任务的变量只用单条 32 位存储，所以不需要加锁、也没有 RTOS 对象）：
- *
- *       | 接口              | 谁调                      | 说明                                        |
- *       | ---------------- | ------------------------ | ------------------------------------------- |
- *       | `update()`       | 固定一个任务，周期调用       | 唯一的 PWM 写入者；不调它就没有输出              |
- *       | `set_pulse_us()` | 须与 update() 同任务       | 它要立即接管输出，没法用"下一拍"表达             |
- *       | `set_angle()`    | 任意任务                   | 只写"目标角度 + 要输出"两个标志                 |
- *       | `off()`          | 任意任务                   | 只清"要输出"标志，真正关断由 update() 下一拍执行 |
- *       | `get_*()`        | 任意任务                   | 各自 32 位原子读，但可能比 update() 晚一拍      |
- *
- *       成立前提：Cortex-M7 单核、32 位对齐的读写在单条 `LDR/STR` 里完成，所以不会读到半截值；
- *       D-Cache 本工程未开，也没有一致性问题。
+ * @note 单写者模型：update() 是唯一的 PWM 写入者；set_pulse_us() 须与它同任务；
+ *       set_angle() / off() 只写两个 32 位变量，可从任意任务调用（成立前提：Cortex-M7 单核、
+ *       32 位对齐读写是单条指令、D-Cache 未开）。接口分工与规划算法见 README.md。
  *
  * @warning 每条 PWM 通道只由本类一个实例驱动；同一定时器的通道共用 ARR，本类不改频率。
  * @warning 开环器件没有位置反馈：写出去的是"希望它到哪"，不是"它真的在哪"。所以需要自己观测是否到达给延时

@@ -77,8 +77,8 @@ void print_head(const char *tag, const uint8_t *data)
 /** @brief 打印两路 HAL 错误码与 RX 硬件错误计数 */
 void print_error_state()
 {
-  const auto rx8 = bsp_uart8.rx_diag(); // 内嵌类型，auto 省掉模板名
-  const auto rx9 = bsp_uart9.rx_diag();
+  const auto rx8 = bsp_uart8.get_rx_diag(); // 内嵌类型，auto 省掉模板名
+  const auto rx9 = bsp_uart9.get_rx_diag();
   bsp_uart1.printf("[UART] err8=%08lX err9=%08lX rx8hw=%lu rx9hw=%lu\r\n",
                    static_cast<unsigned long>(huart8.ErrorCode), static_cast<unsigned long>(huart9.ErrorCode),
                    static_cast<unsigned long>(rx8.hw_error_cnt), static_cast<unsigned long>(rx9.hw_error_cnt));
@@ -311,10 +311,10 @@ extern "C" void uart_loopback_test_task(void *argument)
   run_direction(true, seq);  // IT8 -> DMA9
 
   // 诊断量是 BspUartT<...> 的内嵌类型，auto 省掉一长串模板名
-  const auto rx8 = bsp_uart8.rx_diag();
-  const auto tx8 = bsp_uart8.tx_diag();
-  const auto rx9 = bsp_uart9.rx_diag();
-  const auto tx9 = bsp_uart9.tx_diag();
+  const auto rx8 = bsp_uart8.get_rx_diag();
+  const auto tx8 = bsp_uart8.get_tx_diag();
+  const auto rx9 = bsp_uart9.get_rx_diag();
+  const auto tx9 = bsp_uart9.get_tx_diag();
 
   bsp_uart1.printf("[UART] diag8 rx arm=%lu drop=%lu hw=%lu rec=%lu\r\n",
                    static_cast<unsigned long>(rx8.arm_fail_cnt), static_cast<unsigned long>(rx8.drop_bytes),

@@ -1,21 +1,27 @@
 #include "dji_motor_group.hpp"
-
 #include <math.h>
 
+// ---------------- 模板实例化 ----------------
 
+// 显式实例化：必须覆盖 device_cfg.cpp 里用到的总线类型，否则链接时找不到成员函数
+template class DjiMotorGroupT<BspCanT<16, 16>>;
+
+// ----------------
 // ---------------- 静态常量定义 ----------------
 
 // 常量都声明在 .hpp 的「常量」分区里，这里只放需要存储的定义
 // （C++11 里类内的 static const 数组只能声明，所以值写在这里）
 
 /** @brief 控制帧下标 → 标识符；顺序必须与 .hpp 里的 FRAME_0Xxxx 一致 */
-const uint32_t DjiMotorGroup::TX_ID[DjiMotorGroup::FRAME_NUM] = {0x200U, 0x1FFU, 0x1FEU, 0x2FEU};
+template <typename CanT>
+const uint32_t DjiMotorGroupT<CanT>::TX_ID[DjiMotorGroupT<CanT>::FRAME_NUM] = {0x200U, 0x1FFU, 0x1FEU, 0x2FEU};
 
 /**
  * @brief 各型号的协议常量（取值均来自 Docs/sheet 下的手册）
  * @note 下标就是 DjiMotorModel 的值，枚举里加型号时必须同步加一行，并同步 MODEL_NUM
  */
-const DjiMotorGroup::ModelTraits DjiMotorGroup::MODEL_TRAITS[DjiMotorGroup::MODEL_NUM] = {
+template <typename CanT>
+const typename DjiMotorGroupT<CanT>::ModelTraits DjiMotorGroupT<CanT>::MODEL_TRAITS[DjiMotorGroupT<CanT>::MODEL_NUM] = {
   /* M3508  */ {16384, 3591.0f / 187.0f},
   /* M2006  */ {10000, 36.0f},
   /* GM6020 */ {16384, 1.0f},
@@ -32,7 +38,8 @@ const DjiMotorGroup::ModelTraits DjiMotorGroup::MODEL_TRAITS[DjiMotorGroup::MODE
  * @note 所以可以在 main() 之前的静态初始化阶段构造（device_cfg.cpp 里的 can3_dji_group 就是这样）。
  *       真正会失败的事（校验成员表）都放在 init() 里，构造函数不返回状态。
  */
-DjiMotorGroup::DjiMotorGroup(const Config &cfg) : _cfg(cfg)
+template <typename CanT>
+DjiMotorGroupT<CanT>::DjiMotorGroupT(const Config &cfg) : _cfg(cfg)
 {
 }
 
@@ -49,7 +56,8 @@ DjiMotorGroup::DjiMotorGroup(const Config &cfg) : _cfg(cfg)
  * @note 失败只有两种：总线句柄没给（NOT_INIT），或型号放错位置（BAD_ARG）。任意一种
  *       都直接返回，调用方（device_init）会 configASSERT 停机，不会带着半张成员表继续跑。
  */
-Status DjiMotorGroup::init(void)
+template <typename CanT>
+Status DjiMotorGroupT<CanT>::init(void)
 {
   // 没有总线，本组没有任何意义
   if (_cfg.can == nullptr)
@@ -105,7 +113,8 @@ Status DjiMotorGroup::init(void)
  *       做纯计算 —— 这样解析函数里不必再重复判断帧的合法性。
  * @note 位置直接由标识符相减得到，所以整组不需要任何「标识符 → 位置」的查找表。
  */
-Status DjiMotorGroup::update(const CanRxMsg &rx)
+template <typename CanT>
+Status DjiMotorGroupT<CanT>::update(const CanRxMsg &rx)
 {
   if (!_inited)
   {
@@ -143,7 +152,8 @@ Status DjiMotorGroup::update(const CanRxMsg &rx)
  * @note 定位用的是 init() 算好的 tx_frame / tx_slot，所以热路径上看不到型号判断。
  * @note 反复调用安全：同一个位置每周期覆盖写同一处，不累加、不排队。
  */
-Status DjiMotorGroup::set_output(uint8_t index, int16_t raw)
+template <typename CanT>
+Status DjiMotorGroupT<CanT>::set_output(uint8_t index, int16_t raw)
 {
   if (!_inited)
   {
@@ -186,7 +196,8 @@ Status DjiMotorGroup::set_output(uint8_t index, int16_t raw)
  *       对没挂电机的槽位也没有副作用。
  * @note 单次发送失败不在此处上报：BspCan::diagnostics 里有 tx_buf_full / tx_dropped 计数可查。
  */
-Status DjiMotorGroup::poll(void)
+template <typename CanT>
+Status DjiMotorGroupT<CanT>::poll(void)
 {
   if (!_inited)
   {
@@ -215,7 +226,8 @@ Status DjiMotorGroup::poll(void)
  * @note 返回的是 slot 内部的实时引用，不是快照 —— 所以调用方读完就得用掉，
  *       不能把引用存起来跨周期用（update() 会改这块内存）。
  */
-const MotorData &DjiMotorGroup::data(uint8_t index) const
+template <typename CanT>
+const MotorData &DjiMotorGroupT<CanT>::get_data(uint8_t index) const
 {
   // 无效位置返回全零对象（静态常量初始化，无运行时开销），
   // 避免调用方拿到悬空引用，也省掉调用侧每次都要先查 has_motor()
@@ -230,7 +242,8 @@ const MotorData &DjiMotorGroup::data(uint8_t index) const
  * @note 先查成员表再查 Online 节点：没装电机的位没必要看在线状态，也顺手挡掉越界。
  * @note Online 的计时由 sys_task 每 10 ms 推进一次，所以本函数与自己的调用频率无关。
  */
-bool DjiMotorGroup::is_online(uint8_t index) const
+template <typename CanT>
+bool DjiMotorGroupT<CanT>::is_online(uint8_t index) const
 {
   return has_motor(index) && (_slot[index].online.is_online() == Status::OK);
 }
@@ -240,7 +253,8 @@ bool DjiMotorGroup::is_online(uint8_t index) const
  *
  * @note 只看构造时给的成员表，与在线状态、是否收到过反馈都无关。
  */
-bool DjiMotorGroup::has_motor(uint8_t index) const
+template <typename CanT>
+bool DjiMotorGroupT<CanT>::has_motor(uint8_t index) const
 {
   return (index < MOTOR_NUM) && (_cfg.member[index] != nullptr); // 越界一律 false
 }
@@ -253,23 +267,15 @@ bool DjiMotorGroup::has_motor(uint8_t index) const
 /**
  * @brief 解析一帧已校验过的反馈，刷新该位置的运动学数据
  *
- * @note 反馈帧 8 字节数据域的布局（手册里的表，多字节一律高字节在前）：
+ * @note 数据域（高字节在前）：[0:2] 转子机械角 0~8191；[2:4] **转子**转速 int16 (rpm)；
+ *       [4:6] 实际转矩电流；[6] 温度；[7] 保留。
+ *       换算链：累计计数 → ×2π/8192 → 转子角 → (−offset)/ratio → 输出轴角；
+ *       rpm/ratio × π/30 → 输出轴 rad/s。完整表格与算例见 README.md。
  *
- *       DATA[0:2]  转子机械角度    0 ~ 8191，转子转一圈 = 8192 个计数
- *       DATA[2:4]  转子转速        int16，单位 rpm —— **是转子转速，不是输出轴转速**
- *       DATA[4:6]  实际转矩电流    int16（本类不用）
- *       DATA[6]    温度            M3508 / GM6020 有；M2006 此字节为 Null（本类不存）
- *       DATA[7]    保留
- *
- * @note 一帧要折算出的两个量，换算链分别是（ratio = 减速比，offset = 机械零位）：
- *
- *       角度   ：转子计数 --跨零展开--> 累计计数 --×2π/8192--> 转子角 --(-offset)/ratio--> 输出轴角
- *       角速度 ：DATA[2:4] 的 rpm / ratio × π/30                             --> 输出轴 rad/s
- *
- * @note 不在这里算角加速度：它是跨帧量（相邻两帧角速度之差 / 时间差），单帧算不出来，而且直接
- *       差分噪声很大、滤波方式取决于用途。radian_data.acceleration 保持 0，需要就由上层自己算。
+ * @note 不在这里算角加速度：跨帧量、差分噪声大，radian_data.acceleration 保持 0，由上层决定。
  */
-Status DjiMotorGroup::_parse_feedback(Slot &slot, const uint8_t *data)
+template <typename CanT>
+Status DjiMotorGroupT<CanT>::_parse_feedback(Slot &slot, const uint8_t *data)
 {
   // 转子单圈计数；8192 是满量程，取到范围外说明这帧是脏的，不能当有效反馈
   const uint16_t ecd = be_u16(&data[0]);

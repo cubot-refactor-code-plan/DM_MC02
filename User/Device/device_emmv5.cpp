@@ -2,6 +2,13 @@
 
 #include "FreeRTOS.h" // IWYU pragma: keep（pdMS_TO_TICKS / taskENTER_CRITICAL）
 
+// ---------------- 模板实例化 ----------------
+
+// 显式实例化：必须覆盖 device_cfg.cpp 里用到的串口类型，否则链接时找不到成员函数
+template class DeviceEmmv5T<BspUartT<uart_detail::DmaTransport, 128, 128>>;
+template class DeviceEmmv5T<BspUartT<uart_detail::ItTransport, 128, 32>>;
+
+// ----------------
 // ---------------- 构造与生命周期 ----------------
 
 template <typename Uart>
@@ -167,50 +174,9 @@ Status DeviceEmmv5T<Uart>::stop()
 }
 
 template <typename Uart>
-Status DeviceEmmv5T<Uart>::calibrate_encoder()
-{
-  return _send(emmv5::calibrate_encoder(_addr));
-}
-
-template <typename Uart>
 Status DeviceEmmv5T<Uart>::zero_position()
 {
   return _send(emmv5::zero_position(_addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::clear_stall()
-{
-  return _send(emmv5::clear_stall(_addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::reset()
-{
-  return _send(emmv5::reset(_addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::restore_defaults()
-{
-  return _send(emmv5::restore_defaults(_addr));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::home(emmv5::HomingMode mode)
-{
-  if (!_valid_homing(mode))
-  {
-    return Status::BAD_ARG;
-  }
-
-  return _send(emmv5::home(_addr, mode));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::abort_home()
-{
-  return _send(emmv5::abort_home(_addr));
 }
 
 template <typename Uart>
@@ -230,45 +196,6 @@ Status DeviceEmmv5T<Uart>::request_status()
 {
   return read(emmv5::SystemParam::StatusFlag);
 }
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::auto_report(emmv5::SystemParam param, uint16_t period_ms)
-{
-  return _send(emmv5::auto_report(_addr, param, period_ms));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::set_pid(bool store, uint32_t kp, uint32_t ki, uint32_t kd)
-{
-  const emmv5::PidParams params(kp, ki, kd, store);
-  return _send(emmv5::set_pid(_addr, params));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::set_id(bool store, uint8_t id)
-{
-  // 0 是广播地址；允许改成 0 会让总线上多台同时应答，直接拒绝
-  if (id == 0U)
-  {
-    return Status::BAD_ARG;
-  }
-
-  return _send(emmv5::set_id(_addr, store, id));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::set_microstep(bool store, uint8_t microstep)
-{
-  return _send(emmv5::set_microstep(_addr, store, microstep));
-}
-
-template <typename Uart>
-Status DeviceEmmv5T<Uart>::set_protection(bool store, uint16_t over_temp_c, uint16_t over_current_ma, uint16_t detect_ms)
-{
-  const emmv5::ProtectionParams params(over_temp_c, over_current_ma, detect_ms, store);
-  return _send(emmv5::set_protection(_addr, params));
-}
-
 
 // ----------------
 // ---------------- 接收 ----------------
@@ -342,7 +269,7 @@ bool DeviceEmmv5T<Uart>::feed_rx(const uint8_t *data, size_t size)
 }
 
 template <typename Uart>
-bool DeviceEmmv5T<Uart>::take_position(int32_t &out)
+bool DeviceEmmv5T<Uart>::get_position(int32_t &out)
 {
   taskENTER_CRITICAL();
 
@@ -358,7 +285,7 @@ bool DeviceEmmv5T<Uart>::take_position(int32_t &out)
 }
 
 template <typename Uart>
-bool DeviceEmmv5T<Uart>::take_status(uint8_t &out)
+bool DeviceEmmv5T<Uart>::get_status(uint8_t &out)
 {
   taskENTER_CRITICAL();
 
@@ -409,14 +336,4 @@ bool DeviceEmmv5T<Uart>::_valid_direction(emmv5::Direction dir)
   return (dir == emmv5::Direction::CW) || (dir == emmv5::Direction::CCW);
 }
 
-template <typename Uart>
-bool DeviceEmmv5T<Uart>::_valid_homing(emmv5::HomingMode mode)
-{
-  return static_cast<uint8_t>(mode) <= 3U;
-}
-
 // ----------------
-
-// 显式实例化：按项目实际使用的串口类型生成
-template class DeviceEmmv5T<BspUartT<uart_detail::DmaTransport, 128, 128>>;
-template class DeviceEmmv5T<BspUartT<uart_detail::ItTransport, 128, 32>>;

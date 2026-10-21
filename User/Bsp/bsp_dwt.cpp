@@ -23,7 +23,7 @@ Status BspDwt::init()
   }
   DWT->CYCCNT = 0U; // 6. 稳定后再清零
 
-  _cpu_hz   = cpu_clock_hz();
+  _cpu_hz   = get_cpu_clock_hz();
   _round_s  = 4294967296.0 / (double)_cpu_hz; // 2^32 / CPU 时钟
   _base_s   = 0.0;
   _last_cnt = 0U;
@@ -35,7 +35,7 @@ Status BspDwt::init()
 }
 
 /** @brief 与上次调用的时间差（秒）；无符号差值，回绕安全 */
-double BspDwt::delta_s(uint32_t *last) const
+double BspDwt::get_delta_s(uint32_t *last) const
 {
   const uint32_t now = DWT->CYCCNT;
   const double   dt  = (double)(uint32_t)(now - *last) / (double)_cpu_hz; // 无符号差值 ⇒ 回绕安全
@@ -132,7 +132,7 @@ uint32_t BspDwt::update_timeline()
  *
  * @note D1CPRE 的编码与 AHB 预分频 HPRE 相同：0xx=/1，1000=/2 … 1111=/512。
  */
-uint32_t BspDwt::cpu_clock_hz()
+uint32_t BspDwt::get_cpu_clock_hz()
 {
   // D1CPRE 的编码与 AHB 预分频 HPRE 相同：0xx=/1，1000=/2 … 1111=/512
   static const uint16_t div_tbl[8] = {2U, 4U, 8U, 16U, 64U, 128U, 256U, 512U};

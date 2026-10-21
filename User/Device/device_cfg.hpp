@@ -35,8 +35,10 @@ void device_init(void);
 // ----------------
 // ---------------- 全局声明 ----------------
 
+// 新增设备要改三处：这里的 extern → device_cfg.cpp 的实例定义 →
+// 对应设备 .cpp 顶部的显式模板实例化（串口类型必须与 bsp_cfg.hpp 一致）。
 extern DeviceBuzzer  buzzer;         ///< 蜂鸣器，绑定 BSP 层的 bsp_pwm_buzzer
-extern DjiMotorGroup can3_dji_group; ///< CAN3 上的 DJI 电机组，成员表见 device_cfg.cpp
+extern DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group; ///< CAN3 上的 DJI 电机组，成员表见 device_cfg.cpp
 extern DeviceR9dsT<decltype(bsp_uart_it5)> r9ds; ///< R9DS 遥控接收机（UART5，中断接收）
 
 /// 张大头 EmmV5.0 单电机：UART7，地址 1（单串口单电机）

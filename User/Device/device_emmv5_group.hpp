@@ -14,53 +14,20 @@
  *          3. 汇总到位位图、0x36 位置、0x3A 状态；
  *          4. 每台电机维护一个 Online 节点，判定“最近是否收到过有效应答”。
  *
- *          它不创建全局表、不管理信号量，但会在 init() 时创建一个**内部 RX 任务**：
- *          该任务每 10 ms 调一次 update()，按地址把字节分发给组内各电机。
- *          任务入口是本类独有的静态函数，地址与 DeviceEmmv5 不同。
+ * @note 建议阅读顺序：Config / init() → 直接命令 → MMCL 三件套 → get_* / is_online → 接收实现。
+ *       `init()` 会创建一个**内部 RX 任务**（10 ms，优先级 +6），由它独占本路串口的接收。
+ *       扫描器与超时模型、MMCL 容量算术、线程约束见同目录 README.md。
  *
- * @note 扫描器与超时模型：
- *
- *       - `update()` 只做“读字节 + 按地址分发”，非阻塞；由内部 RX 任务推进；
- *       - 每台电机各自有到位帧 / 0x36 / 0x3A 三个扫描器，命中后锁存；
- *       - 位置/状态用 `take_position()` / `take_status()` 取走，取后清有效标志；
- *       - 任意一台收到有效应答都会刷新它自己的 Online 节点；
- *       - Online 阈值 **100 ms**，计时由 sys_task 里的 `Online::update()` 统一推进；
- *       - 查询周期应小于 100 ms，否则“没被问”的电机也会显示离线。
- *
- * @note 适用场景：**一路串口接多台电机**。一路串口只接一台时用 DeviceEmmv5。
- *
- * @note 初始化（实例一般写在 device_cfg.cpp）：
- *
- *       DeviceEmmv5GroupT group({bsp_uart4, {1, 2, 3}});  // 串口 + 地址表
- *       group.init();
- *
- * @note 普通命令（直接发给某个地址）：
- *
- *       group.enable(1, true);
- *       group.set_velocity(2, emmv5::Direction::CW, 800, 50);
- *
- * @note MMCL 多机命令：先装子命令，再统一广播：
- *
- *       group.multi_clear();
- *       group.queue_enable(1, true);
- *       group.queue_enable(2, true);
- *       group.queue_velocity(1, emmv5::Direction::CW, 500, 50);
- *       group.queue_velocity(2, emmv5::Direction::CCW, 500, 50);
- *       group.multi_send();
- *
- * @note 周期接收由内部 RX 任务完成，业务层直接取结果即可：
- *
- *       uint32_t latch = group.take_in_position();   // 取走累计到位并清零
- *
- *       int32_t position = 0;
- *       if (group.take_position(1, position)) { ... } // 新到的 0x36 位置
+ * @note 扫描器与超时模型：每台电机各有到位帧 / 0x36 / 0x3A 三个扫描器，命中后锁存；
+ *       任意一台收到有效应答都会刷新它自己的 Online 节点（阈值 **100 ms**，由 `sys_task` 推进）。
+ *       查询周期应小于 100 ms，否则“没被问”的电机也会显示离线。
  *
  * @warning update() 只能由内部 RX 任务调用；本类必须是这路串口唯一的接收消费者。
- *          take_* / 发送接口可从其他任务调用，但 **MMCL 缓冲（multi_clear、queue_ 系列、multi_send）
+ *          get_* / 发送接口可从其他任务调用，但 **MMCL 缓冲（multi_clear、queue_ 系列、multi_send）
  *          必须由同一个任务串行操作**，否则子命令会互相拼接。
  * @warning 本对象必须是全局/静态生命周期；不要在 RX 任务自身里销毁对象。
  * @warning MMCL 子命令总字节数最多 123（发送流缓冲区 128 字节的整帧上限）；
- *          queue_* 放不下时返回 FULL，不会留下半条子命令。
+ *          queue_* 放不下时返回 FULL，不会留下半条子命令。完整用法见 README.md。
  */
 
 #ifndef __DEVICE_EMMV5_GROUP_HPP__
@@ -175,7 +142,7 @@ public:
   }
 
   ///< 组内电机数（未 init 时返回 0）
-  size_t count() const
+  size_t get_count() const
   {
     return _ready ? _count : 0U;
   }
@@ -204,41 +171,8 @@ public:
   ///< 广播立即停止（地址 0）
   Status stop_all();
 
-  ///< 触发回零
-  Status home(uint8_t addr, emmv5::HomingMode mode);
-
   ///< 将某个电机当前位置清零
   Status zero_position(uint8_t addr);
-
-  ///< 触发编码器校准
-  Status calibrate_encoder(uint8_t addr);
-
-  ///< 解除堵转保护
-  Status clear_stall(uint8_t addr);
-
-  ///< 重启电机
-  Status reset(uint8_t addr);
-
-  ///< 恢复出厂设置
-  Status restore_defaults(uint8_t addr);
-
-  ///< 强制中断并退出回零
-  Status abort_home(uint8_t addr);
-
-  ///< 修改细分值
-  Status set_microstep(uint8_t addr, bool store, uint8_t microstep);
-
-  ///< 修改电机运动正方向
-  Status set_motor_direction(uint8_t addr, bool store, emmv5::Direction dir);
-
-  ///< 修改开环/闭环控制模式
-  Status set_control_mode(uint8_t addr, bool store, emmv5::ControlMode mode);
-
-  ///< 修改位置到达窗口（单位 0.1°）
-  Status set_position_window(uint8_t addr, bool store, uint16_t window);
-
-  ///< 修改过热过流保护阈值
-  Status set_protection(uint8_t addr, bool store, uint16_t over_temp_c, uint16_t over_current_ma, uint16_t detect_ms);
 
   /**
    * @brief 读取一次系统参数
@@ -287,9 +221,6 @@ public:
   ///< 追加「立即停止」子命令
   Status queue_stop(uint8_t addr);
 
-  ///< 追加「回零」子命令
-  Status queue_home(uint8_t addr, emmv5::HomingMode mode);
-
   // ----------------
   // ---------------- 接收 ----------------
 
@@ -297,12 +228,12 @@ public:
    * @brief 取走累计的到位位图并清零
    * @return bit i = 下标 i 的电机自上次取走后至少到位过一次
    */
-  uint32_t take_in_position();
+  uint32_t get_in_position();
 
   /**
    * @brief 查询某个电机是否累计到位（不清零）
    * @param index 下标（0 ~ count()-1，顺序与 Config 里的地址表一致）
-   * @return true=自上次 take_in_position() 后至少到位过一次
+   * @return true=自上次 get_in_position() 后至少到位过一次
    */
   bool in_position(size_t index) const;
 
@@ -314,7 +245,7 @@ public:
    *
    * @note 读后清有效标志；数值与标志在短临界区内一起拷贝，允许在其他任务调用。
    */
-  bool take_position(uint8_t addr, int32_t &out);
+  bool get_position(uint8_t addr, int32_t &out);
 
   /**
    * @brief 取走某台电机最近一次 0x3A 状态字节
@@ -322,7 +253,7 @@ public:
    * @param out  状态字节（位定义见说明书 6.3.4）
    * @return true=有新数据；false=没有新数据或地址不在组内
    */
-  bool take_status(uint8_t addr, uint8_t &out);
+  bool get_status(uint8_t addr, uint8_t &out);
 
   /**
    * @brief 某台电机最近 100 ms 内是否收到过有效应答
@@ -395,17 +326,14 @@ private:
   ///< 方向枚举合法性
   static bool _valid_direction(emmv5::Direction dir);
 
-  ///< 回零模式合法性（0~3）
-  static bool _valid_homing(emmv5::HomingMode mode);
-
-  ///< 控制模式合法性（0~3）
-  static bool _valid_control_mode(emmv5::ControlMode mode);
-
   ///< 发布位置（短临界区）
   void _publish_position(size_t index, int32_t position);
 
   ///< 发布状态（短临界区）
   void _publish_status(size_t index, uint8_t status);
+
+  ///< 设置累计到位标志（短临界区）
+  void _publish_in_position(size_t index);
 
   ///< 地址 → 下标；不在组内返回 _count
   size_t index_of(uint8_t addr) const;

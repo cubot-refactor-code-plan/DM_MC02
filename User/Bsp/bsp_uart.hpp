@@ -12,39 +12,13 @@
  * @details 本文件只提供一个通用模板 BspUartT<Transport, RX_SIZE, TX_SIZE>：
  *          流缓冲区、发送状态机、诊断计数与恢复流程共用，底层 DMA / 中断由 Transport 选择。
  *          具体实例放在 bsp_cfg.hpp / bsp_cfg.cpp。
+ *          收发时序、诊断表与新增串口步骤见同目录 README.md。
  *
- * @note 用法：DMA 和 IT 模式共用，外部调用没有区别。
+ * @note 用法：DMA 和 IT 模式共用，外部调用没有区别。接收是字节流（不保证整帧），
+ *       发送返回 OK 只表示整帧已进流缓冲区；所有超时参数单位都是毫秒，portMAX_DELAY 表示一直等。
  *
- *   // 1) 模板实例化在 bsp_uart.cpp
- *   template class BspUartT<uart_detail::DmaTransport, 128, 128>;
- *   template class BspUartT<uart_detail::ItTransport, 128, 32>;
- *
- *   // 2) 全局实例在 bsp_cfg.cpp：句柄 + 模式 + 波特率
- *   // DMA 实例的缓冲区要被 DMA 访问，放 .dma_buffer（RAM_D1）
- *   __attribute__((section(".dma_buffer")))
- *   BspUartT<uart_detail::DmaTransport, 128, 128>
- *     bsp_uart1({&huart1, UartMode::TxRx, 115200});
- *
- *   // 中断实例只由 CPU 访问，放普通 .bss 即可
- *   BspUartT<uart_detail::ItTransport, 128, 32>
- *     bsp_uart_it5({&huart5, UartMode::RxOnly, 100000});
- *
- *   // 3) init() 在 bsp_init() 里统一调用（必须在调度器启动之后）
- *   bsp_uart1.init();
- *
- *   // 4) 收发
- *   bsp_uart1.send(buffer, 8);           // 写进发送流缓冲区，由 Transport 发出去
- *   bsp_uart1.printf("val=%d\r\n", 42);  // 格式化输出（非阻塞）
- *   bsp_uart1.receive(buffer, 8);        // 从接收流缓冲区读，读走的字节会从缓冲区移除
- *
- *   // 5) 设备层只把串口当作模板参数传入；声明处也用 decltype 保持类型一致
- *   DeviceEmmv5T<decltype(bsp_uart7)> emm_motor1({bsp_uart7, 1});
- *   DeviceR9dsT<decltype(bsp_uart_it5)> r9ds(bsp_uart_it5);
- *
- * @note 多个任务同时写同一个串口是安全的：send() 用 _tx_lock 把「判忙 → 取包 → 启动发送」
- *       串起来，printf() 另有 _printf_lock 保护格式化缓冲，两者不会互相覆盖。
- *
- * @note 所有超时参数单位都是毫秒；传 portMAX_DELAY 表示一直等。
+ * @note 多任务同时写同一个串口是安全的：send() 用 _tx_lock 串行化「判忙 → 取包 → 启动发送」，
+ *       printf() 另有 _printf_lock 保护格式化缓冲。
  */
 
 #ifndef __BSP_UART_HPP__
@@ -136,7 +110,8 @@ public:
    * @brief RX 的健康状态
    *
    * @note 只信 HAL 的 RxState 是不够的：底层通道可能已经停了，而 HAL 状态还没更新。
-   *       具体检查项由 Transport 决定：DMA 看 CR3.DMAR 与 DMA EN，中断看 RXNEIE/IDLEIE。
+   *       具体检查项由 Transport 决定：DMA 看 CR3.DMAR 与 DMA EN；
+   *       中断看 IDLEIE 加上 RXNEIE（FIFO 模式则是 CR3.RXFTIE）。
    */
   enum class RxHealth : uint8_t
   {
@@ -218,7 +193,7 @@ public:
   Status receive(uint8_t *buffer, size_t size, uint32_t timeout = portMAX_DELAY, size_t *received = nullptr);
 
   /**
-   * @brief TX 卡死后的恢复：缓冲区里还有数据，却长时间没有推进，就复位通道重发
+   * @brief TX 卡死后的恢复：还有在途或待发数据，却长时间没有推进，就复位通道重发
    *
    * @note 多久算"长时间"：取一包发完所需时间的 2 倍，按 Config::baudrate 算出来。
    *       正常发送时每发一包都会刷新 _tx_last_activity_tick，所以不会把正常发送误判成卡死。
@@ -233,12 +208,12 @@ public:
   /**
    * @brief RX 异常时的恢复：复位接收通道，再重新启动
    *
-   * @note 触发条件：本该在收（_rx_should_run 为 true），但三处状态不一致。
+   * @note 触发条件：本该在收（_rx_should_run 为 true），但 Transport 报告的状态不是 OK。
    *       一切正常时本函数只读一次状态就返回，不会打断正在收的数据。
    * @note 必须放在任务里：复位接收要调阻塞版的 HAL_UART_AbortReceive()，中断里不能用。
    *       所以中断里出错只累加计数，真正的修复由本函数在 10 ms 内完成。
    *
-   * @return true=这次确实重建了一次（累计次数见 rx_diag().error_cnt）
+   * @return true=这次确实重建了一次（累计次数见 get_rx_diag().error_cnt）
    */
   bool rx_recover();
   // ----------------
@@ -283,22 +258,20 @@ public:
   bool check_format(uint32_t baudrate, uint32_t word_length, uint32_t parity, uint32_t stop_bits) const;
 
   /**
-   * @brief 查 RX 是不是真的在收（核对 RxHealth 里说的那三处状态）
+   * @brief 查 RX 是不是真的在收（逐项核对 Transport 的健康判据）
    *
    * @note 本该在收的时候返回非 OK，说明出了故障；本来就没在收（主动停的）不算。
    */
-  RxHealth rx_health() const;
+  RxHealth get_rx_health() const;
 
   /** @brief 读 RX 诊断计数 */
-  RxDiag rx_diag() const;
+  RxDiag get_rx_diag() const;
 
   /** @brief 读 TX 诊断计数 */
-  TxDiag tx_diag() const;
+  TxDiag get_tx_diag() const;
   // ----------------
 private:
-  // ---------------- 私有实现 ----------------
-
-  // 成员变量
+  // ---------------- 成员变量 ----------------
 
   UART_HandleTypeDef  *_huart;                      ///< UART 句柄
   StreamBufferHandle_t _rx_stream_buffer = nullptr; ///< 接收流缓冲区
@@ -330,7 +303,8 @@ private:
 
   volatile size_t _tx_inflight_len = 0; ///< 当前交给 Transport 在传的字节数，卡死后据此续发
 
-  // 内部实现
+  // ----------------
+  // ---------------- 内部实现 ----------------
 
   /** @brief 当前配置是否启用发送 */
   bool _tx_enabled() const

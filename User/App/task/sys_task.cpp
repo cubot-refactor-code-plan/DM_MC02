@@ -15,7 +15,7 @@ constexpr uint32_t SYS_TASK_PERIOD_MS = 10U;
 BspUartT<uart_detail::DmaTransport, 128, 128> *const patrol_uarts[] = {&bsp_uart1, &bsp_uart2, &bsp_uart3, &bsp_uart4, &bsp_uart7, &bsp_uart9, &bsp_uart10};
 
 // CAN 组（收发由各设备任务负责，这里只做总线级补救）
-BspCan *const patrol_cans[] = {&bsp_can1, &bsp_can2, &bsp_can3};
+BspCanT<16, 16> *const patrol_cans[] = {&bsp_can1, &bsp_can2, &bsp_can3};
 
 
 extern "C" void sys_task(void *argument)
@@ -31,7 +31,7 @@ extern "C" void sys_task(void *argument)
 
     // 本轮计时基准（无状态，首次结果丢弃）
     uint32_t mark = 0U;
-    bsp_dwt.delta_s(&mark);
+    bsp_dwt.get_delta_s(&mark);
 
     // CAN 补救：日常收发由各设备任务负责，这里只补丢唤醒与 Bus-Off
     for (auto *can : patrol_cans)
@@ -60,7 +60,7 @@ extern "C" void sys_task(void *argument)
     if(count == 200)
     {
       // 本轮耗时（µs）：从循环开头到这里，经 USART1 打印
-      bsp_uart1.printf("[sys] cycle=%uus\r\n",static_cast<unsigned>(bsp_dwt.delta_s(&mark) * 1000000.0));
+      bsp_uart1.printf("[sys] cycle=%uus\r\n",static_cast<unsigned>(bsp_dwt.get_delta_s(&mark) * 1000000.0));
       count = 0;
     }
 

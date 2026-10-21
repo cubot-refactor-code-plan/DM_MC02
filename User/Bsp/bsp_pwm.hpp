@@ -9,22 +9,11 @@
  *
  * @details 一个实例 = 一个定时器的一个 PWM 通道，只负责「设占空比 / 设脉宽 / 设频率 / 关断」。
  *          定时器时钟、PSC、ARR 全部由使用方从 CubeMX 生成的配置里抄进 Config，
- *          驱动本身不写死任何硬件常量，换板子只改实例化处的参数。
+ *          驱动本身不写死任何硬件常量，换板子只改实例化处的参数。实例见 bsp_cfg.cpp。
  *
- * @note 本板实例（见 bsp_cfg.cpp，参数取自 CubeMX；定时器时钟 275 MHz = APB1/APB2 137.5 MHz × 2）：
- *
- *       bsp_pwm1        TIM1_CH3   PE13   排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
- *       bsp_pwm2        TIM1_CH1   PE9    排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
- *       bsp_pwm3        TIM2_CH3   PA2    排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
- *       bsp_pwm4        TIM2_CH1   PA0    排针预留（舵机 50 Hz / 20 ms，1 计数 = 1 µs）
- *       bsp_pwm_gyro    TIM3_CH4   PB1    陀螺仪
- *       bsp_pwm_buzzer  TIM12_CH2  PB15   无源蜂鸣器（由 Device 层 DeviceBuzzer 使用）
- *
- * @note 用法（占空比是 0~100 的浮点值；脉宽接口对舵机更直观）：
- *
- *       bsp_pwm1.set_duty(7.5f);         // 占空比 7.5%
- *       bsp_pwm1.set_pulse_us(1500.0f);  // 舵机中位：1.5 ms 高电平
- *       bsp_pwm1.off();                  // 关断（CCR=0，引脚保持低电平）
+ * @note 本板舵机通道 PSC = 274、ARR = 19999（275 MHz 定时器时钟 → 1 MHz 计数、50 Hz 周期），
+ *       因此 1 个计数正好 1 µs，set_pulse_us(1500.0f) 就是 1500 个计数。
+ *       换算式与通道共用 ARR 的后果见同目录 README.md。
  *
  * @warning 同一定时器的多个通道共用计数器与 ARR：set_freq() 会同时改变该定时器
  *          所有通道的频率（例如 TIM1 的 PE9 与 PE13 必须同频）。
@@ -120,16 +109,16 @@ public:
   void off();
 
   /** @brief 当前生效的占空比 (%) */
-  float duty_pct() const;
+  float get_duty_pct() const;
 
   /** @brief 计数器时钟 (Hz) = timer_clk_hz / (prescaler + 1) */
-  uint32_t counter_clk_hz() const;
+  uint32_t get_counter_clk_hz() const;
 
   /** @brief 当前一个周期的计数个数（ARR + 1） */
-  uint32_t period_cnt() const;
+  uint32_t get_period_cnt() const;
 
   /** @brief 当前频率 (Hz) = 计数器时钟 / 周期计数 */
-  uint32_t freq_hz() const;
+  uint32_t get_freq_hz() const;
 
   // ----------------
 private:

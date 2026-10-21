@@ -81,14 +81,14 @@ int32_t pulses_of(int32_t counts)
  * @brief 读两台当前位置
  * @return false = 50 ms 内没凑齐两台回帧
  *
- * 接收由 emm_group 的内部 RX 任务推进，这里只发 0x36 请求再轮询 take_position()。
+ * 接收由 emm_group 的内部 RX 任务推进，这里只发 0x36 请求再轮询 get_position()。
  */
 bool read_both(int32_t pos[MOTORS])
 {
   for (size_t i = 0; i < MOTORS; i++)
   {
     int32_t stale = 0;
-    (void)emm_group.take_position(ADDR[i], stale); // 丢掉上一段留下的旧值
+    (void)emm_group.get_position(ADDR[i], stale); // 丢掉上一段留下的旧值
     (void)emm_group.request_position(ADDR[i]);
   }
 
@@ -100,7 +100,7 @@ bool read_both(int32_t pos[MOTORS])
     bool all = true;
     for (size_t i = 0; i < MOTORS; i++)
     {
-      got[i] = got[i] || emm_group.take_position(ADDR[i], pos[i]);
+      got[i] = got[i] || emm_group.get_position(ADDR[i], pos[i]);
       all    = all && got[i];
     }
 
@@ -200,7 +200,7 @@ void move_both(const int32_t pulses[MOTORS], const char *tag)
     for (size_t i = 0; i < MOTORS; i++)
     {
       int32_t pos = 0;
-      if (emm_group.take_position(ADDR[i], pos) && !arrived[i])
+      if (emm_group.get_position(ADDR[i], pos) && !arrived[i])
       {
         const int32_t off  = (pos - base[i]) - target[i]; // 离目标还差多少
         const int32_t step = pos - prev[i];               // 这两次采样动了多少

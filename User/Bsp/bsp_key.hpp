@@ -17,46 +17,14 @@
  *       - NONE:  无事件（常态，多数轮询返回此值）
  *       - PRESS: 按下（消抖确认那一刻触发一次）
  *       - SHORT: 短按触发（按下后在长按阈值内松手 → 触发一次）
- *       - LONG:  长按触发（按住达到 long_press_cnt × T → 触发一次）
+ *       - LONG:  长按触发（按住达到 long_press_cnt × T → 触发一次，松手不再产生 SHORT）
  *
  * @note 使用约束:
  *       1. poll() 必须在【同一个任务】中周期性调用，本类非线程安全；
  *       2. init() 以当前电平作为初始稳定状态：上电时若按键已被按住，
  *          不会产生 PRESS（防误触发），直接从"已按下"状态开始计时。
  *       3. 未 init()（或 init() 失败）时，poll() / read_raw() 安全返回，不会崩溃。
- *
- * @note 使用示例 —— 简易按键扫描 + 测试：
- *
- *   // ── 1. 配置：低有效(上拉)，2×50ms = 100ms 消抖，20×50ms = 1s 长按 ──
- *   BspKey key;
- *   key.init({KEY_GPIO_Port, KEY_Pin, true, 2, 20});
- *
- *   // ── 2. 扫描任务：每 50ms 轮询一次 ──
- *   void key_test_task()
- *   {
- *     for (;;)
- *     {
- *       switch (key.poll())                // 无事件时返回 NONE
- *       {
- *         case BspKey::Event::PRESS:       // 按下（消抖确认）
- *           buzzer.beep(3000, 50);         // 鸣叫 50 ms
- *           break;
- *         case BspKey::Event::SHORT:       // 短按：阈值内松手
- *           buzzer.beep(2000, 50);
- *           break;
- *         case BspKey::Event::LONG:        // 长按：按住 1s，仅触发一次
- *           buzzer.beep(4000, 500);        // 鸣叫 500 ms
- *           break;                         
- *         case BspKey::Event::NONE:
- *         default:
- *           break;
- *       }
- *       vTaskDelay(pdMS_TO_TICKS(50));   // 50ms 轮询周期
- *     }
- *   }
- *
- *   // ── 3. 创建任务（须在 FreeRTOS 内核启动后，如 bsp_init() 或默认任务中）──
- *   xTaskCreate(key_test_task, "key_test", 256, nullptr, 2, nullptr);
+ *       状态机与用法见同目录 README.md。
  */
 
 #ifndef __BSP_KEY_HPP__
