@@ -12,7 +12,7 @@
  * @details 本文件只提供一个通用模板 BspUartT<Transport, RX_SIZE, TX_SIZE>：
  *          流缓冲区、发送状态机、诊断计数与恢复流程共用，底层 DMA / 中断由 Transport 选择。
  *          具体实例放在 bsp_cfg.hpp / bsp_cfg.cpp。
- *          收发时序、诊断表与新增串口步骤见同目录 README.md。
+ *          收发时序、诊断表与新增串口步骤见 bsp_uart.md。
  *
  * @note 用法：DMA 和 IT 模式共用，外部调用没有区别。接收是字节流（不保证整帧），
  *       发送返回 OK 只表示整帧已进流缓冲区；所有超时参数单位都是毫秒，portMAX_DELAY 表示一直等。

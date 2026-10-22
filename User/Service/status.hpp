@@ -19,7 +19,7 @@
  *       未 init 时除 init() 外全部接口安全返回。
  *
  * @note 分层约定：只给「维护多个对象的系统」用；单个设备不许引用它，失败只 return Status。
- *       生命周期、错误传播与已知局限见同目录 README.md 与 Docs/guide/系统状态标志原理.md。
+ *       生命周期、错误传播与已知局限见同目录 status.md 与 Docs/guide/系统状态标志原理.md。
  */
 
 #ifndef __SERVICE_STATUS_HPP__

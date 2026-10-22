@@ -10,7 +10,7 @@
  *        每一条驱动的 init() 都已在下面用 configASSERT 验过，失败就地停机，因此本函数无返回值。
  *        串口的模板实例化在 bsp_uart.cpp，其余 BSP 全局实例都在本文件定义。
  *
- *        初始化顺序：DWT → CAN×3 → UART×9 → PWM×6 → 按键；实例与绑定资源见 README.md。
+ *        初始化顺序：DWT → CAN×3 → UART×9 → PWM×6 → 按键；实例与绑定资源见 bsp_cfg.md。
  */
 void bsp_init(void)
 {
@@ -69,7 +69,7 @@ BspCanT<16, 16> bsp_can3({&hfdcan3, "CAN3"});
  *
  * @note .dma_buffer 段落在 RAM_D1（DTCM 不能被 DMA 访问）；中断实例不强制，bsp_uart8 沿用该段。
  * @note Config::baudrate 只用于估算 TX 卡死阈值；真正的波特率与帧格式由 CubeMX 写进 huartX，
- *       本驱动不改一个字段。实例分工与收发链见 README.md。
+ *       本驱动不改一个字段。实例分工与收发链见 bsp_uart.md。
  */
 __attribute__((section(".dma_buffer")))
 BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart1({&huart1, UartMode::TxRx, 115200U});

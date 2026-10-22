@@ -13,7 +13,7 @@
  *
  * @note 帧格式：地址(1) + 功能码(1~2) + 数据(0~N，多字节一律大端) + 校验(1，固定 0x6B)。
  *       建议阅读顺序：常量/枚举 → Frame → 三个 Scanner → build_multi_frame → 各命令工厂。
- *       功能码表、加速度换算公式、MMCL 布局与扫描器行为见同目录 README.md。
+ *       功能码表、加速度换算公式、MMCL 布局与扫描器行为见同目录 emmv5_protocol.md。
  */
 
 #ifndef __EMMV5_PROTOCOL_HPP__

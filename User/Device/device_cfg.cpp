@@ -14,14 +14,15 @@ DeviceBuzzer buzzer(bsp_pwm_buzzer);
 // 当前挂 2 台 GM6020（必须电流模式）：
 //   位置 4 → 反馈 0x205（电调 ID 1）→ 控制帧 0x1FE 槽 0
 //   位置 9 → 反馈 0x20A（电调 ID 6）→ 控制帧 0x2FE 槽 1
-// 位置 / 电调 ID / 控制帧对照表见 README.md。
+// 位置 / 电调 ID / 控制帧对照表见 dji_motor_group.md。
 static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_1 {DjiMotorModel::GM6020};
 static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_6 {DjiMotorModel::GM6020};
 
-DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group({&bsp_can3,
-                                                   nullptr, nullptr, nullptr, nullptr,
-                                                   &gm6020_1, nullptr, nullptr, nullptr,
-                                                   nullptr, &gm6020_6, nullptr});
+DjiMotorGroupT<decltype(bsp_can3)>
+ can3_dji_group({&bsp_can3,        
+  nullptr, nullptr, nullptr, nullptr,
+  &gm6020_1, nullptr, nullptr, nullptr,
+  nullptr, &gm6020_6, nullptr});
 
 // R9DS 遥控接收机：走 UART5（SBUS，100000/8E2 + 外部反相），由 bsp_uart_it5 中断接收，不占 DMA。
 // 四个摇杆的零飘偏移用默认全 0：死区已经把"没动杆但不在 1000"处理掉了。
@@ -37,7 +38,7 @@ DeviceEmmv5GroupT<decltype(bsp_uart2)> emm_group({bsp_uart2, {1, 2}});
 // 舵机：BSP 层那 4 路排针 PWM 已配成 50 Hz / 20 ms、1 计数 = 1 µs，脉宽可直接按 µs 填。
 // Config 参数顺序 = {通道, 脉宽下限, 脉宽上限, 行程, 限速, 加速度, 反向, 微调}。
 // ⚠ 脉宽端点与限速/加速度是**占位值，等实机标定**；限速写 0 = 不限速。
-// ⚠ 必须由同一个任务周期调用 servoN.update()（唯一的脉宽写入者），详见 README.md。
+// ⚠ 必须由同一个任务周期调用 servoN.update()（唯一的脉宽写入者），详见 device_servo.md。
 DeviceServo servo1({&bsp_pwm1, 600.0f, 2400.0f, 270.0f, 0.0f, 0.0f});
 DeviceServo servo2({&bsp_pwm2, 500.0f, 2500.0f, 180.0f, 300.0f, 1500.0f});
 DeviceServo servo3({&bsp_pwm3, 500.0f, 2500.0f, 180.0f, 300.0f, 1500.0f});

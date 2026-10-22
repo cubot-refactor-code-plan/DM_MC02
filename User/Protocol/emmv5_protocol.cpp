@@ -4,7 +4,7 @@
 
 
 // EmmV5.0 协议编码 / 解码。帧格式、功能码表、加速度时间公式与 MMCL 布局见
-// User/Protocol/README.md；本文件只按手册的字节顺序拼帧、按窗口切帧。
+// User/Protocol/emmv5_protocol.md；本文件只按手册的字节顺序拼帧、按窗口切帧。
 
 
 namespace

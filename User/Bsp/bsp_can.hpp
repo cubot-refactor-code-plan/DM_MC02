@@ -18,7 +18,7 @@
  *       同一条总线的接收缓冲**只允许一个消费者**，多个任务调用 receive() 会互相抢帧。
  *
  * @note 总线恢复：tx_recover() / service_recovery() 由 sys_task 每 10 ms 调用（非阻塞）。
- *       运行状态用公开成员 diagnostics 查询；收发链与诊断含义见同目录 README.md。
+ *       运行状态用公开成员 diagnostics 查询；收发链与诊断含义见 bsp_can.md。
  */
 
 #ifndef __BSP_CAN_HPP__

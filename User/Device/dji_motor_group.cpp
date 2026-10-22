@@ -270,7 +270,7 @@ bool DjiMotorGroupT<CanT>::has_motor(uint8_t index) const
  * @note 数据域（高字节在前）：[0:2] 转子机械角 0~8191；[2:4] **转子**转速 int16 (rpm)；
  *       [4:6] 实际转矩电流；[6] 温度；[7] 保留。
  *       换算链：累计计数 → ×2π/8192 → 转子角 → (−offset)/ratio → 输出轴角；
- *       rpm/ratio × π/30 → 输出轴 rad/s。完整表格与算例见 README.md。
+ *       rpm/ratio × π/30 → 输出轴 rad/s。完整表格与算例见 dji_motor_group.md。
  *
  * @note 不在这里算角加速度：跨帧量、差分噪声大，radian_data.acceleration 保持 0，由上层决定。
  */

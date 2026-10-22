@@ -13,7 +13,7 @@
  *          init() 把限幅 / 减速比 / 零位 / 控制帧 / 槽位一次算进 Slot，热路径不再看型号。
  *
  * @note 位置 4~7 是混挂区：3508/2006 归 0x1FF，GM6020 归 0x1FE；反馈标识符相同，
- *       接收侧零额外判断。完整的位置-电调 ID 对照表、解析公式与算例见同目录 README.md。
+ *       接收侧零额外判断。完整的位置-电调 ID 对照表、解析公式与算例见 dji_motor_group.md。
  *
  * @note 装车前要在 RoboMaster Assistant 里给每台电调设 ID。**电调 ID 与「位置」不是同一个数**
  *       （同一位置 4~7，3508/2006 的 ID 是 5~8，GM6020 的 ID 是 1~4）。
@@ -335,7 +335,7 @@ private:
    * @return 本帧的累计计数
    *
    * @note 判断依据：相邻两帧的转子位移必然小于半圈。差值超过半圈即认为跨过零点，
-   *       按反方向补/减一整圈（算例见 README.md）。
+   *       按反方向补/减一整圈（算例见 dji_motor_group.md）。
    */
   static int64_t unwrap_ecd(int64_t total, int32_t last, int32_t now, uint16_t range)
   {

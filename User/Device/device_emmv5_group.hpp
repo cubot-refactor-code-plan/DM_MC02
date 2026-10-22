@@ -16,7 +16,7 @@
  *
  * @note 建议阅读顺序：Config / init() → 直接命令 → MMCL 三件套 → get_* / is_online → 接收实现。
  *       `init()` 会创建一个**内部 RX 任务**（10 ms，优先级 +6），由它独占本路串口的接收。
- *       扫描器与超时模型、MMCL 容量算术、线程约束见同目录 README.md。
+ *       扫描器与超时模型、MMCL 容量算术、线程约束见 device_emmv5_group.md。
  *
  * @note 扫描器与超时模型：每台电机各有到位帧 / 0x36 / 0x3A 三个扫描器，命中后锁存；
  *       任意一台收到有效应答都会刷新它自己的 Online 节点（阈值 **100 ms**，由 `sys_task` 推进）。
@@ -27,7 +27,7 @@
  *          必须由同一个任务串行操作**，否则子命令会互相拼接。
  * @warning 本对象必须是全局/静态生命周期；不要在 RX 任务自身里销毁对象。
  * @warning MMCL 子命令总字节数最多 123（发送流缓冲区 128 字节的整帧上限）；
- *          queue_* 放不下时返回 FULL，不会留下半条子命令。完整用法见 README.md。
+ *          queue_* 放不下时返回 FULL，不会留下半条子命令。完整用法见 device_emmv5_group.md。
  */
 
 #ifndef __DEVICE_EMMV5_GROUP_HPP__

@@ -28,7 +28,7 @@
  * @warning 命令帧的发送失败会通过 Status 返回；上层如果只关心控制周期，可以忽略返回值，
  *          失败计数在 BspUartT::get_tx_diag() 里查。
  *
- * @note 一路串口挂多台电机（地址不同）时改用 DeviceEmmv5GroupT；完整收发链与约束见 README.md。
+ * @note 一路串口挂多台电机（地址不同）时改用 DeviceEmmv5GroupT；完整收发链与约束见 device_emmv5.md。
  */
 
 #ifndef __DEVICE_EMMV5_HPP__
