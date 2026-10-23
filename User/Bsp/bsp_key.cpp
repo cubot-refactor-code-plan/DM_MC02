@@ -56,7 +56,7 @@ Status BspKey::init(const Config &cfg)
  *
  * @return 本次触发的事件（多数情况是 NONE）
  */
-BspKey::Event BspKey::poll()
+BspKey::Event BspKey::update()
 {
   // 未 init() / init() 失败：安全返回，避免空指针解引用导致 HardFault
   if (_port == nullptr)

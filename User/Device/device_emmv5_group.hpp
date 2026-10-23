@@ -1,33 +1,21 @@
 /**
  * @file device_emmv5_group.hpp
  * @author Rh
- * @brief 张大头 EmmV5.0 多电机组（单串口多电机 + MMCL 多机命令）
- * @version 1.1
- * @date 2026-10-18
+ * @brief EmmV5 多电机组（单串口多电机 + MMCL 多机命令）
+ * @version 1.2
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2026
  *
- * @details 一个实例 = 一路串口 + 若干个电机地址。它只做四件事：
+ * @note 一个实例 = 一路串口 + 若干个电机地址：按地址分发接收、把多条子命令攒成
+ *       MMCL 总帧一次发出、汇总到位位图 / 位置 / 状态、维护每台电机的在线节点。
+ *       扫描器与超时模型、MMCL 容量算术、线程与总线锁约束见 `device_emmv5_group.md`。
  *
- *          1. 从串口读字节，按地址分发给组内各电机；
- *          2. 把多条子命令攒成 MMCL 总帧，通过广播地址一次发出；
- *          3. 汇总到位位图、0x36 位置、0x3A 状态；
- *          4. 每台电机维护一个 Online 节点，判定“最近是否收到过有效应答”。
+ * @note **本类不创建任务**：字节搬运靠外部任务周期调 `update()`（建议 10 ms），
+ *       与 `bsp_can` / `device_r9ds` / `dji_motor_group` 保持一致。
  *
- * @note 建议阅读顺序：Config / init() → 直接命令 → MMCL 三件套 → get_* / is_online → 接收实现。
- *       `init()` 会创建一个**内部 RX 任务**（10 ms，优先级 +6），由它独占本路串口的接收。
- *       扫描器与超时模型、MMCL 容量算术、线程约束见 device_emmv5_group.md。
- *
- * @note 扫描器与超时模型：每台电机各有到位帧 / 0x36 / 0x3A 三个扫描器，命中后锁存；
- *       任意一台收到有效应答都会刷新它自己的 Online 节点（阈值 **100 ms**，由 `sys_task` 推进）。
- *       查询周期应小于 100 ms，否则“没被问”的电机也会显示离线。
- *
- * @warning update() 只能由内部 RX 任务调用；本类必须是这路串口唯一的接收消费者。
- *          get_* / 发送接口可从其他任务调用，但 **MMCL 缓冲（multi_clear、queue_ 系列、multi_send）
- *          必须由同一个任务串行操作**，否则子命令会互相拼接。
- * @warning 本对象必须是全局/静态生命周期；不要在 RX 任务自身里销毁对象。
- * @warning MMCL 子命令总字节数最多 123（发送流缓冲区 128 字节的整帧上限）；
- *          queue_* 放不下时返回 FULL，不会留下半条子命令。完整用法见 device_emmv5_group.md。
+ * @warning 同一路串口只允许一个任务调 `update()`（接收缓冲区只有一个消费者）；
+ *          发送接口自带半双工总线锁，多步 MMCL 事务用 `lock_bus()` / `unlock_bus()` 包住。
  */
 
 #ifndef __DEVICE_EMMV5_GROUP_HPP__
@@ -40,6 +28,7 @@
 
 #include "FreeRTOS.h" // IWYU pragma: keep
 #include "task.h"
+#include "semphr.h" // IWYU pragma: keep（总线互斥锁）
 
 #include <initializer_list>
 #include <stddef.h>
@@ -72,7 +61,7 @@ public:
   /**
    * @brief 组配置
    *
-   * @note 地址表用初始化列表传，例如 `{bsp_uart4, {1, 2, 3}}`。
+   * @note 地址表用初始化列表传，例如 `{uart_instance, {1, 2}}`。
    *       超过 MAX_MOTORS 的部分不保存，init() 会返回 BAD_ARG。
    */
   struct Config
@@ -114,7 +103,7 @@ public:
    */
   explicit DeviceEmmv5GroupT(const Config &cfg);
 
-  /** @brief 停止内部 RX 任务；各电机的 Online 节点随成员析构自动注销 */
+  /** @brief 释放总线锁；各电机的 Online 节点随成员析构自动注销 */
   ~DeviceEmmv5GroupT();
 
   // 内部有接收窗口与 MMCL 缓冲，复制会让两份状态互相打架
@@ -127,9 +116,9 @@ public:
   // ---------------- 生命周期与查询 ----------------
 
   /**
-   * @brief 校验地址表、复位接收状态，并创建内部 RX 任务
+   * @brief 校验地址表、复位接收状态，并创建总线锁
    * @return OK=可用；BAD_ARG=地址表为空、超过 MAX_MOTORS、地址为 0 或地址重复；
-   *         FULL=内部 RX 任务创建失败（堆/TCB 不足）
+   *         FULL=总线锁创建失败（堆不足）
    * @note 幂等：重复 init 不会重复创建任务。
    * @warning 应在调度器启动前调用；运行期重复 init() 会复位扫描器，可能丢掉正在接收的半帧。
    */
@@ -148,6 +137,24 @@ public:
   }
 
   // ----------------
+  // ---------------- 半双工总线锁 ----------------
+
+  /**
+   * @brief 占用半双工总线（递归锁）
+   * @param timeout_ms 最长等待时间
+   * @return OK=已持有；NOT_INIT=未 init；TIMEOUT=超时
+   *
+   * @note RS485 是半双工：同一时刻只允许一个“会发字节的操作”在总线上。
+   *       所有发送接口内部都会自己取这把锁，所以单帧命令不需要手动加锁；
+   *       只有“多条子命令拼一帧”“发完命令再等应答”这类**多步事务**需要手动包。
+   * @note 递归锁：同一任务可以重复 lock_bus 而不自锁，但必须 unlock 同样次数。
+   */
+  Status lock_bus(uint32_t timeout_ms = 200U);
+
+  ///< 释放总线（与 lock_bus 成对，必须同任务）
+  void unlock_bus();
+
+  // ----------------
   // ---------------- 直接命令 ----------------
 
   ///< 使能/关闭某个电机
@@ -158,6 +165,9 @@ public:
 
   ///< 位置模式（pulses 带符号；绝对模式按 32 位补码写入）
   Status set_position(uint8_t addr, emmv5::Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, emmv5::PositionMode mode);
+
+  ///< 取最近一次 MMCL 总帧的字节（调试用；未发送过时长度 0）
+  const uint8_t *last_multi_frame(size_t &len) const;
 
   ///< 设置快速位置模式的运动参数
   Status set_quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, emmv5::PositionMode mode);
@@ -173,6 +183,12 @@ public:
 
   ///< 将某个电机当前位置清零
   Status zero_position(uint8_t addr);
+
+  ///< 解除某个电机的堵转保护
+  Status clear_protection(uint8_t addr);
+
+  ///< 修改控制模式（0=关闭 1=开环 2=闭环 3=脉冲/方向）
+  Status set_control_mode(uint8_t addr, bool store, uint8_t mode);
 
   /**
    * @brief 读取一次系统参数
@@ -240,7 +256,7 @@ public:
   /**
    * @brief 取走某台电机最近一次 0x36 位置
    * @param addr 电机地址
-   * @param out  位置，单位 counts（65536/圈，带符号）
+   * @param out  位置，单位 counts（编码器一圈的计数，带符号）
    * @return true=有新数据；false=没有新数据或地址不在组内
    *
    * @note 读后清有效标志；数值与标志在短临界区内一起拷贝，允许在其他任务调用。
@@ -264,18 +280,20 @@ public:
    */
   bool is_online(uint8_t addr) const;
 
+  /**
+   * @brief 把串口里攒的字节读完并分发给组内电机
+   * @param timeout_ms 首块等待时间：0 = 非阻塞，N = 最多等 N ms（超时即返回）
+   * @return 本次命中的电机位图：bit i = 下标 i 的电机收到到位帧
+   *
+   * @note **必须由外部任务周期调用**，且整个组只允许一个任务调：
+   *       接收缓冲区只能有一个消费者。本类不建任务、不隐藏优先级。
+   * @note 只有**第一块**用 timeout_ms 等；后续块一律 0，把已到的字节一次排空。
+   */
+  uint32_t update(uint32_t timeout_ms = 0U);
+
   // ----------------
 private:
   // ---------------- 内部实现 ----------------
-
-  /**
-   * @brief 把串口里当前攒的字节全部读完并分发给组内电机（非阻塞）
-   * @return 本次命中的电机位图：bit i = 下标 i 的电机收到到位帧
-   *
-   * @note 只由内部 RX 任务调用；业务层不要直接调。
-   *       每次最多读 8 块 × 16 字节，数据持续到达时也会把控制权还给其他任务。
-   */
-  uint32_t update();
 
   /**
    * @brief 单个电机的接收状态
@@ -303,22 +321,6 @@ private:
 
   static constexpr size_t RX_CHUNK_SIZE = 16U; ///< 单次从流缓冲区读多少字节
   static constexpr size_t RX_MAX_CHUNKS = 8U;  ///< update() 每次最多读几块
-
-  static constexpr uint32_t    RX_TASK_PERIOD_MS   = 10U; ///< 内部 RX 任务周期
-  static constexpr UBaseType_t RX_TASK_PRIORITY    = tskIDLE_PRIORITY + 6U; ///< 低于 sys_task(+7)
-  static constexpr uint32_t    RX_TASK_STACK_WORDS = 384U; ///< 384 words = 1.5 KB
-
-  /**
-   * @brief 内部 RX 任务入口
-   * @param argument 本对象指针（this）
-   *
-   * @note 这是 DeviceEmmv5GroupT 独有的入口地址，与 DeviceEmmv5 的入口不同。
-   *       同类多实例共享入口地址，但各自有独立 TCB、栈和 this。
-   */
-  static void _rx_task_entry(void *argument);
-
-  ///< 内部接收循环：固定周期调用 update()
-  void _run_rx_loop();
 
   ///< rpm 合法范围（说明书：0~5000）
   static bool _valid_rpm(uint16_t rpm);
@@ -361,7 +363,10 @@ private:
   uint8_t _multi[MULTI_PAYLOAD_MAX + emmv5::MULTI_OVERHEAD] = {}; ///< MMCL 总帧缓冲
   size_t  _multi_payload = 0;                                    ///< 已装载的子命令字节数
 
-  TaskHandle_t _task_handle = nullptr; ///< 内部 RX 任务句柄；init() 创建，析构时删除
+  uint8_t _last_frame[40] = {}; ///< 最近一次发出的 MMCL 帧（调试）
+  size_t  _last_frame_len = 0;  ///< 其长度
+
+  SemaphoreHandle_t _bus_lock = nullptr; ///< 半双工总线递归锁；init() 创建
 
   // ----------------
 };

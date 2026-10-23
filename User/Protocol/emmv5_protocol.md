@@ -58,7 +58,7 @@ if (!f.valid()) { /* BAD_ARG：不发给总线 */ }
 | `velocity(addr, dir, rpm, accel)` | `addr F6 dir rpmH rpmL accel 00 6B` | 速度模式 |
 | `position(addr, dir, rpm, accel, pulses, mode)` | `addr FD dir rpmH rpmL accel p3 p2 p1 p0 mode 00 6B` | 位置模式 |
 | `quick_position_params(addr, rpm, accel, mode)` | `addr F1 rpmH rpmL accel mode 00 6B` | 只设参数，不产生运动 |
-| `quick_position(addr, pulses)` | `addr FC p3 p2 p1 p0 6B` | 用上一组快速位置参数 |
+| `quick_position(addr, pulses)` | `addr FC p3 p2 p1 p0 6B` | 用上一组快速位置参数；**没有方向字节，靠脉冲符号** |
 | `stop(addr)` | `addr FE 98 00 6B` | 紧急刹车，速度/位置模式都可用 |
 | `read(addr, param)` | `addr code 6B` | 应答格式随参数不同 |
 
@@ -92,6 +92,21 @@ if (!f.valid()) { /* BAD_ARG：不发给总线 */ }
 | `PinStatus` | 0x3D | Y42：引脚状态 |
 
 位置类数值一圈 = 65536，角度 = `value × 360 / 65536`。
+
+## 哪些命令有应答（很关键）
+
+| 命令 | 应答 |
+| --- | --- |
+| `read`（0x36 / 0x3A / 其它系统参数） | **有**，一问一答 |
+| 位置 / 速度 / 使能 / 停止 / 零位 / 改参数 | **没有**：驱动器不会回“已收到” |
+| 一段运动结束 | 异步到位帧 `addr FD 9F 6B`，它是**事件**，不是对命令的应答 |
+
+由此得出两个通用约束：
+
+1. **控制命令无法靠应答判断“能不能发下一条”**，只能给固定延时，或者用后续 `0x36` 读数变化
+   间接确认（`zero_position` / `enable` 就是这么做的）；
+2. **`read` 可以等应答再发下一条**，但半双工下“发查询”和“发命令”不能相邻——查询的应答
+   回传期间驱动器收不进新字节，紧接的命令帧会被整帧丢弃。
 
 ## 扫描器
 

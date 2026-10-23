@@ -16,7 +16,6 @@
 
 #include "bsp_cfg.hpp"
 #include "device_buzzer.hpp"
-#include "device_emmv5.hpp"
 #include "device_emmv5_group.hpp"
 #include "device_r9ds.hpp"
 #include "device_servo.hpp"
@@ -41,10 +40,8 @@ extern DeviceBuzzer  buzzer;         ///< 蜂鸣器，绑定 BSP 层的 bsp_pwm_
 extern DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group; ///< CAN3 上的 DJI 电机组，成员表见 device_cfg.cpp
 extern DeviceR9dsT<decltype(bsp_uart_it5)> r9ds; ///< R9DS 遥控接收机（UART5，中断接收）
 
-/// 张大头 EmmV5.0 单电机：UART7，地址 1（单串口单电机）
-extern DeviceEmmv5T<decltype(bsp_uart7)> emm_motor1;
-
-/// 张大头 EmmV5.0 双电机组：USART2（RS485，115200），地址 1、2
+/// EmmV5 电机组：CoreXY 用地址 1、2；只挂一台时把地址表写成单元素即可
+/// （不需要单独的单电机类）
 extern DeviceEmmv5GroupT<decltype(bsp_uart2)> emm_group;
 
 /// 舵机：绑定 BSP 层排针预留的 4 路 50 Hz PWM（bsp_pwm1~4 = PE13 / PE9 / PA2 / PA0）

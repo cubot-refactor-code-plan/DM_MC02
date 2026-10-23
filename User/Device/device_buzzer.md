@@ -6,12 +6,18 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "device_buzzer.hpp"`；业务侧一般只需 `#include "device_cfg.hpp"` |
-| 2. 全局实例 | `device_cfg.cpp` | `DeviceBuzzer buzzer(bsp_pwm_buzzer);`（可传第二参数 `Config`） |
-| 3. 声明 | `device_cfg.hpp` | `extern DeviceBuzzer buzzer;` |
-| 4. 初始化 | `bsp_cfg.cpp` 的 `bsp_init()` | 只需 `bsp_pwm_buzzer.init()`，本类无 `init()` |
+```cpp
+// 1) 头文件：业务侧一般只需 device_cfg.hpp
+#include "device_cfg.hpp"
+
+// 2) 实例：device_cfg.cpp —— 绑定一个 PWM 通道（可传第二参数 Config）
+DeviceBuzzer buzzer(bsp_pwm_buzzer);
+
+// 3) 声明：device_cfg.hpp
+extern DeviceBuzzer buzzer;
+
+// 4) 初始化：本类没有 init()，只需保证 bsp_pwm_buzzer 已初始化
+```
 
 无模板实例化、无中断。
 

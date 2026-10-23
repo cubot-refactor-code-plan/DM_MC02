@@ -5,29 +5,28 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "dji_motor_group.hpp"`；业务侧一般只需 `#include "device_cfg.hpp"` |
-| 2. 成员常量 | `device_cfg.cpp` | `static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_1{DjiMotorModel::GM6020};` |
-| 3. 全局实例 | `device_cfg.cpp` | `DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group({&bsp_can3, …, &m3508_1, …});` |
-| 4. 声明 | `device_cfg.hpp` | `extern DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group;` |
-| 5. 显式实例化 | `dji_motor_group.cpp` 顶部 | `template class DjiMotorGroupT<BspCanT<16, 16>>;`（总线类型变了才需要改） |
-| 6. 初始化 | `device_cfg.cpp` 的 `device_init()` | `configASSERT(can3_dji_group.init() == Status::OK);` |
-| 7. 周期调用 | 自己的任务 | 同一任务依次 `update() → set_output() → poll()`（当前在 `App/test/motor/dji_motor_group_test.cpp`） |
-| 8. 前置 | `bsp_cfg.cpp` / `bsp_init()` | `bsp_can3` 已实例化并初始化 |
-
 ```cpp
-// device_cfg.cpp
-static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_1 {DjiMotorModel::GM6020}; // 位置 4
-static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_6 {DjiMotorModel::GM6020}; // 位置 9
-DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group({&bsp_can3,
-  nullptr, nullptr, nullptr, nullptr, &gm6020_1, nullptr, nullptr, nullptr, nullptr, &gm6020_6, nullptr});
-// device_cfg.hpp
+// 1) 头文件：业务侧一般只需 device_cfg.hpp
+#include "device_cfg.hpp"
+
+// 2) 成员常量：device_cfg.cpp —— 每个 Member 占一个固定位置
+static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_1 {DjiMotorModel::GM6020};
+
+// 3) 实例：device_cfg.cpp —— 槽位顺序即位置 1..12，空位写 nullptr
+DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group({&bsp_can3, /* ... 各槽位 ... */});
+
+// 4) 声明：device_cfg.hpp
 extern DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group;
-// dji_motor_group.cpp 顶部
+
+// 5) 显式实例化：dji_motor_group.cpp 顶部（总线类型变了才需要改）
 template class DjiMotorGroupT<BspCanT<16, 16>>;
-// device_init()
+
+// 6) 初始化：device_cfg.cpp 的 device_init()
 configASSERT(can3_dji_group.init() == Status::OK);
+
+// 7) 周期调用：同一任务依次 update() → set_output() → poll()
+
+// 8) 前置：bsp_cfg.cpp 里的 bsp_can3 已实例化并初始化
 ```
 
 **调用示例**

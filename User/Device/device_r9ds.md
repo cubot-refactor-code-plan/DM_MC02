@@ -5,25 +5,26 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "device_r9ds.hpp"`；业务侧一般只需 `#include "device_cfg.hpp"` |
-| 2. 全局实例 | `device_cfg.cpp` | `DeviceR9dsT<decltype(bsp_uart_it5)> r9ds(bsp_uart_it5);` |
-| 3. 声明 | `device_cfg.hpp` | `extern DeviceR9dsT<decltype(bsp_uart_it5)> r9ds;` |
-| 4. 显式实例化 | `device_r9ds.cpp` 顶部 | `template class DeviceR9dsT<BspUartT<uart_detail::ItTransport, 128, 32>>;` |
-| 5. 初始化 | `device_cfg.cpp` 的 `device_init()` | `configASSERT(r9ds.init() == Status::OK);`（校验 100000/9B/Even/2） |
-| 6. 串口 | `DM_MC02.ioc` + `bsp_cfg.cpp` | UART5 SBUS（仅收）；接收机拨到 SBUS，硬件反相 |
-| 7. 周期调用 | 自己的任务 | 周期调 `r9ds.update()`（当前在 `App/test/rc/r9ds_test.cpp`） |
-
 ```cpp
-// device_cfg.cpp
+// 1) 头文件：业务侧一般只需 device_cfg.hpp
+#include "device_cfg.hpp"
+
+// 2) 实例：device_cfg.cpp
 DeviceR9dsT<decltype(bsp_uart_it5)> r9ds(bsp_uart_it5);
-// device_cfg.hpp
+
+// 3) 声明：device_cfg.hpp
 extern DeviceR9dsT<decltype(bsp_uart_it5)> r9ds;
-// device_r9ds.cpp 顶部
+
+// 4) 显式实例化：device_r9ds.cpp 顶部
 template class DeviceR9dsT<BspUartT<uart_detail::ItTransport, 128, 32>>;
-// device_init()
+
+// 5) 初始化：device_cfg.cpp 的 device_init()（校验 100000/9B/Even/2）
 configASSERT(r9ds.init() == Status::OK);
+
+// 6) 串口：UART5 SBUS（仅收），接收机拨到 SBUS，硬件反相
+
+// 7) 周期调用：调用方任务周期调 update()，消化串口里攒的字节
+(void)r9ds.update();
 ```
 
 **调用示例**

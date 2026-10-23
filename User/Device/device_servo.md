@@ -5,24 +5,23 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "device_servo.hpp"`；业务侧一般只需 `#include "device_cfg.hpp"` |
-| 2. 全局实例 | `device_cfg.cpp` | `DeviceServo servoX({&bsp_pwmX, pulse_min, pulse_max, range_deg, max_speed, max_accel});` |
-| 3. 声明 | `device_cfg.hpp` | `extern DeviceServo servoX;` |
-| 4. 初始化 | `device_cfg.cpp` 的 `device_init()` | `configASSERT(servoX.init() == Status::OK);`（只校验配置，不动硬件） |
-| 5. 周期调用 | 自己的任务 | 固定一个任务周期调 `servoX.update()`（当前在 `App/test/servo/servo_test.cpp`） |
-| 6. 前置 | `bsp_cfg.cpp` / `bsp_init()` | 对应的 `bsp_pwmX` 已实例化并初始化 |
-
-无模板实例化、无中断。
-
 ```cpp
-// device_cfg.cpp
-DeviceServo servo1({&bsp_pwm1, 600.0f, 2400.0f, 270.0f, 0.0f, 0.0f});
-// device_cfg.hpp
-extern DeviceServo servo1;
-// device_init()
-configASSERT(servo1.init() == Status::OK);
+// 1) 头文件：业务侧一般只需 device_cfg.hpp
+#include "device_cfg.hpp"
+
+// 2) 实例：device_cfg.cpp —— 参数顺序 = {通道, 脉宽下限, 脉宽上限, 行程, 限速, 加速度}
+DeviceServo servoX({&bsp_pwmX, pulse_min, pulse_max, range_deg, max_speed, max_accel});
+
+// 3) 声明：device_cfg.hpp
+extern DeviceServo servoX;
+
+// 4) 初始化：device_cfg.cpp 的 device_init()（只校验配置，不动硬件）
+configASSERT(servoX.init() == Status::OK);
+
+// 5) 周期调用：固定一个任务周期调 update()，它是唯一的脉宽写入者
+(void)servoX.update();
+
+// 6) 前置：bsp_cfg.cpp 里的 bsp_pwmX 已实例化并初始化
 ```
 
 **调用示例**

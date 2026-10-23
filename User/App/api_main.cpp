@@ -11,11 +11,17 @@
 /* Device */
 #include "device_cfg.hpp" // IWYU pragma: keep
 
+/* Module */
+#include "module_cfg.hpp"
+
 /* Service */
 #include "service_cfg.hpp"
 
 /* 任务声明 */
 #include "app_task.hpp"
+
+/* CoreXY 任务间命令队列 */
+#include "corexy_protocol.hpp"
 
 /* 测试任务声明（开关见 app_test.hpp） */
 #include "app_test.hpp" // IWYU pragma: keep
@@ -47,6 +53,9 @@ void all_init()
   /* 设备层：BSP 之后 */
   device_init();
 
+  /* 模块层：Device 之后（CoreXY 绑定 emm_group） */
+  module_init();
+
 #if APP_TEST_CAN_RECOVERY_ENABLED
   can_recovery_test_init();
   configASSERT(xTaskCreate(can_recovery_test_task, "can_fault", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
@@ -68,12 +77,12 @@ void all_init()
   configASSERT(xTaskCreate(servo_test_task, "servo", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
-#if APP_TEST_EMMV5_ENABLED
-  configASSERT(xTaskCreate(emmv5_test_task, "emm_test", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
-#endif
-
 #if APP_TEST_EMMV5_GROUP_ENABLED
   configASSERT(xTaskCreate(emmv5_group_test_task, "emm_grp", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+#endif
+
+#if APP_TEST_EMMV5_POS_PROBE_ENABLED
+  configASSERT(xTaskCreate(emmv5_pos_probe_test_task, "emm_pos", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
 #endif
 
 #if APP_TEST_UART_LOOPBACK_ENABLED
@@ -89,6 +98,16 @@ void all_init()
 
   /* 按键任务：200 ms 轮询（短按/长按发不同提示音，优先级 +5） */
   configASSERT(xTaskCreate(key_task, "key", 256, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+
+  /* CoreXY：输入源二选一（都占 USART1），执行侧统一走 corexy_io_task */
+  configASSERT(corexy_cmd_init());
+  configASSERT(xTaskCreate(corexy_io_task, "cxy_io", 512, NULL, tskIDLE_PRIORITY + 5, NULL) == pdPASS);
+
+#if APP_COREXY_PROTOCOL
+  configASSERT(xTaskCreate(corexy_task, "cxy_pro", 512, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
+#else
+  configASSERT(xTaskCreate(corexy_console_task, "cxy_con", 512, NULL, tskIDLE_PRIORITY + 4, NULL) == pdPASS);
+#endif
 
   /* 置运行标志：任务入口的 wait_running() 在此之后才放行 */
   configASSERT(sys_state.complete_init() == Status::OK);

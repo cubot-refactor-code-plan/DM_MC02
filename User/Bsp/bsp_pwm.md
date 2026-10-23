@@ -4,13 +4,21 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "bsp_pwm.hpp"`；业务侧一般只需 `#include "bsp_cfg.hpp"` |
-| 2. 全局实例 | `bsp_cfg.cpp` | `BspPwm bsp_pwmX({&htimX, TIM_CHANNEL_y, 275000000UL, PSC, ARR, 0.0f});` |
-| 3. 声明 | `bsp_cfg.hpp` | `extern BspPwm bsp_pwmX;` |
-| 4. 初始化 | `bsp_cfg.cpp` 的 `bsp_init()` | `configASSERT(bsp_pwmX.init() == Status::OK);` |
-| 5. CubeMX | `DM_MC02.ioc` | TIMx 通道设为 PWM Generation CHy，引脚 AF |
+```cpp
+// 1) 头文件：业务侧一般只需 bsp_cfg.hpp
+#include "bsp_cfg.hpp"
+
+// 2) 实例：bsp_cfg.cpp —— 参数顺序 = 字段顺序
+BspPwm bsp_pwmX({&htimX, TIM_CHANNEL_y, 275000000UL, PSC, ARR, 0.0f});
+
+// 3) 声明：bsp_cfg.hpp
+extern BspPwm bsp_pwmX;
+
+// 4) 初始化：bsp_cfg.cpp 的 bsp_init()（先写 CCR=0 再启动，上电 0%）
+configASSERT(bsp_pwmX.init() == Status::OK);
+
+// 5) CubeMX：TIMx 通道设为 PWM Generation CHy，引脚自动 AF
+```
 
 无模板实例化、无中断、无回调。
 

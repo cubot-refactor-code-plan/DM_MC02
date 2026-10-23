@@ -32,17 +32,16 @@
 /** @brief 舵机限速轨迹自检（servo1 @PE13 TIM1_CH3，开环来回扫角，打印目标/实际角度/脉宽） */
 #define APP_TEST_SERVO_ENABLED 0
 
-/** @brief 张大头 EmmV5.0 单电机点动测试（UART7，地址 1，正转 2 圈 / 反转 2 圈） */
-#define APP_TEST_EMMV5_ENABLED 0
-
-/** @brief 张大头 EmmV5.0 双电机 RS485 轮询测试（USART2，地址 1、2，逐台正反 2 圈） */
+/** @brief EmmV5.0 多电机 RS485 轮询测试（单台时把地址表写成单元素即可） */
 #define APP_TEST_EMMV5_GROUP_ENABLED 0
+/** @brief EmmV5 双电机位置采集探针（USART2，地址 1、2）：失能后手推 CoreXY 到四个边缘，打印位置 */
+#define APP_TEST_EMMV5_POS_PROBE_ENABLED 0
 
 /** @brief UART8(IT) 与 UART9(DMA) 921600 双向回环自检 */
 #define APP_TEST_UART_LOOPBACK_ENABLED 0
 
 /** @brief UART8(IT) 与 UART9(DMA) 921600 全双工满速压力测试 */
-#define APP_TEST_UART_STRESS_ENABLED 1
+#define APP_TEST_UART_STRESS_ENABLED 0
 
 /** @brief DWT 计时自检（1 s 延时里 DWT 应走≈1.000 s，delay_ms(1) 实测应≈0.001 s） */
 #define APP_TEST_DWT_ENABLED 0
@@ -94,11 +93,11 @@ extern "C"
   /** @brief 舵机限速轨迹自检任务（1 kHz update()，200 ms 打印目标/实际角度/脉宽） */
   void servo_test_task(void *argument);
 
-  /** @brief EmmV5.0 单电机正反转测试任务（UART7，地址 1） */
-  void emmv5_test_task(void *argument);
-
-  /** @brief EmmV5.0 双电机 RS485 轮询测试任务（USART2，地址 1、2） */
+  /** @brief EmmV5.0 多电机 RS485 轮询测试任务 */
   void emmv5_group_test_task(void *argument);
+
+  /** @brief EmmV5 位置采集探针任务（失能 1、2 号，逐台轮询 0x36，位置变化即打印） */
+  void emmv5_pos_probe_test_task(void *argument);
 
 #ifdef __cplusplus
 }

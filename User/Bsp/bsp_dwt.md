@@ -4,13 +4,22 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "bsp_dwt.hpp"`（或 `bsp_cfg.hpp`） |
-| 2. 全局实例 | `bsp_cfg.cpp` | `BspDwt bsp_dwt;` |
-| 3. 声明 | `bsp_cfg.hpp` | `extern BspDwt bsp_dwt;` |
-| 4. 初始化 | `bsp_cfg.cpp` 的 `bsp_init()` **第一句** | `configASSERT(bsp_dwt.init() == Status::OK);` |
-| 5. 心跳 | `App/task/sys_task.cpp` | 每 200 拍（约 2 s）调一次 `get_time_s()` 打印 uptime，作为 < 7.809 s 的回绕心跳 |
+```cpp
+// 1) 头文件：业务侧一般只需 bsp_cfg.hpp
+#include "bsp_cfg.hpp"
+
+// 2) 实例：bsp_cfg.cpp
+BspDwt bsp_dwt;
+
+// 3) 声明：bsp_cfg.hpp
+extern BspDwt bsp_dwt;
+
+// 4) 初始化：bsp_cfg.cpp 的 bsp_init() 第一句，后续计时都依赖它
+configASSERT(bsp_dwt.init() == Status::OK);
+
+// 5) 心跳：sys_task.cpp 每 200 拍（约 2 s）调一次，兼作回绕心跳
+(void)bsp_dwt.get_time_s();
+```
 
 无模板实例化、无中断。
 

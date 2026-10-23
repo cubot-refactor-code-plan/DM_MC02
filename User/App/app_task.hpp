@@ -14,6 +14,14 @@
 #ifndef __APP_TASK_HPP__
 #define __APP_TASK_HPP__
 
+/**
+ * @brief CoreXY 输入源：1 = 上位机二进制协议（`corexy_task`），0 = 命令码终端（`corexy_console_task`）
+ * @note 两者都占用 USART1，只能开一个。默认 0：串口协议暂不启用，用终端手工测试。
+ * @note 执行侧（`corexy_io_task`）与应答上报也跟随本开关切换。
+ */
+#define APP_COREXY_PROTOCOL 0
+
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -36,6 +44,34 @@ extern "C"
    * @note 由 all_init() 创建，不应由业务代码直接调用。
    */
   void key_task(void *argument);
+
+  /**
+   * @brief CoreXY 上位机协议入口（阻塞读串口，默认 10 ms 超时）
+   * @param argument 任务参数（未使用，NULL）
+   * @note 只做字节搬运：`bsp_uart1.receive()` → `cxy::feed()`，解析出的命令进队列。
+   * @note 帧格式与命令表见 `corexy_protocol.hpp`、`corexy.md` §6。
+   * @note 由 all_init() 创建，不应由业务代码直接调用。
+   */
+  void corexy_task(void *argument);
+
+  /**
+   * @brief CoreXY 命令码终端任务（`APP_COREXY_PROTOCOL == 0` 时使用）
+   * @param argument 任务参数（未使用，NULL）
+   * @note 10 ms 收 USART1 字符，按行解析 ASCII 命令，投递到 `corexy_cmd_queue`；不碰电机总线。
+   * @note 行结束符 CR / LF / `;`；命令表见文件头与 `corexy.md`。
+   * @note 由 all_init() 创建，不应由业务代码直接调用。
+   */
+  void corexy_console_task(void *argument);
+
+  /**
+   * @brief CoreXY 执行任务：独占电机总线，执行队列命令并回帧
+   * @param argument 任务参数（未使用，NULL）
+   * @note 上电完成停止/清零/使能 + 原点复核，之后 10 ms 循环：取队列命令 + `corexy.update()` +
+   *       状态变化上报事件。
+   * @note 本任务同时负责 `emm_group.update()`（这条总线唯一的接收消费者）。
+   * @note 由 all_init() 创建，不应由业务代码直接调用。
+   */
+  void corexy_io_task(void *argument);
 
 #ifdef __cplusplus
 }

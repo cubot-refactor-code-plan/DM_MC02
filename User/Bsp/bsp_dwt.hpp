@@ -1,26 +1,18 @@
 /**
  * @file bsp_dwt.hpp
  * @author Rh
- * @brief DWT 计时驱动 —— Cortex-M7 内核 CYCCNT（本工程 1.818 ns / 计数）
- * @version 0.1
- * @date 2026-09-28
+ * @brief DWT 计时驱动 —— Cortex-M 内核 CYCCNT 自由运行计数器
+ * @version 0.2
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2026
  *
- * @details CYCCNT 是内核里的 32 位自由运行计数器：不占外设、不依赖中断，所以在
- *          关中断期间（临界区）仍可计时和延时（HAL_Delay 依赖 SysTick，做不到）；
- *          分辨率 = 1 个 CPU 周期（本工程 1.818 ns），HAL_GetTick() 是 1 ms，相差约 55 万倍。
+ * @note CYCCNT 不占外设、不依赖中断，关中断期间仍可计时；分辨率 = 1 个 CPU 周期。
+ *       CPU 频率由 init() 从 RCC 自动推算，不设 Config。
+ *       回绕周期、精度对比与调用约束见 bsp_dwt.md。
  *
- * @note 用法：bsp_init() 里已统一调用 init()，之后在任何位置直接用即可。
- *       get_delta_s() 做相对计时；get_time_*() 读绝对时间（会推进内部累加量，只能任务上下文）；
- *       delay_* 是纯忙等。回绕处理与 7.809 s 约束见 bsp_dwt.md。
- *
- * @todo 如果想维持准确绝对时间计数，需要每7.809s内调用一次time函数，这样才能确保时间正确积累。所以需要一个task维护
- *
- * @warning get_delta_s() 的时间戳由调用方保存，同一个 last 不要在多个任务间共用。
- * @warning CPU 进入sleep/stop时，停止计数
- * @warning get_delta_s() 无状态、可在 ISR 中调用；
- * @warning 32 位计数器每 7.809 s 回绕一次（本工程 550 MHz）：delta_s() 用无符号差值，两次间隔 < 7.809 s 时结果恒正
+ * @warning get_delta_s() 的时间戳由调用方保存，同一个 last 不要跨任务共用。
+ * @warning CPU 进入 sleep/stop 时停止计数；32 位计数器会周期性回绕。
  */
 
 #ifndef __BSP_DWT_HPP__

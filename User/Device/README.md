@@ -13,8 +13,7 @@ Device 把帧 / 字节 / 占空比换成物理量，或把物理量换成协议�
 | --- | --- | --- |
 | `device_cfg` | [device_cfg.md](device_cfg.md) | 层规则、实例表、三种驱动骨架、`device_init()`、新增设备、参数表、反模式 |
 | `dji_motor_group` | [dji_motor_group.md](dji_motor_group.md) | 位置/电调 ID/控制帧、反馈解析与算例、线程模型 |
-| `device_emmv5` | [device_emmv5.md](device_emmv5.md) | 单串口单电机、内部 RX 任务、收发链 |
-| `device_emmv5_group` | [device_emmv5_group.md](device_emmv5_group.md) | 地址表、按地址分发、MMCL、结果接口 |
+| `device_emmv5_group` | [device_emmv5_group.md](device_emmv5_group.md) | 地址表、按地址分发、MMCL、结果接口；单台电机就把地址表写成单元素 |
 | `device_servo` | [device_servo.md](device_servo.md) | 角度换算、梯形规划、单写者 |
 | `device_r9ds` | [device_r9ds.md](device_r9ds.md) | SBUS 切帧、通道表、在线判定 |
 | `device_buzzer` | [device_buzzer.md](device_buzzer.md) | 音调 / 音量 / 阻塞鸣叫 |

@@ -4,26 +4,27 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤            | 文件                              | 写什么                                                                           |
-| --------------- | --------------------------------- | -------------------------------------------------------------------------------- |
-| 1. 头文件       | 使用处                            | `#include "bsp_can.hpp"`；业务侧一般只需 `#include "bsp_cfg.hpp"`            |
-| 2. 全局实例     | `bsp_cfg.cpp`                   | `BspCanT<16, 16> bsp_canX({&hfdcanX, "CANx"});`                                |
-| 3. 声明         | `bsp_cfg.hpp`                   | `extern BspCanT<16, 16> bsp_canX;`                                             |
-| 4. 显式实例化   | `bsp_can.cpp` 顶部              | `template class BspCanT<16, 16>;`                                              |
-| 5. HAL 回调分发 | `bsp_can.cpp`                   | `RxFifo0Callback` / `TxFifoEmptyCallback` / `ErrorStatusCallback` 各加分支 |
-| 6. 初始化       | `bsp_cfg.cpp` 的 `bsp_init()` | `configASSERT(bsp_canX.init() == Status::OK);`                                 |
-| 7. 周期恢复     | `App/task/sys_task.cpp`         | `patrol_cans[]` 加一项（否则 Bus-Off 不恢复）                                  |
-| 8. CubeMX       | `DM_MC02.ioc`                   | FDCANx、位时序、NVIC 优先级 5                                                    |
-
 ```cpp
-// bsp_cfg.cpp
-BspCanT<16, 16> bsp_can4({&hfdcan4, "CAN4"});
-// bsp_cfg.hpp
-extern BspCanT<16, 16> bsp_can4;
-// bsp_can.cpp 顶部（深度不同才需要新增）
+// 1) 头文件：业务侧一般只需 bsp_cfg.hpp
+#include "bsp_cfg.hpp"
+
+// 2) 实例：bsp_cfg.cpp
+BspCanT<16, 16> bsp_canX({&hfdcanX, "CANx"});
+
+// 3) 声明：bsp_cfg.hpp
+extern BspCanT<16, 16> bsp_canX;
+
+// 4) 显式实例化：bsp_can.cpp 顶部（深度不同才需要新增）
 template class BspCanT<16, 16>;
-// bsp_cfg.cpp 的 bsp_init()
-configASSERT(bsp_can4.init() == Status::OK);
+
+// 5) HAL 回调分发：bsp_can.cpp 的 RxFifo0 / TxFifoEmpty / ErrorStatus 各加分支
+
+// 6) 初始化：bsp_cfg.cpp 的 bsp_init()
+configASSERT(bsp_canX.init() == Status::OK);
+
+// 7) 周期恢复：sys_task.cpp 的 patrol_cans[] 加一项，否则 Bus-Off 不会恢复
+
+// 8) CubeMX：FDCANx、位时序、NVIC 优先级 5
 ```
 
 **调用示例**

@@ -4,12 +4,18 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "bsp_gpio.hpp"`（或 `bsp_cfg.hpp`） |
-| 2. 全局实例 | `bsp_cfg.cpp` | `BspGpio xxx({GPIOx, GPIO_PIN_y});` |
-| 3. 声明 | `bsp_cfg.hpp` | `extern BspGpio xxx;` |
-| 4. 初始化 | `Core/Src/main.c` | 无需驱动初始化；方向/上下拉由 `MX_GPIO_Init()` 配 |
+```cpp
+// 1) 头文件：业务侧一般只需 bsp_cfg.hpp
+#include "bsp_cfg.hpp"
+
+// 2) 实例：bsp_cfg.cpp —— 构造时绑定 {port, pin}，只做赋值
+BspGpio xxx({GPIOx, GPIO_PIN_y});
+
+// 3) 声明：bsp_cfg.hpp
+extern BspGpio xxx;
+
+// 4) 初始化：不需要，方向与上下拉由 CubeMX 的 MX_GPIO_Init() 配置
+```
 
 无模板实例化、无中断、无 `init()`。
 

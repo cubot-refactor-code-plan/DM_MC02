@@ -1,25 +1,23 @@
 /**
  * @file bsp_pwm.hpp
  * @author Rh
- * @brief PWM 通道驱动 —— 参数全部由 Config 手动传入（驱动内无板级常量），上电默认 0% 占空比
- * @version 0.1
- * @date 2026-10-02
+ * @brief PWM 通道驱动 —— 参数全部由 Config 传入（驱动内无板级常量）
+ * @version 0.2
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2026
  *
  * @details 一个实例 = 一个定时器的一个 PWM 通道，只负责「设占空比 / 设脉宽 / 设频率 / 关断」。
  *          定时器时钟、PSC、ARR 全部由使用方从 CubeMX 生成的配置里抄进 Config，
- *          驱动本身不写死任何硬件常量，换板子只改实例化处的参数。实例见 bsp_cfg.cpp。
+ *          驱动本身不写死任何硬件常量，换板子只改实例化处的参数。
  *
- * @note 本板舵机通道 PSC = 274、ARR = 19999（275 MHz 定时器时钟 → 1 MHz 计数、50 Hz 周期），
- *       因此 1 个计数正好 1 µs，set_pulse_us(1500.0f) 就是 1500 个计数。
- *       换算式与通道共用 ARR 的后果见 bsp_pwm.md。
+ * @note 换算式、计数单位与“同定时器共通道 ARR”的后果见 bsp_pwm.md。
  *
  * @warning 同一定时器的多个通道共用计数器与 ARR：set_freq() 会同时改变该定时器
- *          所有通道的频率（例如 TIM1 的 PE9 与 PE13 必须同频）。
+ *          所有通道的频率。
  * @warning PSC 由 CubeMX 的 MX_TIMx_Init() 写入，本类只用 Config::prescaler 做换算、
  *          不改 PSC 寄存器；该值必须与 CubeMX 保持一致，否则脉宽/频率换算是错的。
- * @warning 内部含浮点运算（M7 有 FPU）：只在任务上下文调用，不要放进 ISR。
+ * @warning 内部含浮点运算：只在任务上下文调用，不要放进 ISR。
  */
 
 #ifndef __BSP_PWM_HPP__

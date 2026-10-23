@@ -70,18 +70,22 @@ Status DeviceR9dsT<Uart>::init(void)
  * @note 帧体内部出现 0x0F 不会误判 —— 拼帧期间不看内容，只看长度和帧尾。
  */
 template <typename Uart>
-void DeviceR9dsT<Uart>::update(void)
+void DeviceR9dsT<Uart>::update(uint32_t timeout_ms)
 {
+  uint32_t wait_ms = timeout_ms;
+
   for (;;)
   {
     uint8_t byte = 0U;
     size_t  got  = 0U;
 
-    // 超时 0：流缓冲区没有数据就立刻返回，不阻塞调用它的任务
-    if ((_uart.receive(&byte, 1U, 0U, &got) != Status::OK) || (got == 0U))
+    // 首字节按调用方给的超时等；一旦开始解帧就一律 0，把已有数据排空
+    if ((_uart.receive(&byte, 1U, wait_ms, &got) != Status::OK) || (got == 0U))
     {
       return; // 这一拍的字节取完了
     }
+
+    wait_ms = 0U; // 后续字节不再等待
 
     _diag.byte_cnt += 1.0f;
 

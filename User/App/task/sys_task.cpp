@@ -53,7 +53,7 @@ extern "C" void sys_task(void *argument)
     bsp_uart8.tx_recover();
     bsp_uart8.rx_recover();
 
-    // 在线状态更新（emmv5 节点由各设备自己的内部 RX 任务刷新）
+    // 在线状态更新（emmv5 节点由消费该串口的任务在 update() 里刷新）
     Online::update();
 
     // 打印占用时间降低打印次数
@@ -63,9 +63,9 @@ extern "C" void sys_task(void *argument)
       const double uptime_s = bsp_dwt.get_time_s();
 
       // 本轮耗时（µs）：从循环开头到这里，经 USART1 打印
-      bsp_uart1.printf("[sys] up=%.3fs cycle=%uus\r\n",
-                       uptime_s,
-                       static_cast<unsigned>(bsp_dwt.get_delta_s(&mark) * 1000000.0));
+      // bsp_uart1.printf("[sys] up=%.3fs cycle=%uus\r\n",
+      //                  uptime_s,
+      //                  static_cast<unsigned>(bsp_dwt.get_delta_s(&mark) * 1000000.0));
       count = 0;
     }
 

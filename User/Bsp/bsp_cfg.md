@@ -87,7 +87,7 @@ sequenceDiagram
 | `BspCanT::service_recovery` | `sys_task` | 任务 | 否（临界区） |
 | `HAL_*_Callback` → `*_isr` | HAL | ISR | 否 |
 | `BspPwm::*` | 设备层 | 任务 | 否（含浮点） |
-| `BspKey::poll` | `key_task` | 任务 | 否 |
+| `BspKey::update` | `key_task` | 任务 | 否 |
 | `BspDwt::get_delta_s` | 任意 | 任务 / ISR | 否 |
 | `BspDwt::get_time_*` | 任意任务 | 任务 | 否（需 < 7.809 s 心跳） |
 

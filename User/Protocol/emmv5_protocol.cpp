@@ -286,6 +286,40 @@ Frame zero_position(uint8_t addr)
   return f;
 }
 
+/**
+ * @brief 修改控制模式
+ * @param addr  电机地址
+ * @param store true=存 flash，false=只本次生效
+ * @param mode  0=关闭，1=开环，2=闭环(FOC)，3=脉冲/方向
+ * @return 帧：addr 46 69 svF mode 6B
+ */
+Frame set_control_mode(uint8_t addr, bool store, uint8_t mode)
+{
+  Frame f;
+  f.append_u8(addr);
+  f.append_u8(0x46);
+  f.append_u8(0x69);
+  f.append_u8(store ? 0x01U : 0x00U);
+  f.append_u8(mode);
+  f.seal();
+  return f;
+}
+
+/**
+ * @brief 解除堵转保护
+ * @param addr 电机地址
+ * @return 帧：addr 0E 52 6B
+ */
+Frame clear_protection(uint8_t addr)
+{
+  Frame f;
+  f.append_u8(addr);
+  f.append_u8(0x0E);
+  f.append_u8(0x52);
+  f.seal();
+  return f;
+}
+
 
 // ----------------
 // ---------------- 运动控制命令 ----------------
@@ -348,7 +382,7 @@ Frame velocity(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel)
  *
  * @note 相对模式参考“上一输入目标位置”，不是当前实时位置；
  *       绝对模式目标为 0 时表示回位置零点，方向字节通常被忽略。
- * @note sync 字节固定写 0；本工程不使用多机同步模式。
+ * @note 同步标志字节（snF）固定写 0：本工程不使用多机同步。
  */
 Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, PositionMode mode)
 {
@@ -360,7 +394,7 @@ Frame position(uint8_t addr, Direction dir, uint16_t rpm, uint8_t accel, int32_t
   f.append_u8(accel);
   f.append_u32(static_cast<uint32_t>(pulses));
   f.append_u8(static_cast<uint8_t>(mode));
-  f.append_u8(0U); // sync：固定 0
+  f.append_u8(0x00U); // snF：固定 0（不使用多机同步）
   f.seal();
   return f;
 }

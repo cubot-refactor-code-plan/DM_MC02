@@ -13,9 +13,8 @@ template class DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128, 128>>;
 // ---------------- 构造与生命周期 ----------------
 
 template <typename Uart>
-DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg)
-  : _uart(cfg.uart),
-    _count(cfg.count)
+DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg) : _uart(cfg.uart),
+                                                                _count(cfg.count)
 {
   for (size_t i = 0; i < MAX_MOTORS; i++)
   {
@@ -61,19 +60,20 @@ Status DeviceEmmv5GroupT<Uart>::init()
   }
 
   _multi_payload = 0;
-  _ready         = true;
 
-  // 每个组实例在 init() 里创建自己的内部 RX 任务；重复 init 不会重复创建。
-  // 先置 _ready 再创建任务：万一调度器已在运行，任务第一拍就能正常收包。
-  if (_task_handle == nullptr)
+  // 半双工总线锁：必须在 _ready 置位、第一次发送之前就存在。
+  // 递归锁允许同一任务在“组装 MMCL 事务”里再调单帧发送接口而不自锁。
+  if (_bus_lock == nullptr)
   {
-    if (xTaskCreate(_rx_task_entry, "emmv5g", RX_TASK_STACK_WORDS, this, RX_TASK_PRIORITY, &_task_handle) != pdPASS)
+    _bus_lock = xSemaphoreCreateRecursiveMutex();
+
+    if (_bus_lock == nullptr)
     {
-      _task_handle = nullptr;
-      _ready       = false;
-      return Status::FULL; // 堆不够或 TCB 分配失败
+      return Status::FULL; // 堆不够
     }
   }
+
+  _ready = true;
 
   return Status::OK;
 }
@@ -81,48 +81,12 @@ Status DeviceEmmv5GroupT<Uart>::init()
 template <typename Uart>
 DeviceEmmv5GroupT<Uart>::~DeviceEmmv5GroupT()
 {
-  // 全局/静态对象通常不会走到这里；显式销毁时先把内部任务停掉，避免悬空 this
-  if (_task_handle != nullptr)
+  if (_bus_lock != nullptr)
   {
-    vTaskDelete(_task_handle);
-    _task_handle = nullptr;
+    vSemaphoreDelete(_bus_lock);
+    _bus_lock = nullptr;
   }
 }
-
-/**
- * @brief 内部 RX 任务入口
- *
- * @note 这是 DeviceEmmv5GroupT<Uart> 独有的入口地址；DeviceEmmv5 用自己的入口函数。
- *       同类多实例共享入口地址，但 this 不同，各自有独立 TCB 和栈。
- */
-template <typename Uart>
-void DeviceEmmv5GroupT<Uart>::_rx_task_entry(void *argument)
-{
-  auto *self = static_cast<DeviceEmmv5GroupT<Uart> *>(argument);
-
-  if (self != nullptr)
-  {
-    self->_run_rx_loop();
-  }
-
-  vTaskDelete(nullptr); // 正常不会走到；参数为空时自删，避免空任务
-}
-
-/**
- * @brief 内部接收循环：固定 10 ms 调一次 update()
- */
-template <typename Uart>
-void DeviceEmmv5GroupT<Uart>::_run_rx_loop()
-{
-  TickType_t wake_time = xTaskGetTickCount();
-
-  for (;;)
-  {
-    (void)update();
-    vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(RX_TASK_PERIOD_MS));
-  }
-}
-
 
 // ----------------
 // ---------------- 私有查找与发送 ----------------
@@ -150,6 +114,35 @@ bool DeviceEmmv5GroupT<Uart>::_is_member(uint8_t addr) const
   return index_of(addr) < _count;
 }
 
+
+// ----------------
+// ---------------- 总线互斥 ----------------
+
+template <typename Uart>
+Status DeviceEmmv5GroupT<Uart>::lock_bus(uint32_t timeout_ms)
+{
+  if (!_ready || (_bus_lock == nullptr))
+  {
+    return Status::NOT_INIT;
+  }
+
+  if (xSemaphoreTakeRecursive(_bus_lock, pdMS_TO_TICKS(timeout_ms)) != pdTRUE)
+  {
+    return Status::TIMEOUT;
+  }
+
+  return Status::OK;
+}
+
+template <typename Uart>
+void DeviceEmmv5GroupT<Uart>::unlock_bus()
+{
+  if (_bus_lock != nullptr)
+  {
+    (void)xSemaphoreGiveRecursive(_bus_lock);
+  }
+}
+
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::_send_for(uint8_t addr, const emmv5::Frame &frame)
 {
@@ -163,8 +156,18 @@ Status DeviceEmmv5GroupT<Uart>::_send_for(uint8_t addr, const emmv5::Frame &fram
     return Status::BAD_ARG;
   }
 
+  // 半双工：整帧发送期间独占总线，其他任务不得插入任何字节
+  const Status ls = lock_bus();
+  if (ls != Status::OK)
+  {
+    return ls;
+  }
+
   // 20 ms 入队超时：短帧足够；缓冲卡死时返回 TIMEOUT，不无限挂住调用任务
-  return _uart.send(frame.data, frame.size, pdMS_TO_TICKS(20U), nullptr);
+  const Status status = _uart.send(frame.data, frame.size, pdMS_TO_TICKS(20U), nullptr);
+
+  unlock_bus();
+  return status;
 }
 
 template <typename Uart>
@@ -186,8 +189,17 @@ Status DeviceEmmv5GroupT<Uart>::_queue_for(uint8_t addr, const emmv5::Frame &fra
     return Status::FULL;
   }
 
+  // 拼帧也是总线事务的一部分：跟多任务下其他子命令串行
+  const Status ls = lock_bus();
+  if (ls != Status::OK)
+  {
+    return ls;
+  }
+
   memcpy(_multi + emmv5::MULTI_PREFIX_SIZE + _multi_payload, frame.data, frame.size);
   _multi_payload += frame.size;
+
+  unlock_bus();
   return Status::OK;
 }
 
@@ -260,13 +272,39 @@ Status DeviceEmmv5GroupT<Uart>::stop_all()
     return Status::BAD_ARG;
   }
 
-  return _uart.send(frame.data, frame.size, pdMS_TO_TICKS(20U), nullptr);
+  const Status ls = lock_bus();
+  if (ls != Status::OK)
+  {
+    return ls;
+  }
+
+  const Status status = _uart.send(frame.data, frame.size, pdMS_TO_TICKS(20U), nullptr);
+
+  unlock_bus();
+  return status;
 }
 
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::zero_position(uint8_t addr)
 {
   return _send_for(addr, emmv5::zero_position(addr));
+}
+
+template <typename Uart>
+Status DeviceEmmv5GroupT<Uart>::clear_protection(uint8_t addr)
+{
+  return _send_for(addr, emmv5::clear_protection(addr));
+}
+
+template <typename Uart>
+Status DeviceEmmv5GroupT<Uart>::set_control_mode(uint8_t addr, bool store, uint8_t mode)
+{
+  if (mode > 3U)
+  {
+    return Status::BAD_ARG;
+  }
+
+  return _send_for(addr, emmv5::set_control_mode(addr, store, mode));
 }
 
 template <typename Uart>
@@ -292,9 +330,21 @@ Status DeviceEmmv5GroupT<Uart>::request_status(uint8_t addr)
 // ---------------- MMCL 多机命令 ----------------
 
 template <typename Uart>
+const uint8_t *DeviceEmmv5GroupT<Uart>::last_multi_frame(size_t &len) const
+{
+  len = _last_frame_len;
+  return _last_frame;
+}
+
+template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::multi_clear()
 {
-  _multi_payload = 0;
+  // 清缓冲同样要排队：否则可能清掉别的任务刚攒进去的子命令
+  if (lock_bus() == Status::OK)
+  {
+    _multi_payload = 0;
+    unlock_bus();
+  }
 }
 
 template <typename Uart>
@@ -316,11 +366,24 @@ Status DeviceEmmv5GroupT<Uart>::multi_send(uint8_t target)
     return Status::BAD_ARG; // 理论上不会发生：_queue_for 已经保证整帧放得下
   }
 
+  // 组帧 + 发送 + 清缓冲必须是一个不可分割的总线事务
+  const Status ls = lock_bus();
+  if (ls != Status::OK)
+  {
+    return ls;
+  }
+
   const Status status = _uart.send(_multi, total, pdMS_TO_TICKS(20U), nullptr);
+
+  // 记下实际发出的字节，供控制台 dump 对账
+  _last_frame_len = (total < sizeof(_last_frame)) ? total : sizeof(_last_frame);
+  memcpy(_last_frame, _multi, _last_frame_len);
 
   // 成功就清空；超时可能已经有一部分字节进了流缓冲，不能把整帧再发一遍，
   // 否则总线上会出现“半帧 + 完整帧”。这里统一清空，由上层决定是否重建命令。
   _multi_payload = 0;
+
+  unlock_bus();
   return status;
 }
 
@@ -380,7 +443,7 @@ Status DeviceEmmv5GroupT<Uart>::queue_stop(uint8_t addr)
 // ---------------- 接收 ----------------
 
 template <typename Uart>
-uint32_t DeviceEmmv5GroupT<Uart>::update()
+uint32_t DeviceEmmv5GroupT<Uart>::update(uint32_t timeout_ms)
 {
   if (!_ready)
   {
@@ -394,9 +457,13 @@ uint32_t DeviceEmmv5GroupT<Uart>::update()
   for (size_t chunk = 0; chunk < RX_MAX_CHUNKS; chunk++)
   {
     size_t n = 0;
-    if (_uart.receive(buf, sizeof(buf), 0, &n) != Status::OK || n == 0)
+
+    // 只有第一块按调用方给的超时等；后续块一律 0，把已到的字节一次排空
+    const uint32_t wait_ms = (chunk == 0U) ? timeout_ms : 0U;
+
+    if (_uart.receive(buf, sizeof(buf), wait_ms, &n) != Status::OK || n == 0)
     {
-      break; // 暂时没有数据
+      break; // 超时或暂时没有数据
     }
 
     hits |= feed_rx(buf, n);
@@ -470,8 +537,8 @@ bool DeviceEmmv5GroupT<Uart>::get_position(uint8_t addr, int32_t &out)
   const bool valid = _motor[index].position_valid;
   if (valid)
   {
-    out                              = _motor[index].position;
-    _motor[index].position_valid     = false;
+    out                          = _motor[index].position;
+    _motor[index].position_valid = false;
   }
 
   taskEXIT_CRITICAL();
@@ -497,8 +564,8 @@ bool DeviceEmmv5GroupT<Uart>::get_status(uint8_t addr, uint8_t &out)
   const bool valid = _motor[index].status_valid;
   if (valid)
   {
-    out                          = _motor[index].status;
-    _motor[index].status_valid   = false;
+    out                        = _motor[index].status;
+    _motor[index].status_valid = false;
   }
 
   taskEXIT_CRITICAL();
@@ -525,7 +592,7 @@ bool DeviceEmmv5GroupT<Uart>::is_online(uint8_t addr) const
 template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::_publish_position(size_t index, int32_t position)
 {
-  // 接收在内部 RX 任务；取数可能在控制任务。用短临界区保证“值 + 有效标志”成对可见
+  // 解析在调用 update() 的任务，取数可能在另一个任务。用短临界区保证“值 + 有效标志”成对可见
   taskENTER_CRITICAL();
   _motor[index].position       = position;
   _motor[index].position_valid = true;

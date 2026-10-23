@@ -1,19 +1,14 @@
 /**
  * @file emmv5_protocol.hpp
  * @author Rh
- * @brief 张大头 EmmV5.0 串口协议编码层（只拼帧，不碰串口）
- * @version 1.0
- * @date 2026-10-18
+ * @brief EmmV5 串口协议编码层（只拼帧，不碰串口）
+ * @version 1.1
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2026
  *
- * @details 本文件只做一件事：把「语义参数」编码成协议手册里的字节序列。
- *          它不持有 BspUart、不创建任务、不读接收缓冲，因此可以被单机驱动
- *          （device_emmv5）和多机驱动（device_emmv5_group）同时复用。
- *
- * @note 帧格式：地址(1) + 功能码(1~2) + 数据(0~N，多字节一律大端) + 校验(1，固定 0x6B)。
- *       建议阅读顺序：常量/枚举 → Frame → 三个 Scanner → build_multi_frame → 各命令工厂。
- *       功能码表、加速度换算公式、MMCL 布局与扫描器行为见同目录 emmv5_protocol.md。
+ * @note 只把语义参数编码成字节序列：不持有串口、不建任务、不读接收缓冲。
+ *       帧格式、功能码表、MMCL 布局与扫描器行为见 `emmv5_protocol.md`。
  */
 
 #ifndef __EMMV5_PROTOCOL_HPP__
@@ -208,7 +203,7 @@ struct PositionScanner
    * @param addr     本电机的地址
    * @param data     数据
    * @param size     字节数
-   * @param position 命中时写入带符号位置（65536 counts/圈）
+   * @param position 命中时写入带符号位置（驱动器上报的编码器计数）
    * @return true=本块中至少命中一帧位置应答
    */
   bool feed(uint8_t addr, const uint8_t *data, size_t size, int32_t &position);
@@ -269,6 +264,12 @@ size_t build_multi_frame(uint8_t target, const uint8_t *payload, size_t payload_
 ///< 将当前位置清零
 Frame zero_position(uint8_t addr);
 
+///< 解除堵转保护（0E 52）
+Frame clear_protection(uint8_t addr);
+
+///< 修改控制模式（46 69 svF mode；mode: 0=关闭 1=开环 2=闭环 3=脉冲/方向）
+Frame set_control_mode(uint8_t addr, bool store, uint8_t mode);
+
 
 // ----------------
 // ---------------- 运动控制命令 ----------------
@@ -308,7 +309,7 @@ Frame quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, PositionM
 /**
  * @brief 快速位置控制（带符号脉冲数）
  * @param addr   电机地址
- * @param pulses 带符号脉冲数，16 细分下 ±3200 = ±1 圈
+ * @param pulses 带符号脉冲数（相对模式取绝对值 + 方向字节）
  */
 Frame quick_position(uint8_t addr, int32_t pulses);
 

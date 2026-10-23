@@ -11,7 +11,7 @@ extern "C" void key_task(void *argument)
   for (;;)
   {
     // 200ms 轮询（对应 key_user 的 debounce 1 / long_press 5 ⇒ 200ms 消抖 / 1s 长按）
-    switch (key_user.poll())
+    switch (key_user.update())
     {
       case BspKey::Event::PRESS: // 3kHz/40ms：按下轻嘀
         buzzer.beep(3000, 40);

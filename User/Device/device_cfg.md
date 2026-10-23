@@ -18,8 +18,8 @@ Device 把帧 / 字节 / 占空比换成物理量，或把物理量换成协议�
 
 1. 设备不引用 `sys_state` / `EventState`：失败只 `return Status`，聚合由 `device_init()` 做。
 2. 设备不拥有 BSP 资源，只持引用 / 指针。
-3. 一条总线 / 一路串口只能有一个接收消费者：`DeviceEmmv5*` 由内部 RX 任务占据，
-   `DjiMotorGroupT` / `DeviceR9dsT` 由外部任务占据。
+3. 一条总线 / 一路串口只能有一个接收消费者：`DeviceEmmv5GroupT` / `DjiMotorGroupT` /
+   `DeviceR9dsT` 都由外部任务调 `update()` 驱动，设备类不建任务。
 4. 对象不可复制：`Online` 节点靠地址挂链表。
 
 ## 实例
@@ -29,8 +29,6 @@ Device 把帧 / 字节 / 占空比换成物理量，或把物理量换成协议�
 | 文件 | 行 |
 | --- | --- |
 | `dji_motor_group.cpp` | `template class DjiMotorGroupT<BspCanT<16, 16>>;` |
-| `device_emmv5.cpp` | `template class DeviceEmmv5T<BspUartT<uart_detail::DmaTransport, 128, 128>>;` |
-| `device_emmv5.cpp` | `template class DeviceEmmv5T<BspUartT<uart_detail::ItTransport, 128, 32>>;` |
 | `device_emmv5_group.cpp` | `template class DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128, 128>>;` |
 | `device_r9ds.cpp` | `template class DeviceR9dsT<BspUartT<uart_detail::ItTransport, 128, 32>>;` |
 | `device_r9ds.cpp` | `template class DeviceR9dsT<BspUartT<uart_detail::DmaTransport, 128, 128>>;` |
@@ -40,8 +38,7 @@ Device 把帧 / 字节 / 占空比换成物理量，或把物理量换成协议�
 | --- | --- | --- | --- | --- |
 | `can3_dji_group` | `DjiMotorGroupT<decltype(bsp_can3)>` | `bsp_can3` | 调用方任务 | `Online`，30 ms |
 | `r9ds` | `DeviceR9dsT<decltype(bsp_uart_it5)>` | UART5（SBUS） | 调用方任务 | 自算 tick，100 ms |
-| `emm_motor1` | `DeviceEmmv5T<decltype(bsp_uart7)>` | UART7，921600 | 内部 RX 任务 `emmv5` | `Online`，100 ms |
-| `emm_group` | `DeviceEmmv5GroupT<decltype(bsp_uart2)>` | USART2 RS485，115200 | 内部 RX 任务 `emmv5g` | 每台一个 `Online`，100 ms |
+| `emm_group` | `DeviceEmmv5GroupT<decltype(bsp_uart2)>` | USART2 RS485，115200 | 调用方任务（`corexy_io_task`） | 每台一个 `Online`，100 ms |
 | `servo1~4` | `DeviceServo` | `bsp_pwm1~4`（50 Hz） | 无（开环） | 无 |
 | `buzzer` | `DeviceBuzzer` | `bsp_pwm_buzzer` | 无 | 无 |
 
@@ -57,8 +54,8 @@ for (uint32_t i = 0; i < 8 && bsp_can3.receive(&rx, 0) == Status::OK; ++i)
 (void)can3_dji_group.poll();
 ```
 
-**内部 RX 任务**（EmmV5）：`init()` 里 `xTaskCreate(..., tskIDLE_PRIORITY + 6, ...)`，任务体每 10 ms
-调私有 `update()`；业务任务只发命令、取结果，**再调 `update()` 就是第二个消费者**。
+**外部驱动**（EmmV5）：`init()` 只建总线锁；由调用任务每 10 ms 调一次 `update()`
+把串口字节喂给扫描器。**同一路串口再让第二个任务调 `update()` 就是两个消费者**。
 
 **单写者**（Servo）：`update()` 是唯一 PWM 写入者；`set_angle()` / `off()` 可从任意任务调用。
 

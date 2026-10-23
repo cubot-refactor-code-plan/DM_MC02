@@ -79,9 +79,13 @@ int32_t pulses_of(int32_t counts)
 
 /**
  * @brief 读两台当前位置
- * @return false = 50 ms 内没凑齐两台回帧
+ * @return false = 某一台 50 ms 内没回帧
  *
- * 接收由 emm_group 的内部 RX 任务推进，这里只发 0x36 请求再轮询 get_position()。
+ * 接收由本任务调 emm_group.update() 推进，这里只发 0x36 请求再轮询 get_position()。
+ *
+ * @note 必须**一台一台**问：RS485 是半双工共享总线，同时发出两台请求时两台电机会
+ *       几乎同一时刻开始回帧，两帧在总线上叠加后都变成废帧，扫描器一帧也锁不到。
+ *       逐台“请求 → 等应答”才能保证同一时刻只有一个发送方。
  */
 bool read_both(int32_t pos[MOTORS])
 {
@@ -90,29 +94,28 @@ bool read_both(int32_t pos[MOTORS])
     int32_t stale = 0;
     (void)emm_group.get_position(ADDR[i], stale); // 丢掉上一段留下的旧值
     (void)emm_group.request_position(ADDR[i]);
-  }
 
-  bool     got[MOTORS] = {};
-  uint32_t begin       = xTaskGetTickCount();
+    const uint32_t begin = xTaskGetTickCount();
+    bool           got   = false;
 
-  while ((xTaskGetTickCount() - begin) < pdMS_TO_TICKS(READ_TIMEOUT_MS))
-  {
-    bool all = true;
-    for (size_t i = 0; i < MOTORS; i++)
+    while ((xTaskGetTickCount() - begin) < pdMS_TO_TICKS(READ_TIMEOUT_MS))
     {
-      got[i] = got[i] || emm_group.get_position(ADDR[i], pos[i]);
-      all    = all && got[i];
+      if (emm_group.get_position(ADDR[i], pos[i]))
+      {
+        got = true;
+        break;
+      }
+
+      vTaskDelay(1);
     }
 
-    if (all)
+    if (!got)
     {
-      return true;
+      return false;
     }
-
-    vTaskDelay(1);
   }
 
-  return false;
+  return true;
 }
 
 /** @brief 一条 MMCL 广播两台相对位移；正 = CW，负 = CCW */
@@ -160,9 +163,22 @@ void move_both(const int32_t pulses[MOTORS], const char *tag)
     target[i] = counts_of(pulses[i]);
   }
 
-  if (!read_both(base) || !send_relative(pulses))
+  if (!read_both(base))
   {
-    bsp_uart1.printf("[EMM5] %s start fail -> stop\r\n", tag);
+    bsp_uart1.printf("[EMM5] %s read start fail -> stop\r\n", tag);
+    for (size_t i = 0; i < MOTORS; i++)
+    {
+      bsp_uart1.printf("[EMM5]   id=%u online=%u\r\n",
+                       static_cast<unsigned>(ADDR[i]),
+                       emm_group.is_online(ADDR[i]) ? 1U : 0U);
+    }
+    (void)emm_group.stop_all();
+    halt();
+  }
+
+  if (!send_relative(pulses))
+  {
+    bsp_uart1.printf("[EMM5] %s send fail -> stop\r\n", tag);
     (void)emm_group.stop_all();
     halt();
   }
@@ -272,6 +288,7 @@ void move_both(const int32_t pulses[MOTORS], const char *tag)
 
 extern "C" void emmv5_group_test_task(void *argument)
 {
+  vTaskDelay(2000);
   (void)argument;
   sys_state.wait_running();
   static_assert(configTICK_RATE_HZ == 1000U, "本文件的周期常量按 1 ms tick 写");

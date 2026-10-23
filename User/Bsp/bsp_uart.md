@@ -4,30 +4,31 @@
 
 ## 0. 如何快速完整的使用（不需要了解实际实现）
 
-| 步骤 | 文件 | 写什么 |
-| --- | --- | --- |
-| 1. 头文件 | 使用处 | `#include "bsp_uart.hpp"`；业务侧一般只需 `#include "bsp_cfg.hpp"` |
-| 2. 全局实例 | `bsp_cfg.cpp` | 见下方代码；DMA 实例必须加 `.dma_buffer` |
-| 3. 声明 | `bsp_cfg.hpp` | `extern BspUartT<...> bsp_uartX;` |
-| 4. 显式实例化 | `bsp_uart.cpp` 顶部 | `template class BspUartT<...>;`（同类型已有则跳过） |
-| 5. HAL 回调分发 | `bsp_uart.cpp` | 三张表各加 `else if (huart == &huartX)` |
-| 6. 初始化 | `bsp_cfg.cpp` 的 `bsp_init()` | `configASSERT(bsp_uartX.init() == Status::OK);` |
-| 7. 周期恢复 | `App/task/sys_task.cpp` | DMA 进 `patrol_uarts[]`；IT 单独一行 |
-| 8. CubeMX | `DM_MC02.ioc` | 外设 / 引脚 / DMA / NVIC 优先级 5 |
-
 ```cpp
-// bsp_cfg.cpp
+// 1) 头文件：业务侧一般只需 bsp_cfg.hpp
+#include "bsp_cfg.hpp"
+
+// 2) 实例：bsp_cfg.cpp —— DMA 实例的缓冲区必须放 .dma_buffer
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart6({&huart6, UartMode::TxRx, 921600U});
+BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uartX({&huartX, UartMode::TxRx, 115200U});
 
-// bsp_cfg.hpp
-extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart6;
+// 3) 声明：bsp_cfg.hpp
+extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uartX;
 
-// bsp_uart.cpp 顶部
+// 4) 显式实例化：bsp_uart.cpp 顶部（同类型已有则跳过）
 template class BspUartT<uart_detail::DmaTransport, 128, 128>;
 
-// bsp_cfg.cpp 的 bsp_init()
-configASSERT(bsp_uart6.init() == Status::OK);
+// 5) HAL 回调分发：bsp_uart.cpp 三张表各加一条
+//    else if (huart == &huartX) { ... }
+
+// 6) 初始化：bsp_cfg.cpp 的 bsp_init()
+configASSERT(bsp_uartX.init() == Status::OK);
+
+// 7) 周期恢复：sys_task.cpp —— DMA 实例进 patrol_uarts[]，IT 实例单独一行
+(void)bsp_uartX.tx_recover();
+(void)bsp_uartX.rx_recover();
+
+// 8) CubeMX：外设 / 引脚 / DMA / NVIC 优先级 5
 ```
 
 **调用示例**
@@ -39,11 +40,11 @@ uint8_t tx[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 uint8_t rx[32];
 size_t  got = 0;
 
-(void)bsp_uart6.send(tx, sizeof(tx));       // 入流缓冲；默认等到全部入队
-(void)bsp_uart6.send(tx, 4, 10);            // 最多等 10 ms
-(void)bsp_uart6.printf("tick=%d\r\n", 42);  // 非阻塞
+(void)bsp_uartX.send(tx, sizeof(tx));       // 入流缓冲；默认等到全部入队
+(void)bsp_uartX.send(tx, 4, 10);            // 最多等 10 ms
+(void)bsp_uartX.printf("tick=%d\r\n", 42);  // 非阻塞
 
-if (bsp_uart6.receive(rx, sizeof(rx), 10, &got) == Status::OK)
+if (bsp_uartX.receive(rx, sizeof(rx), 10, &got) == Status::OK)
 {
   // got 字节：可能是半帧，也可能多帧；切帧由上层负责
 }
@@ -52,11 +53,11 @@ if (bsp_uart6.receive(rx, sizeof(rx), 10, &got) == Status::OK)
 设备层把串口当模板参数，不 include `bsp_cfg.hpp`：
 
 ```cpp
-DeviceEmmv5T<decltype(bsp_uart7)> motor({bsp_uart7, 1});
-motor.init();                     // 创建内部 RX 任务，之后业务不要再调 update()
-motor.request_position();
+DeviceEmmv5GroupT<decltype(bsp_uartX)> motor_group({bsp_uartX, {1, 2}});
+motor_group.init();                     // 只建总线锁；之后由调用任务周期调 update()
+motor_group.request_position(1);
 int32_t pos = 0;
-if (motor.get_position(pos)) { /* ... */ }
+if (motor_group.get_position(1, pos)) { /* ... */ }
 ```
 
 ## 类型与配置

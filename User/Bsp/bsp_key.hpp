@@ -7,9 +7,9 @@
  *
  * @copyright Copyright (c) 2026
  *
- * @details poll() 需在 FreeRTOS 任务中周期性调用（如每 50ms）。
+ * @details update() 需在 FreeRTOS 任务中周期性调用（如每 50ms）。
  *
- * @note 时间换算（T = 轮询周期，即 poll() 的调用间隔）:
+ * @note 时间换算（T = 轮询周期，即 update() 的调用间隔）:
  *       消抖时间 = debounce_cnt × T
  *       长按时间 = long_press_cnt × T      ← 从"电平跳变那一刻"起算
  *
@@ -20,10 +20,10 @@
  *       - LONG:  长按触发（按住达到 long_press_cnt × T → 触发一次，松手不再产生 SHORT）
  *
  * @note 使用约束:
- *       1. poll() 必须在【同一个任务】中周期性调用，本类非线程安全；
+ *       1. update() 必须在【同一个任务】中周期性调用，本类非线程安全；
  *       2. init() 以当前电平作为初始稳定状态：上电时若按键已被按住，
  *          不会产生 PRESS（防误触发），直接从"已按下"状态开始计时。
- *       3. 未 init()（或 init() 失败）时，poll() / read_raw() 安全返回，不会崩溃。
+ *       3. 未 init()（或 init() 失败）时，update() / read_raw() 安全返回，不会崩溃。
  *       状态机与用法见 bsp_key.md。
  */
 
@@ -40,7 +40,7 @@
  * @brief 按键驱动类
  *
  * @note 纯软件轮询消抖（无 ISR、无 FreeRTOS 依赖）；
- *       poll() 需在任务中周期性调用，消抖/长按时间 = 计数阈值 × 轮询周期。
+ *       update() 需在任务中周期性调用，消抖/长按时间 = 计数阈值 × 轮询周期。
  */
 class BspKey
 {
@@ -118,7 +118,7 @@ public:
    *         - SHORT: 短按（已松手，且本次按下未触发过 LONG）
    *         - LONG:  长按触发
    */
-  Event poll();
+  Event update();
 
   // ----------------
 private:
