@@ -1,5 +1,3 @@
-尖括号
-
 # device_emmv5_group
 
 > 代码：`device_emmv5_group.hpp` / `device_emmv5_group.cpp`
@@ -76,6 +74,10 @@ if (emm_group.get_position(1, pos)) { /* counts */ }
 | `get_position(addr, out)` | 取走 0x36 最近值，读后清标志                       |
 | `get_status(addr, out)`   | 取走 0x3A 状态字节，读后清标志                     |
 | `is_online(addr)`         | 100 ms 内有过有效应答                              |
+| `last_multi_frame(len)`   | 最近一次实际发出的 MMCL 字节（诊断用，可打 `dump` 对账） |
+
+`update()` 的返回值也是到位位图（本次命中的那些电机）；本工程驱动器未开启到位回报，
+所以 `corexy` 丢掉这个返回值，只用 `get_position()` 的读数判到位。
 
 写入 / 读取 / 清零都用同一个短临界区。
 

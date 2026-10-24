@@ -25,7 +25,7 @@
 | `Frame` | 值类型帧缓冲 |
 | `InPositionScanner` / `PositionScanner` / `StatusScanner` | 三类应答的滑动窗口识别器 |
 | `build_multi_frame()` | MMCL 多机总帧打包 |
-| 8 个命令工厂 | `zero_position` / `enable` / `velocity` / `position` / `quick_position_params` / `quick_position` / `stop` / `read` |
+| 10 个命令工厂 | `zero_position` / `clear_protection` / `set_control_mode` / `enable` / `velocity` / `position` / `quick_position_params` / `quick_position` / `stop` / `read` |
 
 ## `Frame`
 
@@ -54,6 +54,8 @@ if (!f.valid()) { /* BAD_ARG：不发给总线 */ }
 | 工厂 | 帧布局 | 说明 |
 | --- | --- | --- |
 | `zero_position(addr)` | `addr 0A 6D 6B` | 清零位置、位置误差、脉冲数 |
+| `clear_protection(addr)` | `addr 0E 52 6B` | 解除堵转保护（堵转后才需要） |
+| `set_control_mode(addr, store, mode)` | `addr 46 69 svF mode 6B` | `svF`=1 存 flash；`mode` 0 关闭 / 1 开环 / 2 闭环 / 3 脉冲方向 |
 | `enable(addr, on)` | `addr F3 AB on 00 6B` | `on` = 0/1；`sync` 固定 0 |
 | `velocity(addr, dir, rpm, accel)` | `addr F6 dir rpmH rpmL accel 00 6B` | 速度模式 |
 | `position(addr, dir, rpm, accel, pulses, mode)` | `addr FD dir rpmH rpmL accel p3 p2 p1 p0 mode 00 6B` | 位置模式 |
@@ -100,6 +102,9 @@ if (!f.valid()) { /* BAD_ARG：不发给总线 */ }
 | `read`（0x36 / 0x3A / 其它系统参数） | **有**，一问一答 |
 | 位置 / 速度 / 使能 / 停止 / 零位 / 改参数 | **没有**：驱动器不会回“已收到” |
 | 一段运动结束 | 异步到位帧 `addr FD 9F 6B`，它是**事件**，不是对命令的应答 |
+
+> 到位帧要求驱动器菜单 `Response` 设为 Reached / Both，本工程**没有开启**，
+> `corexy` 判到位只用 `0x36` 读回的位置；`InPositionScanner` 仍保留，将来开启时直接可用。
 
 由此得出两个通用约束：
 
@@ -150,7 +155,7 @@ total = N + 5（含头尾）；子命令 = 各自地址 + 功能码 + 数据 + 0
 
 | 方向 | Protocol | Device |
 | --- | --- | --- |
-| 发 | `Frame`（`valid()` 为真） | 检查 `valid()`、`uart.send(frame.data, frame.size, 20)` |
+| 发 | `Frame`（`valid()` 为真） | 检查 `valid()`、`uart.send(frame.data, frame.size, pdMS_TO_TICKS(TX_TIMEOUT_MS))` |
 | 收 | `Scanner::feed(addr, data, size, out)` | 取字节、按地址分发、锁存结果、刷 `Online` |
 
 - 扫描器有状态，每个地址一套。

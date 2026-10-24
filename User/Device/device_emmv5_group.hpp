@@ -27,8 +27,8 @@
 #include "status.hpp"
 
 #include "FreeRTOS.h" // IWYU pragma: keep
+#include "semphr.h"   // IWYU pragma: keep（总线互斥锁）
 #include "task.h"
-#include "semphr.h" // IWYU pragma: keep（总线互斥锁）
 
 #include <initializer_list>
 #include <stddef.h>
@@ -47,9 +47,12 @@ class DeviceEmmv5GroupT
 private:
   // ---------------- 内部常量 ----------------
 
-  static constexpr size_t UART_BUFFER_SIZE  = 128U; ///< 与 bsp_cfg.cpp 的 DMA 串口发送缓冲区一致
-  static constexpr size_t MAX_MOTORS        = 8U;   ///< 组内最大电机数
+  static constexpr size_t   UART_BUFFER_SIZE  = 128U; ///< 与 bsp_cfg.cpp 的 DMA 串口发送缓冲区一致
+  static constexpr size_t   MAX_MOTORS        = 8U;   ///< 组内最大电机数
   static constexpr uint16_t ONLINE_TIMEOUT_MS = 100U; ///< 超过 100 ms 无有效应答判离线
+
+  ///< 单帧入队等待上限：921600 下 13 B ≈ 0.14 ms，20 ms 足够；缓冲卡死时返回 TIMEOUT，不无限挂住调用任务
+  static constexpr uint32_t TX_TIMEOUT_MS = 20U;
 
   ///< MMCL 子命令总字节上限：整帧不能超过串口发送缓冲
   static constexpr size_t MULTI_PAYLOAD_MAX = UART_BUFFER_SIZE - emmv5::MULTI_OVERHEAD;
@@ -307,16 +310,16 @@ private:
     {
     }
 
-    uint8_t                  addr = 0;            ///< 电机地址
-    emmv5::InPositionScanner inpos_scanner;       ///< 到位帧识别
-    emmv5::PositionScanner   position_scanner;    ///< 0x36 位置应答
-    emmv5::StatusScanner     status_scanner;      ///< 0x3A 状态应答
-    Online                   online;              ///< 在线判定节点
-    bool                     in_position = false; ///< 累计到位标志
-    int32_t                  position = 0;        ///< 最近一次位置
-    uint8_t                  status = 0;          ///< 最近一次状态
+    uint8_t                  addr = 0;               ///< 电机地址
+    emmv5::InPositionScanner inpos_scanner;          ///< 到位帧识别
+    emmv5::PositionScanner   position_scanner;       ///< 0x36 位置应答
+    emmv5::StatusScanner     status_scanner;         ///< 0x3A 状态应答
+    Online                   online;                 ///< 在线判定节点
+    bool                     in_position    = false; ///< 累计到位标志
+    int32_t                  position       = 0;     ///< 最近一次位置
+    uint8_t                  status         = 0;     ///< 最近一次状态
     bool                     position_valid = false; ///< 位置是否未被取走
-    bool                     status_valid = false;   ///< 状态是否未被取走
+    bool                     status_valid   = false; ///< 状态是否未被取走
   };
 
   static constexpr size_t RX_CHUNK_SIZE = 16U; ///< 单次从流缓冲区读多少字节
@@ -361,7 +364,7 @@ private:
   bool   _ready = false;     ///< init() 是否成功
 
   uint8_t _multi[MULTI_PAYLOAD_MAX + emmv5::MULTI_OVERHEAD] = {}; ///< MMCL 总帧缓冲
-  size_t  _multi_payload = 0;                                    ///< 已装载的子命令字节数
+  size_t  _multi_payload                                    = 0;  ///< 已装载的子命令字节数
 
   uint8_t _last_frame[40] = {}; ///< 最近一次发出的 MMCL 帧（调试）
   size_t  _last_frame_len = 0;  ///< 其长度

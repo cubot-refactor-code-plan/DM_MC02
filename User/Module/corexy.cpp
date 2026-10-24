@@ -3,7 +3,7 @@
 #include "device_emmv5_group.hpp" // IWYU pragma: keep（显式实例化需要具体电机组类型）
 #include "emmv5_protocol.hpp"
 
-#include <cmath>
+#include <math.h>
 #include <stdlib.h>
 
 // ---------------- 模板实例化 ----------------
@@ -14,6 +14,7 @@ template class CorexyT<DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128
 // ----------------
 // ---------------- 构造与析构 ----------------
 
+/** @brief 只保存配置副本，不校验、不发命令 */
 template <typename Group>
 CorexyT<Group>::CorexyT(const Config &cfg)
   : _cfg(cfg)
@@ -23,6 +24,7 @@ CorexyT<Group>::CorexyT(const Config &cfg)
 // ----------------
 // ---------------- 公有接口 ----------------
 
+/** @brief 校验配置、折算几何比例并复位状态机（不发串口命令） */
 template <typename Group>
 Status CorexyT<Group>::init()
 {
@@ -65,16 +67,6 @@ Status CorexyT<Group>::init()
     return Status::BAD_ARG;
   }
 
-  // 几何参数必须为正，否则下面折算出来的比例会变成除零 / 负数
-  if (!_finite(_cfg.mm_per_rev) || _cfg.mm_per_rev <= 0.0f || _cfg.pulses_per_rev == 0U || _cfg.counts_per_rev == 0U)
-  {
-    return Status::BAD_ARG;
-  }
-
-  _pulses_per_mm    = static_cast<float>(_cfg.pulses_per_rev) / _cfg.mm_per_rev;
-  _counts_per_mm    = static_cast<float>(_cfg.counts_per_rev) / _cfg.mm_per_rev;
-  _counts_per_pulse = static_cast<float>(_cfg.counts_per_rev) / static_cast<float>(_cfg.pulses_per_rev);
-
   _state      = State::Idle;
   _last_error = Status::OK;
   _pos        = Point(0.0f, 0.0f);
@@ -91,33 +83,25 @@ Status CorexyT<Group>::init()
 
   _quick_valid[0] = false;
   _quick_valid[1] = false;
+  _prev_ok[0]     = false;
+  _prev_ok[1]     = false;
   _read_hold      = 0;
   _inited         = true;
 
   return Status::OK;
 }
 
-template <typename Group>
-void CorexyT<Group>::quiet()
-{
-  if (!_inited)
-  {
-    return;
-  }
-
-  _quiet();
-}
-
-
+/** @brief 置 _read_hold 并真实延时，保证驱动器把上一条应答发完 */
 template <typename Group>
 void CorexyT<Group>::_quiet()
 {
   // 半双工：先挂起读位置，再真延时，保证驱动器把上一条应答发完、自己回到接收态
-  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_QUIET_MS);
-  vTaskDelay(pdMS_TO_TICKS(SEND_QUIET_MS));
+  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
+  vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
 }
 
 
+/** @brief 两台使能/失能：静默 → 电机 1 → 间隔 → 电机 2 */
 template <typename Group>
 Status CorexyT<Group>::enable(bool on)
 {
@@ -130,15 +114,16 @@ Status CorexyT<Group>::enable(bool on)
   _quiet();
 
   const Status st1 = _cfg.group->enable(_cfg.addr1, on);
-  vTaskDelay(pdMS_TO_TICKS(ENABLE_GAP_MS));
+  vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
   const Status st2 = _cfg.group->enable(_cfg.addr2, on);
 
-  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(30U);
+  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
 
   return (st1 != Status::OK) ? st1 : st2;
 }
 
 
+/** @brief 先停后清零，并把状态机复位到 Idle（原点待读数复核） */
 template <typename Group>
 Status CorexyT<Group>::zero_here()
 {
@@ -154,10 +139,10 @@ Status CorexyT<Group>::zero_here()
   _quiet();
 
   const Status st1 = _cfg.group->zero_position(_cfg.addr1);
-  vTaskDelay(pdMS_TO_TICKS(SEND_GAP_MS));
+  vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
   const Status st2 = _cfg.group->zero_position(_cfg.addr2);
 
-  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(30U);
+  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
 
   if (st1 != Status::OK)
   {
@@ -189,6 +174,7 @@ Status CorexyT<Group>::zero_here()
   return Status::OK;
 }
 
+/** @brief 校验限位 → 拆段 → 立刻发第一段（起点取实测坐标） */
 template <typename Group>
 Status CorexyT<Group>::move_to(Point p)
 {
@@ -245,41 +231,14 @@ Status CorexyT<Group>::move_to(Point p)
   return Status::OK;
 }
 
+/** @brief 相对移动 = “当前实测坐标 + 位移”的绝对移动 */
 template <typename Group>
 Status CorexyT<Group>::move_by(Point d)
 {
   return move_to(Point(_pos.x + d.x, _pos.y + d.y));
 }
 
-template <typename Group>
-Status CorexyT<Group>::step(Step s, float mm)
-{
-  if (!_finite(mm) || mm <= 0.0f)
-  {
-    return Status::BAD_ARG;
-  }
-
-  // 对角档按真实距离分摊到两轴
-  static const float kDir[8][2] = {
-    {1.0f, 0.0f},           // 0°  +X
-    {0.70710678f, 0.70710678f},  // 45° +X +Y
-    {0.0f, 1.0f},           // 90° +Y
-    {-0.70710678f, 0.70710678f}, // 135° -X +Y
-    {-1.0f, 0.0f},          // 180° -X
-    {-0.70710678f, -0.70710678f},// 225° -X -Y
-    {0.0f, -1.0f},          // 270° -Y
-    {0.70710678f, -0.70710678f}  // 315° +X -Y
-  };
-
-  const size_t index = static_cast<size_t>(s);
-  if (index >= 8U)
-  {
-    return Status::BAD_ARG;
-  }
-
-  return move_by(Point(kDir[index][0] * mm, kDir[index][1] * mm));
-}
-
+/** @brief 立即停止并回到 Idle（清故障、清分段） */
 template <typename Group>
 Status CorexyT<Group>::stop()
 {
@@ -299,6 +258,7 @@ Status CorexyT<Group>::stop()
   return Status::OK;
 }
 
+/** @brief 改基准 rpm / acc，不影响已下发的段 */
 template <typename Group>
 Status CorexyT<Group>::set_speed(uint16_t rpm, uint8_t acc)
 {
@@ -317,6 +277,7 @@ Status CorexyT<Group>::set_speed(uint16_t rpm, uint8_t acc)
   return Status::OK;
 }
 
+/** @brief 切换 0xFD / 0xF1+0xFC 下发模式；运动进行中返回 BUSY */
 template <typename Group>
 Status CorexyT<Group>::set_move_mode(MoveMode mode)
 {
@@ -345,6 +306,7 @@ Status CorexyT<Group>::set_move_mode(MoveMode mode)
   return Status::OK;
 }
 
+/** @brief 周期更新：读两台位置 → 保护检查 → 到位判定 → 发下一段 / 结束 */
 template <typename Group>
 void CorexyT<Group>::update(uint32_t timeout_ms)
 {
@@ -354,15 +316,17 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
   }
 
   // 0. 先把串口里攒的字节解析成扫描器结果（timeout_ms = 0 则纯非阻塞）
+  //    返回值是「到位帧」位图，本模块不用：驱动器没开该回报，判到位只看 0x36 读数。
   (void)_cfg.group->update(timeout_ms);
 
   const TickType_t now = xTaskGetTickCount();
 
   // 1. 读两台位置：**一次一台**，读到应答再发下一条查询。
-  //    - MMCL / 使能 / 清零 / 停止这类无应答命令发出后，必须隔 READ_GAP_MS 才能开始读；
-  //    - 两条查询之间同样留 SEND_GAP_MS，半双工下不能背靠背发；
+  //    - MMCL / 使能 / 清零 / 停止这类无应答命令发出后，必须隔 BUS_GAP_MS 才能开始读；
+  //    - 两条查询之间同样留 BUS_GAP_MS，半双工下不能背靠背发；
   //    - 不动的电机也要读：它的“停在原地”本身就是本段执行成功的证据。
   bool read_ok = false;
+  bool still   = false;
 
   if (static_cast<int32_t>(now - _read_hold) >= 0)
   {
@@ -370,7 +334,7 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     int32_t c2 = _cur_counts[1];
 
     const bool ok1 = _read_position(_cfg.addr1, c1);
-    vTaskDelay(pdMS_TO_TICKS(SEND_GAP_MS));
+    vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
     const bool ok2 = _read_position(_cfg.addr2, c2);
 
     if (ok1)
@@ -388,8 +352,28 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
       _refresh_position();
     }
 
-    read_ok    = ok1 && ok2;
-    _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(READ_PERIOD_MS);
+    read_ok = ok1 && ok2;
+
+    // “位置不再变化”：与上一次成功读到的 counts 比。
+    // arrive_tol 的窗口在减速尾巴上就成立了，此时电机还在走；
+    // 只有相邻两次读回几乎一样（≤ STILL_COUNTS）才说明真的停住了。
+    still = ok1 && ok2 && _prev_ok[0] && _prev_ok[1] &&
+            ((c1 - _prev_counts[0]) <= STILL_COUNTS) && ((c1 - _prev_counts[0]) >= -STILL_COUNTS) &&
+            ((c2 - _prev_counts[1]) <= STILL_COUNTS) && ((c2 - _prev_counts[1]) >= -STILL_COUNTS);
+
+    if (ok1)
+    {
+      _prev_counts[0] = c1;
+      _prev_ok[0]     = true;
+    }
+
+    if (ok2)
+    {
+      _prev_counts[1] = c2;
+      _prev_ok[1]     = true;
+    }
+
+    _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
   }
 
   // 原点复核：清零命令无应答，只能靠读数确认。连续 ZERO_CONFIRM 拍接近 (0,0) 才放行运动
@@ -437,7 +421,7 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
   // 3.1b 轴级保护：偏离本段预期行程（含反向）超过 OVERRUN_MM 立即停机。
   // 能盖住“目标被误解析成极大值 / 单台电机跑飞 / 某轴反向”的情况。
   {
-    const int32_t overrun = static_cast<int32_t>(OVERRUN_MM * _counts_per_mm) + 64;
+    const int32_t overrun = static_cast<int32_t>(OVERRUN_MM * COUNTS_PER_MM) + 64;
 
     for (size_t i = 0U; i < 2U; i++)
     {
@@ -463,9 +447,9 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     }
   }
 
-  // 3.2 到位判定：这一拍两台都读到了位置（read_ok），且两台读回的值都在本段目标窗口内。
-  // 45° 段不动的那台同样要占一票，否则单台丢应答也能判通过。
-  const int32_t tol_counts = static_cast<int32_t>(_cfg.arrive_tol * _counts_per_mm);
+  // 3.2 到位判定：这一拍两台都读到了位置（read_ok）、都在目标窗口内（in_window），
+  //     并且相邻两次读回的位置几乎一样（still，证明已经停稳，不是减速尾巴）。
+  const int32_t tol_counts = static_cast<int32_t>(_cfg.arrive_tol * COUNTS_PER_MM);
 
   const int32_t err1 = _cur_counts[0] - _cmd_target[0];
   const int32_t err2 = _cur_counts[1] - _cmd_target[1];
@@ -473,7 +457,7 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
   const bool in_window = (err1 <= tol_counts) && (err1 >= -tol_counts) &&
                          (err2 <= tol_counts) && (err2 >= -tol_counts);
 
-  const bool arrived = read_ok && in_window;
+  const bool arrived = read_ok && in_window && still;
 
   // 连续 ARRIVE_CONFIRM 拍都成立才放行：单拍可能正好落在减速段末尾，
   // 读数刚进窗口、驱动器还没停稳，此刻接着发下一条 MMCL 会叠在未完成的运动上。
@@ -489,40 +473,45 @@ void CorexyT<Group>::update(uint32_t timeout_ms)
     _arrive_ok = 0U;
   }
 
-  if (_arrive_ok >= ARRIVE_CONFIRM)
+  bool advance = (_arrive_ok >= ARRIVE_CONFIRM);
+
+  // 段兜底：SEG_DONE_MS 还没判到位，就按“已经到位”处理（用户要求，不算故障）。
+  // 跳下一段前先停一次，否则新命令会叠在没跑完的运动上，两台立刻不同步。
+  if (!advance && ((now - _seg_tick) >= pdMS_TO_TICKS(SEG_DONE_MS)))
   {
-    // 最后一段：两台位置都已确认正确，直接结束
-    if ((_seg_index + 1U) >= _seg_count)
-    {
-      _state     = State::Idle;
-      _seg_count = 0U;
-      _seg_index = 0U;
-      return;
-    }
+    _stop_motors();
+    advance = true;
+  }
 
-    // 下一段：_send_segment 内部先静默 SEND_QUIET_MS 再发 MMCL，
-    // 发完把 _read_hold 推到 +READ_GAP_MS，之后才允许读位置。
-    _seg_index++;
-
-    const Status st = _send_segment(_seg_index);
-    if (st != Status::OK)
-    {
-      _fault(st);
-    }
-
+  if (!advance)
+  {
     return;
   }
 
-  // 3.3 超时兜底：堵转、掉线、目标被限幅都会走到这里
-  if ((xTaskGetTickCount() - _seg_tick) > _seg_timeout)
+  // 最后一段：结束
+  if ((_seg_index + 1U) >= _seg_count)
   {
-    _fault(Status::TIMEOUT);
+    _state     = State::Idle;
+    _seg_count = 0U;
+    _seg_index = 0U;
+    return;
+  }
+
+  // 下一段：_send_segment 内部先静默 BUS_GAP_MS 再发 MMCL，
+  // 发完把 _read_hold 推到 +BUS_GAP_MS，之后才允许读位置。
+  _seg_index++;
+
+  const Status st = _send_segment(_seg_index);
+  if (st != Status::OK)
+  {
+    _fault(st);
   }
 }
 
 // ----------------
 // ---------------- 私有实现 ----------------
 
+/** @brief 把目标拆成 1~2 段（45° + 轴向），中转点由两端凸组合得到 */
 template <typename Group>
 void CorexyT<Group>::_build_segments(Point goal)
 {
@@ -557,6 +546,7 @@ void CorexyT<Group>::_build_segments(Point goal)
   _seg_count  = 2U;
 }
 
+/** @brief 算两轴增量 → 一条 MMCL 下发 → 记录本段预期方向与行程 */
 template <typename Group>
 Status CorexyT<Group>::_send_segment(size_t index)
 {
@@ -570,8 +560,8 @@ Status CorexyT<Group>::_send_segment(size_t index)
   const int32_t end_pulse[2] = {_pulses(b, 0U), _pulses(b, 1U)};
 
   // 先把还没取走的新应答收掉：增量基准必须是**最新实测值**。
-  // 段起点在上一段到位 + 段间停顿之后，两台都已静止，此时读数可靠；
-  // 拿不到新应答则沿用上一拍读数（最多 20 ms 前）。
+  // 段起点在上一段到位之后，两台都已静止，此时读数可靠；
+  // 拿不到新应答则沿用上一拍读数（受读周期限制，最多十几 ms 前）。
   int32_t latest = 0;
   if (_cfg.group->get_position(_cfg.addr1, latest))
   {
@@ -585,8 +575,8 @@ Status CorexyT<Group>::_send_segment(size_t index)
   // 相对模式以“上一输入目标”为基准，但基准必须用实测值：
   // 指令目标与实际位置一旦脱节（故障/停止/外部推动），继续用书签值会让下一段增量为 0。
   const int32_t now_pulse[2] = {
-    static_cast<int32_t>(std::lround(static_cast<double>(_cur_counts[0]) / static_cast<double>(_counts_per_pulse))),
-    static_cast<int32_t>(std::lround(static_cast<double>(_cur_counts[1]) / static_cast<double>(_counts_per_pulse)))};
+    static_cast<int32_t>(std::lround(static_cast<double>(_cur_counts[0]) / static_cast<double>(COUNTS_PER_PULSE))),
+    static_cast<int32_t>(std::lround(static_cast<double>(_cur_counts[1]) / static_cast<double>(COUNTS_PER_PULSE)))};
 
   // 协议字段是「正幅值 + 方向字节」：用相对模式下发增量，脉冲字段永远为正
   const int32_t delta1 = end_pulse[0] - now_pulse[0];
@@ -598,10 +588,20 @@ Status CorexyT<Group>::_send_segment(size_t index)
 
   if (max_mag == 0)
   {
-    // 目标与当前脉冲相同（不足 1 个脉冲）：没有命令可发，但段计时必须复位，
-    // 否则会拿上一条段的时间戳去比，可能立刻被判成超时。
-    _seg_tick    = xTaskGetTickCount();
-    _seg_timeout = pdMS_TO_TICKS(SEG_TIMEOUT_MS);
+    // 目标与当前脉冲相同（不足 1 个脉冲）：没有命令可发，直接当这一段已完成。
+    // 但到位目标 / 行程仍要按“不动”记好，否则会拿上一段的旧目标去比。
+    for (size_t i = 0U; i < 2U; i++)
+    {
+      _cmd_target[i] = _cur_counts[i];
+      _seg_from[i]   = _cur_counts[i];
+      _seg_dir[i]    = 0;
+      _seg_travel[i] = 0;
+    }
+
+    _arrive_ok  = 0U;
+    _prev_ok[0] = false;
+    _prev_ok[1] = false;
+    _seg_tick   = xTaskGetTickCount();
     return Status::OK;
   }
 
@@ -613,7 +613,7 @@ Status CorexyT<Group>::_send_segment(size_t index)
   // 所以发命令前先静默一段，静默期内也不发任何查询。
   _quiet();
 
-  // 一条 MMCL 总帧带两台子命令；发出后只轮询，两台都到位后才发下一段
+  // 一条 MMCL 总帧带 1~2 条子命令（不动的电机不发子命令）；发出后只读位置，两台都到位（或 SEG_DONE_MS 兜底）后才发下一段
   _cfg.group->multi_clear();
 
   for (size_t i = 0U; i < 2U; i++)
@@ -623,7 +623,7 @@ Status CorexyT<Group>::_send_segment(size_t index)
     // 到位目标 = 本段起点实测 counts + 本段指令增量（counts）。
     // 用增量而不是“世界上标 × counts/脉冲”：编码器零位与软件原点即使差一个常数，
     // “这一段有没有走完”依然能判准；不动的电机目标就等于起点，自然落在窗口内。
-    _cmd_target[i] = _cur_counts[i] + static_cast<int32_t>(std::lround(static_cast<double>(delta) * static_cast<double>(_counts_per_pulse)));
+    _cmd_target[i] = _cur_counts[i] + static_cast<int32_t>(std::lround(static_cast<double>(delta) * static_cast<double>(COUNTS_PER_PULSE)));
 
     if (delta == 0)
     {
@@ -692,10 +692,11 @@ Status CorexyT<Group>::_send_segment(size_t index)
     return st;
   }
 
-  // 命令发出后到第一次读位置之间必须留间隔（用户实测要求 5 ms）。
+  // 命令发出后到第一次读位置之间必须留间隔（BUS_GAP_MS，921600 下取 2 ms）。
   // 控制命令**没有应答**，这段时间不是等应答，而是给驱动器解析 / 建档的时间；
   // 紧接着发 0x36 会把还没处理完的 MMCL 顶掉，表现为“命令不执行”。
-  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(READ_GAP_MS);
+  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
+  _seg_tick  = xTaskGetTickCount();
 
   // 记录本段预期：起点用当前实测，方向与行程由指令增量得到
   for (size_t i = 0U; i < 2U; i++)
@@ -704,20 +705,18 @@ Status CorexyT<Group>::_send_segment(size_t index)
 
     _seg_from[i]   = _cur_counts[i];
     _seg_dir[i]    = (delta > 0) ? 1 : ((delta < 0) ? -1 : 0);
-    _seg_travel[i] = static_cast<int32_t>(std::lround(std::fabs(static_cast<double>(delta)) * static_cast<double>(_counts_per_pulse)));
+    _seg_travel[i] = static_cast<int32_t>(std::lround(std::fabs(static_cast<double>(delta)) * static_cast<double>(COUNTS_PER_PULSE)));
   }
 
-  // 新的一段重新计到位确认拍数
-  _arrive_ok = 0U;
-
-  // 段超时给得非常大：宁可一直等两台回复到位，也不要误判 TIMEOUT 把正常运动停机。
-  // 真需要中断请用 stop()。
-  _seg_tick    = xTaskGetTickCount();
-  _seg_timeout = pdMS_TO_TICKS(SEG_TIMEOUT_MS);
+  // 新的一段重新计到位确认拍数，并作废“上次读数”基准（下一拍只建档、不判稳）
+  _arrive_ok  = 0U;
+  _prev_ok[0] = false;
+  _prev_ok[1] = false;
 
   return Status::OK;
 }
 
+/** @brief 一问一答读一台位置：发 0x36 → 最多等 REPLY_TIMEOUT_MS 收应答 */
 template <typename Group>
 bool CorexyT<Group>::_read_position(uint8_t addr, int32_t &out)
 {
@@ -733,7 +732,7 @@ bool CorexyT<Group>::_read_position(uint8_t addr, int32_t &out)
     return false;
   }
 
-  // 半双工：一问一答，收到应答才能发下一条查询（3 B 请求 + 8 B 应答约 1 ms）
+  // 半双工：一问一答，收到应答才能发下一条查询（921600 下 3 B 请求 + 8 B 应答 ≈ 0.12 ms）
   for (uint32_t waited = 0U; waited < REPLY_TIMEOUT_MS; waited++)
   {
     (void)_cfg.group->update(1U);
@@ -748,13 +747,15 @@ bool CorexyT<Group>::_read_position(uint8_t addr, int32_t &out)
   return false;
 }
 
+/** @brief 由两台 counts 反解世界坐标 */
 template <typename Group>
 void CorexyT<Group>::_refresh_position()
 {
-  _pos = Point(-static_cast<float>(_cur_counts[0] - _cur_counts[1]) / (2.0f * _counts_per_mm),
-               -static_cast<float>(_cur_counts[0] + _cur_counts[1]) / (2.0f * _counts_per_mm));
+  _pos = Point(-static_cast<float>(_cur_counts[0] - _cur_counts[1]) / (2.0f * COUNTS_PER_MM),
+               -static_cast<float>(_cur_counts[0] + _cur_counts[1]) / (2.0f * COUNTS_PER_MM));
 }
 
+/** @brief 进 Fault 并立即停机 */
 template <typename Group>
 void CorexyT<Group>::_fault(Status reason)
 {
@@ -765,6 +766,7 @@ void CorexyT<Group>::_fault(Status reason)
   _stop_motors();
 }
 
+/** @brief 逐台 + 广播停止，帧间留 BUS_GAP_MS */
 template <typename Group>
 void CorexyT<Group>::_stop_motors()
 {
@@ -773,31 +775,34 @@ void CorexyT<Group>::_stop_motors()
 
   // 逐台停止 + 广播停止；均使用手册里的立即停止帧
   (void)_cfg.group->stop(_cfg.addr1);
-  vTaskDelay(pdMS_TO_TICKS(SEND_GAP_MS));
+  vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
   (void)_cfg.group->stop(_cfg.addr2);
-  vTaskDelay(pdMS_TO_TICKS(SEND_GAP_MS));
+  vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
   (void)_cfg.group->stop_all();
-  vTaskDelay(pdMS_TO_TICKS(SEND_GAP_MS));
+  vTaskDelay(pdMS_TO_TICKS(BUS_GAP_MS));
 
-  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(30U);
+  _read_hold = xTaskGetTickCount() + pdMS_TO_TICKS(BUS_GAP_MS);
 }
 
+/** @brief 点是否在矩形内（含边界） */
 template <typename Group>
 bool CorexyT<Group>::_inside(Point p, const Rect &r)
 {
   return (p.x >= r.x0) && (p.x <= r.x1) && (p.y >= r.y0) && (p.y <= r.y1);
 }
 
+/** @brief CoreXY 逆解：世界坐标 → 单轴目标脉冲（p1=-k(X+Y)，p2=+k(X-Y)） */
 template <typename Group>
 int32_t CorexyT<Group>::_pulses(Point p, size_t axis) const
 {
   // CoreXY 逆解：p1 = -k(X + Y)，p2 = +k(X - Y)，k = 脉冲/mm
-  const double value = (axis == 0U) ? (-static_cast<double>(_pulses_per_mm) * (static_cast<double>(p.x) + static_cast<double>(p.y)))
-                                    : (static_cast<double>(_pulses_per_mm) * (static_cast<double>(p.x) - static_cast<double>(p.y)));
+  const double value = (axis == 0U) ? (-static_cast<double>(PULSES_PER_MM) * (static_cast<double>(p.x) + static_cast<double>(p.y)))
+                                    : (static_cast<double>(PULSES_PER_MM) * (static_cast<double>(p.x) - static_cast<double>(p.y)));
 
   return static_cast<int32_t>(std::lround(value));
 }
 
+/** @brief 浮点合法性（排除 NaN / Inf） */
 template <typename Group>
 bool CorexyT<Group>::_finite(float v)
 {

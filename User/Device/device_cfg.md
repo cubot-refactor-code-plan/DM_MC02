@@ -38,7 +38,7 @@ Device 把帧 / 字节 / 占空比换成物理量，或把物理量换成协议�
 | --- | --- | --- | --- | --- |
 | `can3_dji_group` | `DjiMotorGroupT<decltype(bsp_can3)>` | `bsp_can3` | 调用方任务 | `Online`，30 ms |
 | `r9ds` | `DeviceR9dsT<decltype(bsp_uart_it5)>` | UART5（SBUS） | 调用方任务 | 自算 tick，100 ms |
-| `emm_group` | `DeviceEmmv5GroupT<decltype(bsp_uart2)>` | USART2 RS485，115200 | 调用方任务（`corexy_io_task`） | 每台一个 `Online`，100 ms |
+| `emm_group` | `DeviceEmmv5GroupT<decltype(bsp_uart2)>` | USART2 RS485，921600 | 调用方任务（`corexy_io_task`） | 每台一个 `Online`，100 ms |
 | `servo1~4` | `DeviceServo` | `bsp_pwm1~4`（50 Hz） | 无（开环） | 无 |
 | `buzzer` | `DeviceBuzzer` | `bsp_pwm_buzzer` | 无 | 无 |
 
@@ -93,7 +93,7 @@ void device_init(void)
 | DJI 电机组 | 限幅 | `MODEL_TRAITS` | 16384 / 10000 / 16384；改型号同步 `MODEL_NUM` |
 | EmmV5 单机 | 地址 | `Config{uart, addr}` | 1~255；0 是广播 |
 | EmmV5 多机 | 地址表 | `Config{uart, {a, b, …}}` | 1~8 个、不重复、非 0 |
-| EmmV5 | 波特率 | CubeMX + 电机菜单 `UartBaud` | 两边一致（UART7 = 921600，USART2 = 115200） |
+| EmmV5 | 波特率 | CubeMX + 电机菜单 `UartBaud` | 两边一致（UART7 / USART2 均为 921600） |
 | R9DS | 串口格式 | CubeMX `huart5` | 100000 / 9B / Even / 2；SBUS 模式；硬件反相 |
 | R9DS | 在线阈值 | `ONLINE_TIMEOUT_MS` / `LOST_STREAK_TO_OFFLINE` | 100 ms / 5 帧 |
 | 舵机 | 脉宽 / 行程 / 限速 / 反向 / 微调 | `device_cfg.cpp` | `pulse_max + trim` < 20 ms；限速 0 = 不限 |

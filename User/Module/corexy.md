@@ -9,11 +9,10 @@
 // 1) 头文件：业务侧只需 module_cfg.hpp
 #include "module_cfg.hpp"
 
-// 2) 实例：module_cfg.cpp —— 数值全部来自机构实测/驱动器设置，模块层不感知
+// 2) 实例：module_cfg.cpp —— 只给组、地址、两块限位，几何参数固定在类内
 CorexyT<decltype(emm_group)> corexy({&emm_group, addr1, addr2,
                                      theory_rect,   // 理论限位：机械真实行程
-                                     safe_rect,     // 安全限位：允许作为目标的范围
-                                     mm_per_rev, pulses_per_rev, counts_per_rev});
+                                     safe_rect});   // 安全限位：允许作为目标的范围
 
 // 3) 别名 + 声明：module_cfg.hpp
 using CorexyModule = CorexyT<decltype(emm_group)>;
@@ -37,9 +36,9 @@ corexy.update();
 #include "module_cfg.hpp"
 
 corexy.zero_here();                       // 当前位置记为 (0,0)，必须在任务上下文调用
-corexy.enable(true);                      // 内部：静默 → 电机 1 → 20 ms → 电机 2
+corexy.enable(true);                      // 内部：静默 2 ms → 电机 1 → 2 ms → 电机 2
 corexy.move_to({50.0f, 20.0f});           // 绝对移动：先 45° 再轴向
-corexy.step(CorexyModule::Step::X_Plus, 10.0f);
+corexy.move_by({0.0f, -10.0f});            // 相对移动（方向核对可用控制台 g <0..7>）
 corexy.update();                          // 10 ms 周期，直到 state() == Idle
 ```
 
@@ -49,12 +48,12 @@ corexy.update();                          // 10 ms 周期，直到 state() == Id
 | --- | --- | --- |
 | 电机高速跑飞 | 绝对模式写负目标，被当成无符号大数 | 统一“相对模式 + 方向字节 + 正幅值” |
 | 命令成功但不走 | 相对基准用了书面目标值而不是实测 counts | `_send_segment` 取实测反算 |
-| 第一段能走、第二段不执行 | 到位那一拍刚发 `0x36`，0 ms 后又发 MMCL，半双工撞车 | `SEND_QUIET_MS` 静默期 |
+| 第一段能走、第二段不执行 | 到位那一拍刚发 `0x36`，0 ms 后又发 MMCL，半双工撞车 | `BUS_GAP_MS` 静默期 |
 | 两轴失步、贴边 `BAD_ARG` | 减速段末尾被当成“到位”，新命令叠在未完成的运动上 | `ARRIVE_CONFIRM` 连续 2 拍 |
-| 贴边走被误杀 | 理论矩形包围盒容差用了 `arrive_tol`（0.2 mm） | 改用 `OVERRUN_MM`（3 mm） |
-| 停止/使能连发不生效 | `send()` 只入队，DMA 把两帧粘连 | 帧间 `SEND_GAP_MS` |
-| 只有一台失能 / 位置到了却 `TIMEOUT` | 无应答命令（使能/清零/停止）发送前没静默，被在途 `0x36` 应答吃掉 | 统一 `_quiet()` + 增量式到位判定 |
-| 第二段同一个 MMCL 里只有一台先动 | 上一段没停稳就发了下一条 MMCL；或读位置不是“一问一答” | MMCL → 5 ms → 读 1 → 5 ms → 读 2 → 两台位置都对 → 下一条 MMCL（见 P11） |
+| 贴边走被误杀 | 理论矩形包围盒容差用了 `arrive_tol`（0.2 mm） | 改用 `OVERRUN_MM`（2 mm） |
+| 停止/使能连发不生效 | `send()` 只入队，DMA 把两帧粘连 | 帧间 `BUS_GAP_MS` |
+| 只有一台失能 / 位置到了却一直 `Moving` | 无应答命令（使能/清零/停止）发送前没静默，被在途 `0x36` 应答吃掉 | 统一 `_quiet()` + 增量式到位判定 |
+| 第二段同一个 MMCL 里只有一台先动 | 上一段没停稳就发了下一条 MMCL；或读位置不是“一问一答” | MMCL → 2 ms → 读 1 → 2 ms → 读 2 → 两台位置都对 → 下一条 MMCL |
 
 完整复盘（现象/定位过程/根因/修复）见 [`Docs/plan/CoreXY调试复盘.md`](../../Docs/plan/CoreXY调试复盘.md)。
 
@@ -72,22 +71,21 @@ corexy.update();                          // 10 ms 周期，直到 state() == Id
       p2 = +k · (X - Y)
 ```
 
-几何参数全部来自 `Config`，类内不写死：
+几何参数是**类内私有常量**（本模块只驱动 ZDT 闭环步进）：
 
-| 配置项 | 含义 |
-| --- | --- |
-| `mm_per_rev` | 电机一圈对应的机构行程 |
-| `pulses_per_rev` | 位置指令一圈的脉冲数（细分相关） |
-| `counts_per_rev` | 位置反馈一圈的 counts |
+| 常量 | 含义 | 值 |
+| --- | --- | --- |
+| `MM_PER_REV` | 电机一圈对应的机构行程 | 40 mm |
+| `PULSES_PER_REV` | 位置指令一圈的脉冲数 | 3200（16 细分） |
+| `COUNTS_PER_REV` | 位置反馈一圈的 counts | 65536 |
 
-`init()` 折算 `_pulses_per_mm` / `_counts_per_mm` / `_counts_per_pulse`，运行期只用折算值。
-**指令与反馈单位不同**：发送用脉冲、到位判定用 counts，比例由 `counts_per_rev / pulses_per_rev` 决定；
-把两者混用会表现为「只走了 1/N 的距离」或「目标永远到不了」。
+由它们派生出 `PULSES_PER_MM = 80`、`COUNTS_PER_MM = 1638.4`、`COUNTS_PER_PULSE = 20.48`，
+全部在编译期算好，运行期不再折算。换非 ZDT 驱动器时改这三个 `constexpr` 即可。
 
 ### 实例参数
 
-本模块是通用的：一圈行程、指令脉冲、反馈 counts、两块限位与速度全部由 `Config` 传入。
-本工程的实际数值与来历见 [`module_cfg.md`](module_cfg.md)。
+本工程只驱动 ZDT 闭环步进，几何固定；两块限位与速度由 [`module_cfg.md`](module_cfg.md) 传入，
+实际数值与来历也见该文档。
 
 ## 2. 电机转向 ↔ 世界方向
 
@@ -111,10 +109,10 @@ corexy.update();                          // 10 ms 周期，直到 state() == Id
 | 名称 | 作用 | 当前值 |
 | --- | --- | --- |
 | `theory` | 机械行程，运动越界即停机（防撞） | `(0,0) ~ (190,200)` |
-| `safe` | 允许运动的目标范围 | `(1,1) ~ (189,199)`，188 × 198 |
+| `safe` | 允许运动的目标范围 | `(1,1) ~ (188,198)`，187 × 196 |
 
 - `move_to` / `move_by` / `step` 只按 `safe` 校验，越界返回 `BAD_ARG`；
-- 运动过程中实测坐标越出 `theory`（外扩容差 = `OVERRUN_MM` = 3 mm）→ 广播停止并进入 `Fault`；
+- 运动过程中实测坐标越出 `theory`（外扩容差 = `OVERRUN_MM` = 2 mm）→ 广播停止并进入 `Fault`；
   容差不能用 `arrive_tol`：正常减速过冲就有 1 mm 量级，贴着 `y=0` 的段会被误杀；
 - 越出 `safe` 但仍在 `theory` 内只打印警告，不停机（用于观察标定残差）；
 - 安全限位是凸矩形，45°/90° 分段的中转点由两端凸组合得到，因此无需逐段复判。
@@ -140,13 +138,14 @@ acc   两台相同（加速时间与 rpm 成正比，比例关系自动保持）
 
 **每段必须先确认到位，才发下一段**（不依赖驱动器的到位帧，那个回报默认不开）：
 
-1. MMCL 发出后先静默 `READ_GAP_MS`（5 ms），**不能紧接着读**；
-2. 然后依次读两台：读 1 → `SEND_GAP_MS`（5 ms）→ 读 2；
-3. 两台读回的 `0x36` 位置都落在本段目标的 `arrive_tol` 内、并连续 `ARRIVE_CONFIRM`（=2）拍成立才算到位；
-4. 到位后再发下一条 MMCL，同样走「5 ms → 读两台」的流程。
+1. MMCL 发出后先静默 `BUS_GAP_MS`（2 ms），**不能紧接着读**；
+2. 然后依次读两台：读 1 → `BUS_GAP_MS`（2 ms）→ 读 2；
+3. 两台读回的 `0x36` 位置都落在本段目标的 `arrive_tol` 内、**相邻两次读回几乎不变**（≤ `STILL_COUNTS`，证明已停稳）、并连续 `ARRIVE_CONFIRM`（=2）拍成立才算到位；
+4. 到位后再发下一条 MMCL，同样走「2 ms → 读两台」的流程。
 
-单段超时 `SEG_TIMEOUT_MS` 给得**非常大（5 min）**：宁可一直等，也不把正常运动误判成
-`TIMEOUT` 停机。真要中断请用 `stop()`。
+**段兜底**：本段发出后 `SEG_DONE_MS`（3 s）还没判到位，就**按已到位处理**（跳下一段 / 结束），
+不会进 `Fault`。跳下一段前会先发一次停止，避免新命令叠在没跑完的运动上。
+要人为中断始终用 `stop()`。
 
 ### 4.1 两种下发模式
 
@@ -168,13 +167,13 @@ acc   两台相同（加速时间与 rpm 成正比，比例关系自动保持）
 
 ```text
 move_to(p)                 校验安全限位 → 拆段 → 立刻发第 1 段
-  ├─ 静默 SEND_QUIET_MS    等上一条 0x36 的应答收完（半双工）
+  ├─ 静默 BUS_GAP_MS      等上一条 0x36 的应答收完（半双工）
   ├─ 组 MMCL 总帧          两台子命令在**同一帧**里，一次发出
-  └─ 置 _read_hold         MMCL 后 READ_GAP_MS（5 ms）内一条查询都不发
+  └─ 置 _read_hold         MMCL 后 BUS_GAP_MS（2 ms）内一条查询都不发
 
 update() 周期一次（建议 10 ms）
   ├─ 读 1                 发 0x36 → 等到应答（最多 REPLY_TIMEOUT_MS）
-  ├─ 隔 SEND_GAP_MS       两条查询之间也留 5 ms
+  ├─ 隔 BUS_GAP_MS        两条查询之间也留 2 ms
   ├─ 读 2                 发 0x36 → 等到应答
   ├─ 越界 / 超程检查       → 越界进 Fault
   └─ 到位判定（连续确认） → 发下一段 / 进 Idle
@@ -185,7 +184,7 @@ update() 周期一次（建议 10 ms）
 | 状态 | 含义 | 转移 |
 | --- | --- | --- |
 | `Idle` | 无待走分段 | `move_*` → `Moving` |
-| `Moving` | 走当前分段 | 两轴到位 → 下一段 / `Idle`；超时或越界 → `Fault` |
+| `Moving` | 走当前分段 | 两轴到位 → 下一段 / `Idle`；越界或发送失败 → `Fault` |
 | `Fault` | 已停机 | 只能 `stop()` 清除 |
 
 **原点门控**：`zero_here()` 的命令无应答，必须靠读数复核。连续 3 拍位置都在 ±0.5 mm 内
@@ -194,16 +193,20 @@ update() 周期一次（建议 10 ms）
 
 `update()` 每次做三件事：
 
-1. 读两台位置：一台一台来（发请求 → 等应答 → 隔 5 ms → 下一台）；`_read_hold` 之前一律不读；
+1. 读两台位置：一台一台来（发请求 → 等应答 → 隔 2 ms → 下一台）；`_read_hold` 之前一律不读；
 2. 收位置后重算世界坐标，并做原点复核；
-3. 推进状态机：到位判定 → 下一段；超时 / 越界 → `Fault`。
+3. 推进状态机：到位判定 → 下一段；越界 / 发送失败 → `Fault`。
 
-到位判据（每段独立）：发完 MMCL 隔 5 ms 开始读位置，**一次一台**（读 1 → 5 ms → 读 2）；
-两台都读到应答、且各自的 `|反馈 - 本段目标| ≤ arrive_tol`
+到位判据（每段独立）：发完 MMCL 隔 2 ms 开始读位置，**一次一台**（读 1 → 2 ms → 读 2）；
+两台都读到应答、各自的 `|反馈 - 本段目标| ≤ arrive_tol`
 （目标 = 段起点实测 counts + 本段指令增量，不走世界坐标，所以编码器零位有偏差也判得准），
-并**连续 `ARRIVE_CONFIRM`（=2）拍**成立才算到位。只判一拍会在减速段末尾误判：读数刚进窗口就发下一段，
-驱动器尚未停稳，新的相对位置命令会叠在未完成的运动上，两轴随即失步并撞上理论限位。
-到位后不额外停顿——发下一条 MMCL 前 `_send_segment()` 会先静默 `SEND_QUIET_MS`（20 ms）。
+**而且相邻两次读回的 counts 相差 ≤ `STILL_COUNTS`（=10，约 0.006 mm）**，
+并**连续 `ARRIVE_CONFIRM`（=2）拍**成立才算到位。
+
+为什么必须加“不再变化”：`arrive_tol` 的 0.2 mm 窗口在减速尾巴上就会成立（此时还有
+≈28 ms 才真正停住），只判窗口的话下一段 MMCL 会在电机还在减速时发过去，
+驱动器把新命令当成下一条目标排队，表现为“同一个 MMCL 里只有一台先动”。
+读数不再变化才能证明已经停稳。
 
 以 `m 100 50`（起点 `0,0`）为例：先到 `50,50`（45°，只电机 1 动）→ 两台读回位置都对 →
 再到 `100,50`（+X，两台都动）→ 两台读回位置都对 → `done`。
@@ -281,17 +284,18 @@ A5 5A 7F 06 | evt | status | x:i16 | y:i16 | SUM
 - 两个 CoreXY 任务通过 `corexy_cmd_queue`（`corexy_protocol.hpp`）通信，队列元素是语义命令，不是字节帧；
 - `corexy.update()` / `move_*` 只能由 `cxy_io` 调用（MMCL 缓冲、总线均为单所有者）；
 - 模块不建任务、不创建锁（总线互斥借用设备组的递归锁）；对象必须是全局/静态生命周期；
-- RS485 半双工：连续 `send()` 只是入队，DMA 会把两帧连成一串；分开的帧之间留 5 ms；
-- **发任何控制命令前静默 20 ms**（`SEND_QUIET_MS`，统一走 `_quiet()`）：等上一条 `0x36`
+- RS485 半双工：连续 `send()` 只是入队，DMA 会把两帧连成一串；分开的帧之间留 2 ms；
+- **发任何控制命令前静默 2 ms**（`BUS_GAP_MS`，统一走 `_quiet()`）：等上一条 `0x36`
   的应答收完，否则驱动器正在发送、收不进字节，整帧被丢弃；静默期内也不发查询。
-  覆盖范围：分段位置帧、使能/失能、清零、停止、上层直发的 `0xF1`/`0xFC`（先调 `quiet()`）；
-- 两台使能/失能之间额外留 `ENABLE_GAP_MS = 20 ms`；
-- **MMCL 发出后 5 ms（`READ_GAP_MS`）才能开始读位置**，两条查询之间也留 5 ms；
+  覆盖范围：分段位置帧、使能/失能、清零、停止；上层直发的 `0xF1`/`0xFC` 诊断帧没有静默
+  （`quiet()` 已收进私有），只能在空闲时用；
+- 一个常数管五处间隔：`BUS_GAP_MS = 2 ms`（帧间、发命令前静默、命令族之后到开始读、MMCL 后到首读、读周期）；
+- **MMCL 发出后 2 ms（`BUS_GAP_MS`）才能开始读位置**，两条查询之间也留 2 ms；
   使能 / 清零 / 停止后同样先把 `_read_hold` 推开一段时间；
 - 故障/停止后无需额外重同步：增量基准始终取实测位置；
 - **到位判定是增量式的**：`目标 = 段起点实测 counts + 本段增量`，不引用编码器零位，
-  所以清零命令丢失也不会让运动“永远停在 `Moving` 直到 `TIMEOUT`”；
-- 段超时固定为 `SEG_TIMEOUT_MS = 300 s`（给得非常大，不按行程估算，避免长行程/慢速被误判）；
+  所以清零命令丢失也不会让运动“一直停在 `Moving` 等不到那个永远不存在的绝对目标”；
+- **段兜底 `SEG_DONE_MS = 3 s`**：到点还没判到位就按“已到位”处理（不是故障）；要中断只能手动 `stop`；
 - 上电由 `cxy_io` 完成停止 / 清零 / 使能 / 原点复核。
 
 ### 7.1 模板参数 `Group` 的接口契约
@@ -310,11 +314,14 @@ Status  request_position(uint8_t addr);             // 发一次 0x36 请求
 void    multi_clear();
 Status  queue_position(uint8_t addr, emmv5::Direction dir, uint16_t rpm,
                        uint8_t acc, int32_t pulses, emmv5::PositionMode mode);
+Status  queue_quick_position_params(uint8_t addr, uint16_t rpm, uint8_t acc,
+                                    emmv5::PositionMode mode);   // 仅 Quick 模式
+Status  queue_quick_position(uint8_t addr, int32_t pulses);      // 仅 Quick 模式
 Status  multi_send(uint8_t target = emmv5::BROADCAST);
-
-Status  lock_bus(uint32_t timeout_ms = 200U);       // 半双工递归锁
-void    unlock_bus();
 ```
+
+> 总线锁（`lock_bus()` / `unlock_bus()`）由设备组内部使用，模块层不直接调用：
+> `multi_clear` / `queue_*` / `multi_send` 各自已经是总线事务。
 
 换驱动器时，实现这组接口即可复用整个模块层；换串口 / 换机械只改 `Config` 数值。
 
@@ -324,8 +331,8 @@ void    unlock_bus();
 | --- | --- | --- |
 | `move_to` 返回 `BAD_ARG` | 目标超出 `safe`，或处于 `Fault` 未 `stop()` | `lim` 看限位；`stop` 清故障 |
 | `move_to` 返回 `BUSY` | 上一段还没走完 | `pos` 看状态，等 `Idle` |
-| `Fault` + `TIMEOUT` | 未收到位置反馈 / 堵转 / 速度过低 | 检查 `en 1`、`pos` 的 counts 是否刷新 |
-| `Fault` + `IO_ERROR` | 单轴偏离本段预期行程 > 3 mm（反向或跑飞） | 看 `pos` 的 c1/c2 变化方向；若反向需修正接线/电机方向 |
+| `Fault` + `BAD_ARG` / `IO_ERROR` | 实测坐标越出理论限位 / 单轴超出预期行程 / 发送失败 | 看 `pos` 与 `dump`，`stop` 后重新对零 |
+| `Fault` + `IO_ERROR` | 单轴偏离本段预期行程 > 2 mm（反向或跑飞） | 看 `pos` 的 c1/c2 变化方向；若反向需修正接线/电机方向 |
 | `Fault` + `BAD_ARG` | 实测坐标越出 `theory` | 检查是否上电未回位、皮带丢步 |
 | 原点偏差 > 0.5 mm | 上电位置不在左下角，或清零命令未执行 | 手动回位后 `home` |
 | 目标方向与预期相反 | 电机接线 / 转向定义变化 | 用 `g 0`、`g 2` 核对 §2 表 |
@@ -334,7 +341,7 @@ void    unlock_bus();
 
 - 在 `all_init()` 里调 `zero_here()`：调度器尚未启动，串口阻塞发送不可靠；
 - 在第二个任务里调 `update()`：会与 `corexy_task` 抢位置请求，两台电机的应答互相覆盖；
-- 把 `pulses_per_rev` 当成反馈单位：到位判定会永远不满足；
+- 把 `PULSES_PER_REV` 当成反馈单位：到位判定会永远不满足；
 - 直接把 `safe` 设成 `theory`：失去防撞余量，装配公差会撞边；
 - 上电前把机构停在行程中段：清零后的世界坐标与机械位置不符。
 
@@ -347,6 +354,6 @@ void    unlock_bus();
 2. `en 1` → `g 0 10` … `g 7 10`：逐档核对 §2 的方向表与行程；
 3. `m 100 100`：观察是否先 45° 再轴向，两段都停在目标 ±0.2 mm；
 4. `m 0.5 50` / `m 190 100`：应回 `reject: outside safe limit`；
-5. `m 1 1`、`m 189 199`：应能走到（误差 ≤ 0.2 mm）；
+5. `m 1 1`、`m 188 198`：应能走到（误差 ≤ 0.2 mm）；`m 189 199` 现在应被拒；
 6. 移动中 `stop`：两台立即停；
 7. `home` 后 `pos` 重新为 `(0.00, 0.00)`，随后 `m 10 10` 正常。

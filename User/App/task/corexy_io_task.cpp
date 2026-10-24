@@ -86,12 +86,11 @@ void run(const CorexyCmd &cmd)
       break;
 
     case CorexyCmdType::QuickParam:
-      corexy.quiet(); // 单电机诊断帧：同样不能接在轮询应答后面
+      // 单电机诊断帧：直接发（模块不再对外提供 quiet()，只在空闲时用它们）
       st = emm_group.set_quick_position_params(cmd.addr, static_cast<uint16_t>(cmd.p0), static_cast<uint8_t>(cmd.p1), (cmd.mode != 0U) ? emmv5::PositionMode::Absolute : emmv5::PositionMode::Relative);
       break;
 
     case CorexyCmdType::QuickPos:
-      corexy.quiet();
       st = emm_group.set_quick_position(cmd.addr, cmd.p0);
       break;
 

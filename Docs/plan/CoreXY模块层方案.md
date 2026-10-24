@@ -124,7 +124,6 @@ public:
 
   Status move_to(Point p);             ///< 绝对移动到 p（mm，已按安全限位校验）
   Status move_by(Point d);             ///< 相对移动
-  Status step(Step s, float mm);       ///< 单步 8 方向（调试 / 方向核对用）
   Status stop();                       ///< 立即停止并清状态
 
   void   update();                     ///< 周期调用：轮询 0x36、判到位、越界停机
@@ -271,8 +270,9 @@ public:
 
 实现阶段做了三处调整：
 
-1. **几何参数进 `Config`**：`mm_per_rev` / `pulses_per_rev` / `counts_per_rev` 由实例配置给出，
-   模块类内不再写死 40 mm / 3200 / 65536，便于换皮带轮与细分；
+1. ~~**几何参数进 `Config`**：`mm_per_rev` / `pulses_per_rev` / `counts_per_rev` 由实例配置给出~~
+   **2026-10-25 已改**：模块只支持 ZDT 电机，三个值改成 `CorexyT` 私有 `constexpr`
+   （`MM_PER_REV` / `PULSES_PER_REV` / `COUNTS_PER_REV`），`Config` 只剩组、地址、两块限位与速度；
 2. **`Config` 不给限位与几何默认值**：电机组、地址、两块矩形与三个几何参数必须显式传入，
    项目数值集中在 `module_cfg.cpp`；
 3. **上电清零放在 `corexy_task` 启动阶段**（`all_init()` 处于调度器启动前，串口阻塞发送不可靠）；

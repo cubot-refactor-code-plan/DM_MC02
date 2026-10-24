@@ -72,28 +72,37 @@ BspCanT<16, 16> bsp_can3({&hfdcan3, "CAN3"});
  *       本驱动不改一个字段。实例分工与收发链见 bsp_uart.md。
  */
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart1({&huart1, UartMode::TxRx, 115200U});
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart1({&huart1, UartMode::TxRx, 115200U});
+
+// RS485，DE 由 USART2 硬件控制
+__attribute__((section(".dma_buffer")))
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart2({&huart2, UartMode::TxRx, 921600U});
 
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart2({&huart2, UartMode::TxRx, 115200U}); // RS485，DE 由 USART2 硬件控制
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart3({&huart3, UartMode::TxRx, 115200U});
 
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart3({&huart3, UartMode::TxRx, 115200U});
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart4({&huart4, UartMode::TxRx, 115200U});
 
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart4({&huart4, UartMode::TxRx, 115200U});
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart7({&huart7, UartMode::TxRx, 921600U});
 
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart7({&huart7, UartMode::TxRx, 921600U});
+  BspUartT<uart_detail::ItTransport, 128, 128>
+  bsp_uart8({&huart8, UartMode::TxRx, 921600U});
 
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::ItTransport, 128, 128> bsp_uart8({&huart8, UartMode::TxRx, 921600U});
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart9({&huart9, UartMode::TxRx, 921600U});
 
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart9({&huart9, UartMode::TxRx, 921600U});
-
-__attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart10({&huart10, UartMode::TxRx, 921600U});
+  BspUartT<uart_detail::DmaTransport, 128, 128>
+  bsp_uart10({&huart10, UartMode::TxRx, 921600U});
 
 // UART5 = SBUS：只收不发，中断接收；不使用 DMA
 BspUartT<uart_detail::ItTransport, 128, 32> bsp_uart_it5({&huart5, UartMode::RxOnly, 100000U});
@@ -126,8 +135,9 @@ BspGpio spi1_cs({SPI1_CS_GPIO_Port, SPI1_CS_Pin}); // PE15
 /**
  * @brief 排针预留的 4 路舵机 PWM
  *
- * @note 参数取自 CubeMX：定时器时钟 275 MHz（APB 137.5 MHz × 2），PSC = 275-1、ARR = 20000-1
- *       ⇒ 计数器 1 MHz、周期 20000 个计数 = **50 Hz / 20 ms，1 个计数正好 1 µs**，
+ * @note 参数取自 CubeMX：定时器时钟 275 MHz（APB 137.5 MHz × 2）
+ *       PSC = 275-1。ARR = 20000-1 ⇒ 计数器 1 MHz。
+ *       周期20000个计数 = 50Hz/20ms，1个计数正好 1µs。
  *       于是脉宽可以直接按 µs 理解：set_pulse_us(1500.0f) 就是舵机中位。
  * @note PSC 由 MX_TIM1_Init() / MX_TIM2_Init() 写入，本驱动只用它做换算、不改寄存器；
  *       这两个数必须与 CubeMX 保持一致，否则脉宽/频率换算是错的（bsp_pwm.hpp 有 @warning）。

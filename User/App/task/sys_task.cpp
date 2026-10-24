@@ -57,15 +57,15 @@ extern "C" void sys_task(void *argument)
     Online::update();
 
     // 打印占用时间降低打印次数
-    if(count == 200)
+    if (count == 200)
     {
       // 绝对时间：每次打印都读一次，顺带满足 DWT 绝对时间轴 < 7.809 s 的心跳要求
       const double uptime_s = bsp_dwt.get_time_s();
 
       // 本轮耗时（µs）：从循环开头到这里，经 USART1 打印
-      // bsp_uart1.printf("[sys] up=%.3fs cycle=%uus\r\n",
-      //                  uptime_s,
-      //                  static_cast<unsigned>(bsp_dwt.get_delta_s(&mark) * 1000000.0));
+      bsp_uart1.printf("[sys] time=%ds cycle=%uus\r\n",
+                       uptime_s,
+                       static_cast<unsigned>(bsp_dwt.get_delta_s(&mark) * 1000000.0));
       count = 0;
     }
 

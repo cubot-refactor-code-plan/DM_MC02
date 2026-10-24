@@ -12,16 +12,19 @@ template class DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128, 128>>;
 // ----------------
 // ---------------- 构造与生命周期 ----------------
 
+/** @brief 只保存串口引用与地址表 */
 template <typename Uart>
-DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg) : _uart(cfg.uart),
-                                                                _count(cfg.count)
+DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg) : _uart(cfg.uart), _count(cfg.count)
 {
+  // 只把地址表拷进来；超长 / 重复 / 为 0 的地址交给 init() 拒绝，
+  // 总线锁也放到 init() 里建（构造函数里不碰 FreeRTOS API）。
   for (size_t i = 0; i < MAX_MOTORS; i++)
   {
     _motor[i].addr = cfg.addr[i];
   }
 }
 
+/** @brief 校验地址表、复位接收状态与 MMCL 缓冲，并创建总线锁 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::init()
 {
@@ -78,6 +81,7 @@ Status DeviceEmmv5GroupT<Uart>::init()
   return Status::OK;
 }
 
+/** @brief 释放总线锁（全局实例不会走到这里，只为测试 / 局部对象不泄漏） */
 template <typename Uart>
 DeviceEmmv5GroupT<Uart>::~DeviceEmmv5GroupT()
 {
@@ -91,10 +95,12 @@ DeviceEmmv5GroupT<Uart>::~DeviceEmmv5GroupT()
 // ----------------
 // ---------------- 私有查找与发送 ----------------
 
+/** @brief 地址 → 下标；不在组内返回 _count */
 template <typename Uart>
 size_t DeviceEmmv5GroupT<Uart>::index_of(uint8_t addr) const
 {
-  // 配置可能传入超过 MAX_MOTORS 的地址数；init() 会拒绝，但查找时也要自己夹住
+  // 配置可能传入超过 MAX_MOTORS 的地址数；init() 会拒绝，但查找时也要自己夹住。
+  // 约定：找不到返回 _count，调用方一律用 `index >= _count` 判非法。
   const size_t count = (_count > MAX_MOTORS) ? MAX_MOTORS : _count;
 
   for (size_t i = 0; i < count; i++)
@@ -108,6 +114,7 @@ size_t DeviceEmmv5GroupT<Uart>::index_of(uint8_t addr) const
   return _count;
 }
 
+/** @brief 地址是否在组内 */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::_is_member(uint8_t addr) const
 {
@@ -118,6 +125,7 @@ bool DeviceEmmv5GroupT<Uart>::_is_member(uint8_t addr) const
 // ----------------
 // ---------------- 总线互斥 ----------------
 
+/** @brief 取半双工总线锁（递归；timeout_ms = 0 相当于 try-lock） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::lock_bus(uint32_t timeout_ms)
 {
@@ -126,6 +134,7 @@ Status DeviceEmmv5GroupT<Uart>::lock_bus(uint32_t timeout_ms)
     return Status::NOT_INIT;
   }
 
+  // timeout_ms = 0 相当于 try-lock；递归锁让同一任务可以层层嵌套而不会自锁
   if (xSemaphoreTakeRecursive(_bus_lock, pdMS_TO_TICKS(timeout_ms)) != pdTRUE)
   {
     return Status::TIMEOUT;
@@ -134,15 +143,18 @@ Status DeviceEmmv5GroupT<Uart>::lock_bus(uint32_t timeout_ms)
   return Status::OK;
 }
 
+/** @brief 释放总线锁，必须与 lock_bus() 成对 */
 template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::unlock_bus()
 {
+  // 与 lock_bus() 成对，必须同任务调用；多给/少给会让递归计数错位
   if (_bus_lock != nullptr)
   {
     (void)xSemaphoreGiveRecursive(_bus_lock);
   }
 }
 
+/** @brief 直接发一帧：校验地址与帧有效性 → 加锁 → 入队 → 解锁 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::_send_for(uint8_t addr, const emmv5::Frame &frame)
 {
@@ -153,6 +165,7 @@ Status DeviceEmmv5GroupT<Uart>::_send_for(uint8_t addr, const emmv5::Frame &fram
 
   if (!_is_member(addr) || !frame.valid())
   {
+    // frame 有效性由协议层保证：未封口 / 已溢出 / 空帧一律不发，避免把截断帧送上总线
     return Status::BAD_ARG;
   }
 
@@ -163,13 +176,14 @@ Status DeviceEmmv5GroupT<Uart>::_send_for(uint8_t addr, const emmv5::Frame &fram
     return ls;
   }
 
-  // 20 ms 入队超时：短帧足够；缓冲卡死时返回 TIMEOUT，不无限挂住调用任务
-  const Status status = _uart.send(frame.data, frame.size, pdMS_TO_TICKS(20U), nullptr);
+  // 短帧入队：正常几 ms 内就排空，卡死时靠 TX_TIMEOUT_MS 退出
+  const Status status = _uart.send(frame.data, frame.size, pdMS_TO_TICKS(TX_TIMEOUT_MS), nullptr);
 
   unlock_bus();
   return status;
 }
 
+/** @brief 把一帧追加到 MMCL 缓冲；放不下返回 FULL，不留半条子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::_queue_for(uint8_t addr, const emmv5::Frame &frame)
 {
@@ -180,6 +194,7 @@ Status DeviceEmmv5GroupT<Uart>::_queue_for(uint8_t addr, const emmv5::Frame &fra
 
   if (!_is_member(addr) || !frame.valid())
   {
+    // 截断帧不能攒进总帧：否则整帧 MMCL 会带着半条子命令发出去
     return Status::BAD_ARG;
   }
 
@@ -207,12 +222,14 @@ Status DeviceEmmv5GroupT<Uart>::_queue_for(uint8_t addr, const emmv5::Frame &fra
 // ----------------
 // ---------------- 直接命令 ----------------
 
+/** @brief 使能 / 关闭一台电机（无应答命令） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::enable(uint8_t addr, bool on)
 {
   return _send_for(addr, emmv5::enable(addr, on));
 }
 
+/** @brief 速度模式 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::set_velocity(uint8_t addr, emmv5::Direction dir, uint16_t rpm, uint8_t accel)
 {
@@ -224,6 +241,7 @@ Status DeviceEmmv5GroupT<Uart>::set_velocity(uint8_t addr, emmv5::Direction dir,
   return _send_for(addr, emmv5::velocity(addr, dir, rpm, accel));
 }
 
+/** @brief 位置模式（方向字节 + 正幅值；相对/绝对由 mode 决定） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::set_position(uint8_t addr, emmv5::Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, emmv5::PositionMode mode)
 {
@@ -235,6 +253,7 @@ Status DeviceEmmv5GroupT<Uart>::set_position(uint8_t addr, emmv5::Direction dir,
   return _send_for(addr, emmv5::position(addr, dir, rpm, accel, pulses, mode));
 }
 
+/** @brief 只设快速位置参数，不产生运动 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::set_quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, emmv5::PositionMode mode)
 {
@@ -246,18 +265,21 @@ Status DeviceEmmv5GroupT<Uart>::set_quick_position_params(uint8_t addr, uint16_t
   return _send_for(addr, emmv5::quick_position_params(addr, rpm, accel, mode));
 }
 
+/** @brief 快速位置（没有方向字节，方向靠脉冲符号） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::set_quick_position(uint8_t addr, int32_t pulses)
 {
   return _send_for(addr, emmv5::quick_position(addr, pulses));
 }
 
+/** @brief 立即停止一台电机 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::stop(uint8_t addr)
 {
   return _send_for(addr, emmv5::stop(addr));
 }
 
+/** @brief 广播立即停止（地址 0） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::stop_all()
 {
@@ -278,24 +300,27 @@ Status DeviceEmmv5GroupT<Uart>::stop_all()
     return ls;
   }
 
-  const Status status = _uart.send(frame.data, frame.size, pdMS_TO_TICKS(20U), nullptr);
+  const Status status = _uart.send(frame.data, frame.size, pdMS_TO_TICKS(TX_TIMEOUT_MS), nullptr);
 
   unlock_bus();
   return status;
 }
 
+/** @brief 当前位置清零（编码器零位 = 上电位置） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::zero_position(uint8_t addr)
 {
   return _send_for(addr, emmv5::zero_position(addr));
 }
 
+/** @brief 解除堵转保护 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::clear_protection(uint8_t addr)
 {
   return _send_for(addr, emmv5::clear_protection(addr));
 }
 
+/** @brief 改控制模式（0 关闭 / 1 开环 / 2 闭环 / 3 脉冲方向） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::set_control_mode(uint8_t addr, bool store, uint8_t mode)
 {
@@ -307,18 +332,21 @@ Status DeviceEmmv5GroupT<Uart>::set_control_mode(uint8_t addr, bool store, uint8
   return _send_for(addr, emmv5::set_control_mode(addr, store, mode));
 }
 
+/** @brief 读一次系统参数（有应答，由 update() 解析） */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::read(uint8_t addr, emmv5::SystemParam param)
 {
   return _send_for(addr, emmv5::read(addr, param));
 }
 
+/** @brief 请求一次 0x36 实时位置 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::request_position(uint8_t addr)
 {
   return read(addr, emmv5::SystemParam::CurrentPosition);
 }
 
+/** @brief 请求一次 0x3A 状态标志 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::request_status(uint8_t addr)
 {
@@ -329,6 +357,7 @@ Status DeviceEmmv5GroupT<Uart>::request_status(uint8_t addr)
 // ----------------
 // ---------------- MMCL 多机命令 ----------------
 
+/** @brief 取最近一次发出的 MMCL 字节（诊断用，长度写入 len） */
 template <typename Uart>
 const uint8_t *DeviceEmmv5GroupT<Uart>::last_multi_frame(size_t &len) const
 {
@@ -336,6 +365,7 @@ const uint8_t *DeviceEmmv5GroupT<Uart>::last_multi_frame(size_t &len) const
   return _last_frame;
 }
 
+/** @brief 清空 MMCL 缓冲 */
 template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::multi_clear()
 {
@@ -347,6 +377,7 @@ void DeviceEmmv5GroupT<Uart>::multi_clear()
   }
 }
 
+/** @brief 把缓冲封成 MMCL 总帧并发送；无论成败都清空缓冲 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::multi_send(uint8_t target)
 {
@@ -373,7 +404,7 @@ Status DeviceEmmv5GroupT<Uart>::multi_send(uint8_t target)
     return ls;
   }
 
-  const Status status = _uart.send(_multi, total, pdMS_TO_TICKS(20U), nullptr);
+  const Status status = _uart.send(_multi, total, pdMS_TO_TICKS(TX_TIMEOUT_MS), nullptr);
 
   // 记下实际发出的字节，供控制台 dump 对账
   _last_frame_len = (total < sizeof(_last_frame)) ? total : sizeof(_last_frame);
@@ -387,12 +418,14 @@ Status DeviceEmmv5GroupT<Uart>::multi_send(uint8_t target)
   return status;
 }
 
+/** @brief 向 MMCL 缓冲追加「使能」子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::queue_enable(uint8_t addr, bool on)
 {
   return _queue_for(addr, emmv5::enable(addr, on));
 }
 
+/** @brief 追加「速度模式」子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::queue_velocity(uint8_t addr, emmv5::Direction dir, uint16_t rpm, uint8_t accel)
 {
@@ -404,6 +437,7 @@ Status DeviceEmmv5GroupT<Uart>::queue_velocity(uint8_t addr, emmv5::Direction di
   return _queue_for(addr, emmv5::velocity(addr, dir, rpm, accel));
 }
 
+/** @brief 追加「位置模式」子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::queue_position(uint8_t addr, emmv5::Direction dir, uint16_t rpm, uint8_t accel, int32_t pulses, emmv5::PositionMode mode)
 {
@@ -415,6 +449,7 @@ Status DeviceEmmv5GroupT<Uart>::queue_position(uint8_t addr, emmv5::Direction di
   return _queue_for(addr, emmv5::position(addr, dir, rpm, accel, pulses, mode));
 }
 
+/** @brief 追加「快速位置参数」子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::queue_quick_position_params(uint8_t addr, uint16_t rpm, uint8_t accel, emmv5::PositionMode mode)
 {
@@ -426,12 +461,14 @@ Status DeviceEmmv5GroupT<Uart>::queue_quick_position_params(uint8_t addr, uint16
   return _queue_for(addr, emmv5::quick_position_params(addr, rpm, accel, mode));
 }
 
+/** @brief 追加「快速位置」子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::queue_quick_position(uint8_t addr, int32_t pulses)
 {
   return _queue_for(addr, emmv5::quick_position(addr, pulses));
 }
 
+/** @brief 追加「立即停止」子命令 */
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::queue_stop(uint8_t addr)
 {
@@ -442,6 +479,7 @@ Status DeviceEmmv5GroupT<Uart>::queue_stop(uint8_t addr)
 // ----------------
 // ---------------- 接收 ----------------
 
+/** @brief 读串口字节并按地址分发；返回本次命中到位帧的电机位图 */
 template <typename Uart>
 uint32_t DeviceEmmv5GroupT<Uart>::update(uint32_t timeout_ms)
 {
@@ -454,6 +492,7 @@ uint32_t DeviceEmmv5GroupT<Uart>::update(uint32_t timeout_ms)
   uint8_t  buf[RX_CHUNK_SIZE];
 
   // 最多读 RX_MAX_CHUNKS 块：数据持续到达时也要把控制权还给调用任务
+  // （一问一答的场景下每拍最多两块：0x36 应答 8 B + 可能的 0x3A 应答 4 B）
   for (size_t chunk = 0; chunk < RX_MAX_CHUNKS; chunk++)
   {
     size_t n = 0;
@@ -472,6 +511,7 @@ uint32_t DeviceEmmv5GroupT<Uart>::update(uint32_t timeout_ms)
   return hits;
 }
 
+/** @brief 一块字节喂给组内每台电机的三个扫描器，并刷新在线计时 */
 template <typename Uart>
 uint32_t DeviceEmmv5GroupT<Uart>::feed_rx(const uint8_t *data, size_t size)
 {
@@ -511,6 +551,7 @@ uint32_t DeviceEmmv5GroupT<Uart>::feed_rx(const uint8_t *data, size_t size)
 
     if (alive)
     {
+      // 任何一类有效应答都算在线：只看 0x36 会在只查状态的阶段把电机误判成离线
       (void)_motor[i].online.refresh_task();
     }
   }
@@ -518,6 +559,7 @@ uint32_t DeviceEmmv5GroupT<Uart>::feed_rx(const uint8_t *data, size_t size)
   return hits;
 }
 
+/** @brief 取走一台最近一次的 0x36 位置（读后清标志） */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::get_position(uint8_t addr, int32_t &out)
 {
@@ -534,6 +576,7 @@ bool DeviceEmmv5GroupT<Uart>::get_position(uint8_t addr, int32_t &out)
 
   taskENTER_CRITICAL();
 
+  // 读后清标志：同一条位置应答只能被取走一次，否则调用方会把同一个旧值当新数据
   const bool valid = _motor[index].position_valid;
   if (valid)
   {
@@ -545,6 +588,7 @@ bool DeviceEmmv5GroupT<Uart>::get_position(uint8_t addr, int32_t &out)
   return valid;
 }
 
+/** @brief 取走一台最近一次的 0x3A 状态（读后清标志） */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::get_status(uint8_t addr, uint8_t &out)
 {
@@ -561,6 +605,7 @@ bool DeviceEmmv5GroupT<Uart>::get_status(uint8_t addr, uint8_t &out)
 
   taskENTER_CRITICAL();
 
+  // 同理：状态字节也只交付一次
   const bool valid = _motor[index].status_valid;
   if (valid)
   {
@@ -572,6 +617,7 @@ bool DeviceEmmv5GroupT<Uart>::get_status(uint8_t addr, uint8_t &out)
   return valid;
 }
 
+/** @brief 最近 ONLINE_TIMEOUT_MS 内是否收到过有效应答 */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::is_online(uint8_t addr) const
 {
@@ -586,9 +632,12 @@ bool DeviceEmmv5GroupT<Uart>::is_online(uint8_t addr) const
     return false;
   }
 
+  // 计时由 sys_task 里的 Online::update() 推进，这里只查锁存结果；
+  // 所以本类不建任务，但要求调用方的刷新周期小于 ONLINE_TIMEOUT_MS。
   return _motor[index].online.is_online() == Status::OK;
 }
 
+/** @brief 锁存位置并置有效标志（短临界区） */
 template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::_publish_position(size_t index, int32_t position)
 {
@@ -599,6 +648,7 @@ void DeviceEmmv5GroupT<Uart>::_publish_position(size_t index, int32_t position)
   taskEXIT_CRITICAL();
 }
 
+/** @brief 锁存状态并置有效标志（短临界区） */
 template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::_publish_status(size_t index, uint8_t status)
 {
@@ -608,6 +658,7 @@ void DeviceEmmv5GroupT<Uart>::_publish_status(size_t index, uint8_t status)
   taskEXIT_CRITICAL();
 }
 
+/** @brief 置累计到位标志（短临界区） */
 template <typename Uart>
 void DeviceEmmv5GroupT<Uart>::_publish_in_position(size_t index)
 {
@@ -616,21 +667,26 @@ void DeviceEmmv5GroupT<Uart>::_publish_in_position(size_t index)
   taskEXIT_CRITICAL();
 }
 
+/** @brief rpm 是否在说明书范围内（0~5000） */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::_valid_rpm(uint16_t rpm)
 {
+  // 0~5000 是说明书给的范围；0 也合法（驱动器按 0 速处理）
   return rpm <= 5000U;
 }
 
+/** @brief 方向枚举是否合法 */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::_valid_direction(emmv5::Direction dir)
 {
   return (dir == emmv5::Direction::CW) || (dir == emmv5::Direction::CCW);
 }
 
+/** @brief 只查该台的累计到位标志，不清零 */
 template <typename Uart>
 bool DeviceEmmv5GroupT<Uart>::in_position(size_t index) const
 {
+  // 只查询不清零：给“看看这台到没到”用，不影响 get_in_position() 的位图
   if (!_ready || index >= _count)
   {
     return false;
@@ -642,6 +698,7 @@ bool DeviceEmmv5GroupT<Uart>::in_position(size_t index) const
   return value;
 }
 
+/** @brief 取走累计到位位图并清零 */
 template <typename Uart>
 uint32_t DeviceEmmv5GroupT<Uart>::get_in_position()
 {

@@ -8,8 +8,8 @@
  * @copyright Copyright (c) 2026
  *
  * @note 原理、时序图、用法示例与实测踩坑清单见 `corexy.md`；本文件只保留接口契约。
- * @note 几何参数（每圈行程、指令脉冲、反馈 counts）、限位与速度全部来自 Config，
- *       类内不写死任何项目数值；具体数值由模块层的实例配置给出。
+ * @note 限位、速度、到位窗口来自 Config；几何参数固定为本工程用的 ZDT 闭环步进
+ *       （40 mm/圈、3200 脉冲/圈、65536 counts/圈），以 constexpr 收在私有区。
  */
 
 #ifndef __MODULE_COREXY_HPP__
@@ -30,30 +30,34 @@
  * @tparam Group 设备层“单串口多电机组”类型，构造只保存指针，不拥有设备。
  *
  * @note `Group` 是鸭子类型（模板编译期检查），只需满足 `_send_segment()` 用到的成员：
- *       位置清零 / 停止 / 取位置 / 请求位置 / MMCL 三件套 / 总线锁。
+ *       位置清零 / 使能 / 停止 / 读位置 / 请求位置 / MMCL（清空、入队、发送）/ 快速位置入队。
  *       具体接口清单与两侧约束见 `corexy.md`。
  *
- * @note 换串口 / 换驱动器只需换 `Group` 类型与 Config 数值，类内不写死任何项目参数。
+ * @note 换串口只需换 `Group` 类型；换非 ZDT 驱动器要同步改私有区的三个几何常量。
  */
 template <typename Group>
 class CorexyT
 {
 public:
   // ---------------- 常量 ----------------
+  static constexpr uint8_t ZERO_CONFIRM   = 2U; ///< 连续多少次读数合格才算原点有效
+  static constexpr uint8_t ARRIVE_CONFIRM = 2U; ///< 连续多少拍「两台读回的位置都正确且不变」才算到位
 
-  static constexpr size_t SEG_MAX = 2U; ///< 最多两段：45° 段 + 轴向段
+  /**
+   * @brief 总线节拍（921600 下 13 B 帧 ≈ 0.14 ms，2 ms 留足余量）
+   *
+   * @note 一个常数覆盖五处间隔：帧与帧之间、发无应答命令前的静默、命令族之后
+   *       先不读位置、发完 MMCL 到第一次读、相邻两次「读两台位置」。
+   *       改波特率时只需要改这一个值。
+   */
+  static constexpr uint32_t BUS_GAP_MS = 2U;
 
-  static constexpr float    ZERO_TOL_MM      = 0.50f;   ///< 原点复核窗口 mm
-  static constexpr uint8_t  ZERO_CONFIRM     = 3U;      ///< 连续多少次读数合格才算原点有效
-  static constexpr uint8_t  ARRIVE_CONFIRM   = 2U;      ///< 连续多少拍「两台读回的位置都正确」才算到位
-  static constexpr float    OVERRUN_MM       = 3.0f;    ///< 段内超出预期行程多少 mm 就停机
-  static constexpr uint32_t SEND_GAP_MS      = 5U;      ///< 两帧之间的最小间隔（按 115200 下的帧时长取整）
-  static constexpr uint32_t SEND_QUIET_MS    = 20U;     ///< 发控制命令前的总线静默期（等上一条查询的应答收完）
-  static constexpr uint32_t ENABLE_GAP_MS    = 20U;     ///< 使能/失能帧之间的间隔（比普通帧放宽）
-  static constexpr uint32_t READ_GAP_MS      = 5U;      ///< 发完 MMCL / 连续两条查询之间必须留的间隔
-  static constexpr uint32_t READ_PERIOD_MS   = 10U;     ///< 相邻两次「读两台位置」的间隔
-  static constexpr uint32_t REPLY_TIMEOUT_MS = 10U;     ///< 单台位置应答的等待上限
-  static constexpr uint32_t SEG_TIMEOUT_MS   = 300000U; ///< 单段超时：给得非常大，宁可一直等也不误判 TIMEOUT
+  static constexpr uint32_t REPLY_TIMEOUT_MS = 30U;   ///< 单台位置应答的等待上限
+  static constexpr uint32_t SEG_DONE_MS      = 3000U; ///< 段兜底：这么久还没判到位就按“已到位”处理（不是故障）
+  static constexpr int32_t  STILL_COUNTS     = 10;    ///< 相邻两次读回相差 ≤ 该值（约 0.006 mm）视为已停稳
+  static constexpr float    OVERRUN_MM       = 2.0f;  ///< 段内超出预期行程多少 mm 就停机
+  static constexpr size_t   SEG_MAX          = 2U;    ///< 最多两段：45° 段 + 轴向段
+  static constexpr float    ZERO_TOL_MM      = 0.50f; ///< 原点复核窗口 mm
   // ----------------
   // ---------------- 类型与配置 ----------------
 
@@ -93,29 +97,12 @@ public:
     float y; ///< Y 坐标 mm
   };
 
-  /**
-   * @brief 45° 步进方向（0° ~ 315°，逆时针每 45° 一档）
-   *
-   * @note `X_Plus` = 世界 +X，`Y_Plus` = 世界 +Y；对角档在 CoreXY 下只驱动一台电机。
-   */
-  enum class Step : uint8_t
-  {
-    X_Plus,          ///< 0°：+X
-    X_Plus_Y_Plus,   ///< 45°：+X +Y
-    Y_Plus,          ///< 90°：+Y
-    X_Minus_Y_Plus,  ///< 135°：-X +Y
-    X_Minus,         ///< 180°：-X
-    X_Minus_Y_Minus, ///< 225°：-X -Y
-    Y_Minus,         ///< 270°：-Y
-    X_Plus_Y_Minus   ///< 315°：+X -Y
-  };
-
   /** @brief 模块状态 */
   enum class State : uint8_t
   {
     Idle,   ///< 空闲，可接收新目标
     Moving, ///< 正在走当前分段
-    Fault   ///< 超时 / 越界 / 发送失败，已停机，需调用 stop() 清除
+    Fault   ///< 越界 / 发送失败，已停机，需调用 stop() 清除
   };
 
   /**
@@ -139,12 +126,13 @@ public:
   /**
    * @brief 模块配置
    *
-   * @note 参数顺序 = 字段顺序。电机组、地址、限位与三个几何参数必须显式给出
-   *       （由模块层实例配置负责），速度 / 加速度 / 到位窗口可省略。
+   * @note 参数顺序 = 字段顺序。电机组、地址与两块限位必须显式给出（由模块层实例配置负责），
+   *       速度 / 加速度 / 到位窗口可省略。几何参数不在 Config 里：本模块只驱动 ZDT 闭环步进，
+   *       两个比例由类内私有常量算出。
    *
    * @code{.cpp}
-   *   // 最简：限位与几何全给，速度用默认
-   *   CorexyT<G> cx({&group, addr1, addr2, theory, safe, mm_per_rev, pulses_per_rev, counts_per_rev});
+   *   // 最简：限位全给，速度用默认
+   *   CorexyT<G> cx({&group, addr1, addr2, theory, safe});
    * @endcode
    *
    * @note **两块限位的语义区别**（很关键）：
@@ -160,11 +148,8 @@ public:
      * @param group          电机组（不拥有）
      * @param addr1          电机 1 地址
      * @param addr2          电机 2 地址
-     * @param theory         理论限位（机械行程，只做碰撞检测）
-     * @param safe           安全限位（允许运动的目标范围）
-     * @param mm_per_rev     电机一圈对应的机构行程 mm
-     * @param pulses_per_rev 位置指令一圈的脉冲数
-     * @param counts_per_rev 位置反馈一圈的 counts
+     * @param theory         理论限位（机械行程，只做碰撞检测 mm）
+     * @param safe           安全限位（允许运动的目标范围 mm）
      * @param rpm            基准速度 RPM（按每圈行程换算成 mm/s）
      * @param acc            加速度参数（0~255，越大加速越快，0 = 直接启动）
      * @param arrive_tol     到位窗口 mm
@@ -175,9 +160,6 @@ public:
            uint8_t  addr2,
            Rect     theory,
            Rect     safe,
-           float    mm_per_rev,
-           uint32_t pulses_per_rev,
-           uint32_t counts_per_rev,
            uint16_t rpm        = 300U,
            uint8_t  acc        = 230U,
            float    arrive_tol = 0.20f,
@@ -188,9 +170,6 @@ public:
         addr2(addr2),
         theory(theory),
         safe(safe),
-        mm_per_rev(mm_per_rev),
-        pulses_per_rev(pulses_per_rev),
-        counts_per_rev(counts_per_rev),
         rpm(rpm),
         acc(acc),
         arrive_tol(arrive_tol),
@@ -203,9 +182,6 @@ public:
     uint8_t  addr2;          ///< 电机 2 地址
     Rect     theory;         ///< 理论限位（机械行程）
     Rect     safe;           ///< 安全限位（允许运动的目标范围）
-    float    mm_per_rev;     ///< 每圈行程 mm
-    uint32_t pulses_per_rev; ///< 指令脉冲 / 圈
-    uint32_t counts_per_rev; ///< 反馈 counts / 圈
     uint16_t rpm;            ///< 基准速度 RPM
     uint8_t  acc;            ///< 加速度参数
     float    arrive_tol;     ///< 到位窗口 mm
@@ -222,7 +198,7 @@ public:
    */
   explicit CorexyT(const Config &cfg);
 
-  // 状态机与轮询相位不可复制
+  // 状态机与读位置基准不可复制
   CorexyT(const CorexyT &)            = delete;
   CorexyT &operator=(const CorexyT &) = delete;
   CorexyT(CorexyT &&)                 = delete;
@@ -245,16 +221,9 @@ public:
    *
    * @note **必须先静默**：上一条 `0x36` 查询的应答可能还在回传，驱动器此刻收不进字节，
    *       直接 `send()` 会被整帧丢弃——实测就是“只有第一台失能了”。
-   * @note 两帧之间留 `ENABLE_GAP_MS`（使能帧较长，驱动器解析更慢）。
+   * @note 两帧之间、以及使能之后到开始读位置，都留 `BUS_GAP_MS`。
    */
   Status enable(bool on);
-
-  /**
-   * @brief 让 RS485 总线静默 `SEND_QUIET_MS`，期间不发任何查询
-   * @note 供上层直发诊断帧（`0xF1` / `0xFC` 单电机命令）前调用；模块内部的控制命令
-   *       已经自带静默，不需要额外调。
-   */
-  void quiet();
 
   /**
    * @brief 两台编码器清零，当前位置记为世界原点 (0,0)
@@ -276,12 +245,14 @@ public:
    * @note 路径拆段规则：`dx`、`dy` 任一为 0 或 `|dx| == |dy|` 走单段；
    *       否则先走 45° 段（`d = min(|dx|,|dy|)`），再走轴向段到目标。
    *       例：`0,0 → 100,50` 先到 `50,50`，再到 `100,50`。
-   * @note **每段都必须先确认到位**才发下一段：发完 MMCL 先静默 `READ_GAP_MS`(5 ms)，
-   *       然后依次读两台（读 1 → `SEND_GAP_MS` → 读 2）的 `0x36` 位置；
-   *       两台读回的位置都落在本段目标的 `arrive_tol` 内、且连续 `ARRIVE_CONFIRM` 拍成立，
-   *       才算到位，下一段同样走「5 ms → 读两台」的流程。
+   * @note **每段都必须先确认到位**才发下一段：发完 MMCL 先静默 `BUS_GAP_MS`，
+   *       然后依次读两台（读 1 → `BUS_GAP_MS` → 读 2）的 `0x36` 位置；
+   *       两台读回的位置都落在本段目标的 `arrive_tol` 内、**而且相邻两次读回几乎不变**
+   *       （≤ `STILL_COUNTS`，证明电机真的停住了），连续 `ARRIVE_CONFIRM` 拍成立才算到位；
+   *       下一段同样走「2 ms → 读两台」的流程。
    *       不依赖驱动器的"到位帧"（该回报默认不开）。
-   * @note 单段超时 `SEG_TIMEOUT_MS` 给得非常大（5 min），宁可不动作也不误判 TIMEOUT；
+   * @note **不设故障超时**：本段最晚等 `SEG_DONE_MS`，到点还没判到位就**按已经到位处理**
+   *       （跳下一段 / 结束），不会进 `Fault`。跳下一段前会先停一次，避免命令叠在没跑完的运动上。
    *       真要中断请用 `stop()`。
    * @note 分段起点是当前**实测**坐标（位置反馈换算），不是上一次指令值。
    *
@@ -303,23 +274,11 @@ public:
   Status move_by(Point d);
 
   /**
-   * @brief 8 方向单步（方向核对 / 调试用）
-   * @param s  方向档位
-   * @param mm 沿该方向的行程 mm（对角按真实距离计，X/Y 分量各 mm/√2）
-   *
-   * @code{.cpp}
-   *   // 核对接线：+X+Y 只应该电机 1 转（CCW），电机 2 不动
-   *   (void)corexy.step(CorexyT<decltype(emm_group)>::Step::X_Plus_Y_Plus, 10.0f);
-   * @endcode
-   */
-  Status step(Step s, float mm);
-
-  /**
    * @brief 立即停止并退出 Moving / Fault
    * @return 广播停止的发送结果
    *
    * @note 清故障的唯一入口：`Fault` 状态下 `move_to` 返回 BAD_ARG，必须先 `stop()`。
-   * @note 停止是“逐台 + 广播”共三帧，帧间留 `SEND_GAP_MS`，共约 10 ms；
+   * @note 停止是“逐台 + 广播”共三帧，帧间留 `BUS_GAP_MS`，共约 6 ms；
    *       整段包在总线锁里，不会被其他任务插帧。
    */
   Status stop();
@@ -342,29 +301,15 @@ public:
    */
   Status set_move_mode(MoveMode mode);
 
-  ///< 当前分段下发模式
-  MoveMode move_mode() const
-  {
-    return _cfg.move_mode;
-  }
-
   /**
-   * @brief 原始反馈 counts（0 = 电机 1，1 = 电机 2）
-   * @note 只给诊断用：值是最近一次 `0x36` 应答的解析结果，没新应答就不变。
-   */
-  int32_t raw_counts(size_t axis) const
-  {
-    return (axis < 2U) ? _cur_counts[axis] : 0;
-  }
-
-  /**
-   * @brief 周期更新：收串口字节、收一拍位置、请求下一台、推进状态机
+   * @brief 周期更新：收串口字节、读两台位置、推进状态机
    * @param timeout_ms 等待新字节的时间：0 = 非阻塞（当前一拍有多少处理多少），
    *                   N = 最多阻塞 N ms 等数据到（超时即继续推进状态机）
    *
-   * @note 必须由**同一个任务**调用，且不能在中断里调：`_send_segment()` 内部会阻塞 ~20 ms。
+   * @note 必须由**同一个任务**调用，且不能在中断里调：`_send_segment()` 里会先静默
+   *       `BUS_GAP_MS` 再发帧，`_read_position()` 还会等应答（每台最多 `REPLY_TIMEOUT_MS`）。
    * @note 超时参数只作用于「等字节」这一步；状态机本身的推进不额外等。
-   * @note 一次只发一条 `0x36`（两台交替），两台各 20 ms 刷新一次；周期再快也不会多占总线。
+   * @note 读位置是一问一答：先发请求、收到应答再读下一台；实际读周期受调用周期限制（≥ `BUS_GAP_MS`）。
    */
   void update(uint32_t timeout_ms = 0U);
 
@@ -407,6 +352,18 @@ public:
     return _armed;
   }
 
+  ///< 当前分段下发模式
+  MoveMode move_mode() const
+  {
+    return _cfg.move_mode;
+  }
+
+  ///< 原始反馈 counts（0 = 电机 1，1 = 电机 2）；诊断用，没新应答就不变
+  int32_t raw_counts(size_t axis) const
+  {
+    return (axis < 2U) ? _cur_counts[axis] : 0;
+  }
+
   ///< 当前分段进度（0 起）与本次移动的总段数；只在诊断输出里用
   size_t segment_index() const
   {
@@ -445,6 +402,19 @@ public:
 
   // ----------------
 private:
+  // ---------------- 内部常量 ----------------
+
+  // 几何参数固定为 ZDT（张大头）闭环步进：2GT 2 mm × 20 齿 = 40 mm/圈；
+  // 驱动器 16 细分 = 3200 脉冲/圈；编码器一圈 65536 counts。
+  // 改驱动器型号时这三个值要跟着改，下面两个比例会自动重算。
+  static constexpr float    MM_PER_REV     = 40.0f;
+  static constexpr uint32_t PULSES_PER_REV = 3200U;
+  static constexpr uint32_t COUNTS_PER_REV = 65536U;
+
+  static constexpr float PULSES_PER_MM    = static_cast<float>(PULSES_PER_REV) / MM_PER_REV;      ///< 80 脉冲/mm
+  static constexpr float COUNTS_PER_MM    = static_cast<float>(COUNTS_PER_REV) / MM_PER_REV;      ///< 1638.4 counts/mm
+  static constexpr float COUNTS_PER_PULSE = static_cast<float>(COUNTS_PER_REV) / PULSES_PER_REV; ///< 20.48 counts/脉冲
+
   // ---------------- 私有实现 ----------------
 
   /**
@@ -460,7 +430,8 @@ private:
    * @param index 分段下标
    * @return 组帧/发送结果
    *
-   * @note 两轴都动时用 MMCL 同帧下发（同时起动、总线上只发一次）；只有一台动时直发单帧。
+   * @note **一律走 MMCL 总帧**：两台都动时带两条子命令（帧长 31 B），只有一台动时带一条（18 B）。
+   *       不拆成两条单机帧——同一帧里的两台才是同时起动。
    * @note `rpm_i = rpm·|Δp_i|/max|Δp|`，保证同时到达；`|Δp_i| == 0` 的电机不参与本段。
    * @note 组帧与发送由设备组的半双工总线锁串行化，其他任务插不进半帧。
    */
@@ -476,7 +447,7 @@ private:
   void _quiet();
 
   /**
-   * @brief 逐台 + 广播发送停止，帧间留 SEND_GAP_MS
+   * @brief 逐台 + 广播发送停止，帧间留 BUS_GAP_MS
    * @note RS485 半双工：连续 send() 只是入队，底层会把它连成一串，必须留真实间隔。
    */
   void _stop_motors();
@@ -494,7 +465,7 @@ private:
    * @return true=本次请求拿到了应答（旧应答在发请求前丢弃）
    *
    * @note 半双工总线上一次只允许一条查询在途，所以读两台必须**一次一台**、
-   *       读到应答再发下一条；两条查询之间留 `READ_GAP_MS`。
+   *       读到应答再发下一条；两条查询之间留 `BUS_GAP_MS`。
    */
   bool _read_position(uint8_t addr, int32_t &out);
 
@@ -508,11 +479,7 @@ private:
   bool    _inited    = false; ///< init() 是否成功
   bool    _armed     = false; ///< 原点已复核（未复核时移动返回 NOT_INIT）
   uint8_t _zero_ok   = 0U;    ///< 连续合格读数计数
-  uint8_t _arrive_ok = 0U;    ///< 连续落在到位窗口内的拍数（防止减速段提前发下一段）
-
-  float _pulses_per_mm    = 0.0f; ///< 指令脉冲 / mm（init 由 Config 折算）
-  float _counts_per_mm    = 0.0f; ///< 反馈 counts / mm
-  float _counts_per_pulse = 0.0f; ///< 反馈 counts / 指令脉冲
+  uint8_t _arrive_ok = 0U;    ///< 连续满足「两台位置都对 + 不再变化」的拍数（见 ARRIVE_CONFIRM）
 
   State  _state      = State::Idle; ///< 状态机
   Status _last_error = Status::OK;  ///< 最近一次错误
@@ -524,17 +491,18 @@ private:
   size_t _seg_count = 0;    ///< 本次移动的分段数
   size_t _seg_index = 0;    ///< 正在走的分段下标
 
-  int32_t _cur_counts[2] = {0, 0};   ///< 最近一次 0x36 读数
-  int32_t _cmd_target[2] = {0, 0};   ///< 本段到位目标（段起点实测 + 本段增量，counts）
+  int32_t _cur_counts[2]  = {0, 0};         ///< 最近一次 0x36 读数
+  int32_t _prev_counts[2] = {0, 0};         ///< 上一次成功读到的 0x36 读数（用来判“位置不再变化”）
+  bool    _prev_ok[2]     = {false, false}; ///< _prev_counts 是否有效（每段开始时作废）
+  int32_t _cmd_target[2]  = {0, 0};         ///< 本段到位目标（段起点实测 + 本段增量，counts）
 
   int32_t _seg_from[2]   = {0, 0}; ///< 本段开始时的实测 counts
   int32_t _seg_dir[2]    = {0, 0}; ///< 本段预期方向（+1 / -1 / 0 = 不动）
   int32_t _seg_travel[2] = {0, 0}; ///< 本段预期行程（|counts|）
   int32_t _last_delta[2] = {0, 0}; ///< 最近一次下发的增量（脉冲，带符号）
 
-  TickType_t _seg_tick    = 0; ///< 本段开始时刻
-  TickType_t _seg_timeout = 0; ///< 本段超时
-  TickType_t _read_hold   = 0; ///< 此之前不读位置：给驱动器留出处理命令 / 回完应答的时间
+  TickType_t _seg_tick  = 0; ///< 本段命令发出的时刻（算 SEG_DONE_MS 兜底用）
+  TickType_t _read_hold = 0; ///< 此之前不读位置：给驱动器留出处理命令 / 回完应答的时间
 
   // 快速位置模式：驱动器里当前生效的参数（避免每段都重发 0xF1）
   bool     _quick_valid[2] = {false, false}; ///< 该台的 0xF1 参数是否已下发
