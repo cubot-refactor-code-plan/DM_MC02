@@ -12,15 +12,22 @@ template class DeviceEmmv5GroupT<BspUartT<uart_detail::DmaTransport, 128, 128>>;
 // ----------------
 // ---------------- 构造与生命周期 ----------------
 
-/** @brief 只保存串口引用与地址表 */
+/** @brief 只保存串口引用与地址表，地址个数由地址表的 0 结尾推导 */
 template <typename Uart>
-DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg) : _uart(cfg.uart), _count(cfg.count)
+DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg) : _uart(cfg.uart)
 {
-  // 只把地址表拷进来；超长 / 重复 / 为 0 的地址交给 init() 拒绝，
+  // 只把地址表拷进来；重复 / 为 0 的地址交给 init() 拒绝，
   // 总线锁也放到 init() 里建（构造函数里不碰 FreeRTOS API）。
   for (size_t i = 0; i < MAX_MOTORS; i++)
   {
     _motor[i].addr = cfg.addr[i];
+  }
+
+  // 地址 0 不是合法地址，所以「前导非 0」就是组内电机数；MAX_MOTORS 天然封顶
+  _count = 0;
+  while (_count < MAX_MOTORS && cfg.addr[_count] != 0U)
+  {
+    ++_count;
   }
 }
 
@@ -28,7 +35,7 @@ DeviceEmmv5GroupT<Uart>::DeviceEmmv5GroupT(const Config &cfg) : _uart(cfg.uart),
 template <typename Uart>
 Status DeviceEmmv5GroupT<Uart>::init()
 {
-  if (_count == 0 || _count > MAX_MOTORS)
+  if (_count == 0)
   {
     return Status::BAD_ARG;
   }
@@ -50,19 +57,8 @@ Status DeviceEmmv5GroupT<Uart>::init()
     }
   }
 
-  for (size_t i = 0; i < _count; i++)
-  {
-    _motor[i].inpos_scanner.reset();
-    _motor[i].position_scanner.reset();
-    _motor[i].status_scanner.reset();
-    _motor[i].in_position    = false;
-    _motor[i].position       = 0;
-    _motor[i].status         = 0;
-    _motor[i].position_valid = false;
-    _motor[i].status_valid   = false;
-  }
-
-  _multi_payload = 0;
+  // 各电机的复位值与 3 个协议扫描器的初值全部在 device_emmv5_group.hpp / emmv5_protocol.hpp
+  // 的成员声明里（NSDMI），这里不再逐字段清一遍
 
   // 半双工总线锁：必须在 _ready 置位、第一次发送之前就存在。
   // 递归锁允许同一任务在“组装 MMCL 事务”里再调单帧发送接口而不自锁。
@@ -99,11 +95,8 @@ DeviceEmmv5GroupT<Uart>::~DeviceEmmv5GroupT()
 template <typename Uart>
 size_t DeviceEmmv5GroupT<Uart>::index_of(uint8_t addr) const
 {
-  // 配置可能传入超过 MAX_MOTORS 的地址数；init() 会拒绝，但查找时也要自己夹住。
   // 约定：找不到返回 _count，调用方一律用 `index >= _count` 判非法。
-  const size_t count = (_count > MAX_MOTORS) ? MAX_MOTORS : _count;
-
-  for (size_t i = 0; i < count; i++)
+  for (size_t i = 0; i < _count; i++)
   {
     if (_motor[i].addr == addr)
     {

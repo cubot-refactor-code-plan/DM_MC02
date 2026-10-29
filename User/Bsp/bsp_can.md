@@ -9,7 +9,7 @@
 #include "bsp_cfg.hpp"
 
 // 2) 实例：bsp_cfg.cpp
-BspCanT<16, 16> bsp_canX({&hfdcanX, "CANx"});
+BspCanT<16, 16> bsp_canX({ .hfdcan = &hfdcanX, .name = "CANx" });   // inline 变量，定义在 bsp_cfg.hpp
 
 // 3) 声明：bsp_cfg.hpp
 extern BspCanT<16, 16> bsp_canX;
@@ -195,7 +195,7 @@ sequenceDiagram
 **示例：CAN4，1 Mbit/s，收发各 8 帧**
 
 ```cpp
-BspCanT<8, 8> bsp_can4({&hfdcan4, "CAN4"});   // bsp_cfg.cpp
+BspCanT<8, 8> bsp_can4({ .hfdcan = &hfdcan4, .name = "CAN4" });   // bsp_cfg.hpp
 // bsp_can.cpp 顶部：template class BspCanT<8, 8>;
 ```
 

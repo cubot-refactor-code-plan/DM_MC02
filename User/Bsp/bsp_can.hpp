@@ -67,19 +67,14 @@ public:
   // ---------------- 配置 ----------------
 
   /**
-   * @brief CAN 配置结构体（可匿名按序传入）
+   * @brief CAN 配置结构体
+   *
+   * @note 聚合体：可用指定初始化器 `{.hfdcan = &hfdcanX, .name = "CANx"}`。
    */
   struct Config
   {
-    /**
-     * @brief 按序构造配置（参数顺序 = 字段顺序）
-     */
-    Config(FDCAN_HandleTypeDef *hfdcan = nullptr, const char *name = "CAN") : hfdcan(hfdcan), name(name)
-    {
-    }
-
-    FDCAN_HandleTypeDef *hfdcan; ///< CAN 句柄
-    const char          *name;   ///< 实例名称（调试用）
+    FDCAN_HandleTypeDef *hfdcan = nullptr; ///< CAN 句柄
+    const char          *name   = "CAN";  ///< 实例名称（调试用）
   };
 
   /**
@@ -90,35 +85,51 @@ public:
   struct Diagnostics
   {
     // 总线错误
-    volatile uint32_t bus_off_events;     ///< 进入/退出 Bus-Off 的次数（IR.BO 状态变化，进出各计一次）
-    volatile uint32_t err_passive;        ///< 进入错误被动的次数
-    volatile uint32_t err_warning;        ///< 进入错误警告的次数
-    volatile uint32_t recovery_attempts;  ///< service_recovery() 实际动作次数
-    volatile uint32_t recovery_successes; ///< service_recovery() 恢复成功次数
-    volatile uint32_t recovery_max_ticks; ///< 单次恢复最长耗时（ticks）
-    volatile bool     recovering;         ///< 当前是否处于恢复流程中
+    volatile uint32_t bus_off_events     = 0;     ///< 进入/退出 Bus-Off 的次数（IR.BO 状态变化，进出各计一次）
+    volatile uint32_t err_passive        = 0;     ///< 进入错误被动的次数
+    volatile uint32_t err_warning        = 0;     ///< 进入错误警告的次数
+    volatile uint32_t recovery_attempts  = 0;     ///< service_recovery() 实际动作次数
+    volatile uint32_t recovery_successes = 0;     ///< service_recovery() 恢复成功次数
+    volatile uint32_t recovery_max_ticks = 0;     ///< 单次恢复最长耗时（ticks）
+    volatile bool     recovering         = false; ///< 当前是否处于恢复流程中
 
     // 接收
-    volatile uint32_t rx_dropped;  ///< 软件接收缓冲区满而丢弃的帧数
-    volatile uint32_t rx_lost;     ///< 硬件 FIFO 溢出而丢弃的帧数
-    volatile uint32_t rx_len_drop; ///< 数据长度超过 8 字节而被丢弃的帧数
+    volatile uint32_t rx_dropped  = 0; ///< 软件接收缓冲区满而丢弃的帧数
+    volatile uint32_t rx_lost     = 0; ///< 硬件 FIFO 溢出而丢弃的帧数
+    volatile uint32_t rx_len_drop = 0; ///< 数据长度超过 8 字节而被丢弃的帧数
 
     // 发送
-    volatile uint32_t tx_dropped;       ///< 写入硬件 TX FIFO 失败次数（任务与 ISR 合计）
-    volatile uint32_t tx_buf_full;      ///< 软件发送缓冲区满而丢弃的帧数
-    volatile uint32_t tx_stall_recover; ///< 丢唤醒后由 tx_recover() 补发的次数
-    volatile uint32_t tx_it_fail;       ///< 开关 TX-FIFO-EMPTY 中断失败（HAL_BUSY）的次数
+    volatile uint32_t tx_dropped       = 0; ///< 写入硬件 TX FIFO 失败次数（任务与 ISR 合计）
+    volatile uint32_t tx_buf_full      = 0; ///< 软件发送缓冲区满而丢弃的帧数
+    volatile uint32_t tx_stall_recover = 0; ///< 丢唤醒后由 tx_recover() 补发的次数
+    volatile uint32_t tx_it_fail       = 0; ///< 开关 TX-FIFO-EMPTY 中断失败（HAL_BUSY）的次数
   };
 
   // ----------------
   // ---------------- 公有接口 ----------------
 
   /**
-   * @brief 构造函数
-   * @param cfg CAN 配置（句柄/调试名，可匿名按序传入）
+   * @brief 构造函数（只绑定句柄，RTOS 资源在 init() 里创建）
+   * @param cfg CAN 配置（句柄/调试名）
+   *
+   * @note 必须 `constexpr` 且内联在头文件里：bsp_cfg.hpp 的全局实例是 inline 变量，
+   *       只有常量初始化才不会让每个包含该头文件的 TU 都生成一份构造代码。
    */
-  BspCanT(const Config &cfg);
-  ~BspCanT();
+  constexpr BspCanT(const Config &cfg) :
+    _hfdcan(cfg.hfdcan), _tx_message_buffer(nullptr), _rx_message_buffer(nullptr), _name(cfg.name), _tx_lock(nullptr), _recovery_started(0), _recovery_attempted(0)
+  {
+  }
+
+  /**
+   * @brief 析构：平凡（全局实例永不析构）
+   *
+   * @note 必须是平凡析构，否则 inline 全局实例退回动态初始化（每个 TU 一份初始化代码）。
+   *       需要释放资源请显式调 deinit()。
+   */
+  ~BspCanT() = default;
+
+  /** @brief 先停外设并关中断，再释放软件资源（非全局实例销毁前手动调用） */
+  void deinit();
 
   /**
    * @brief 初始化：复位外设、创建收发消息缓冲区与 TX 锁、配置滤波器并启动

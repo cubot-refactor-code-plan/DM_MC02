@@ -9,7 +9,7 @@
 #include "bsp_cfg.hpp"
 
 // 2) 实例：bsp_cfg.cpp —— 参数顺序 = 字段顺序
-BspPwm bsp_pwmX({&htimX, TIM_CHANNEL_y, 275000000UL, PSC, ARR, 0.0f});
+inline BspPwm bsp_pwmX({ .htim = &htimX, .channel = TIM_CHANNEL_y, .timer_clk_hz = 275000000UL, .prescaler = PSC, .period = ARR });   // bsp_cfg.hpp
 
 // 3) 声明：bsp_cfg.hpp
 extern BspPwm bsp_pwmX;

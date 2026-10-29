@@ -6,13 +6,20 @@ BSP 层的全局实例与统一初始化入口 `bsp_init()`。
 
 ## 实例归属
 
-- 串口实例必须定义在 `bsp_cfg.cpp`，显式实例化在 `bsp_uart.cpp`。
-- CAN / PWM / GPIO / 按键 / DWT 实例都在 `bsp_cfg.cpp`。
-- DMA 串口实例加 `__attribute__((section(".dma_buffer")))`（该段在链接脚本里落到 `RAM_D1`，
-  DTCM 不能被 DMA 访问）。
+- **全部实例都定义在 `bsp_cfg.hpp`，是 C++17 inline 变量**（`inline BspUartT<...> bsp_uart1({...});`），
+  `bsp_cfg.cpp` 里只剩 `bsp_init()`。
+- 串口 / CAN 模板的显式实例化仍在 `bsp_uart.cpp`、`bsp_can.cpp`。
+- DMA 串口实例用 `__attribute__((section(".dma_buffer.<变量名>")))`（该段落到 `RAM_D1`，
+  DTCM 不能被 DMA 访问）。**段名必须按变量唯一**，原因见 `Docs/build/链接脚本改动.md`。
 
-新增一个实例要同步三处：`bsp_cfg.hpp` 的 `extern` → `bsp_cfg.cpp` 的定义 → `bsp_init()` 的
+新增一个实例要同步两处：`bsp_cfg.hpp` 加一行定义 → `bsp_init()` 加一条
 `configASSERT(... == Status::OK)`；串口/CAN 还要加显式实例化与回调分发表，见各模块 md。
+
+### inline 变量对类的要求
+
+- 构造函数必须 `constexpr` 且定义在头文件里，**析构必须平凡**（`~X() = default`）。
+  否则实例退回动态初始化：实测每个包含 `bsp_cfg.hpp` 的 TU 都会生成约 1.7 KB 初始化代码
+  （30 个 TU 合计多出 23 KB flash）。需要释放资源时显式调 `deinit()`。
 
 ## 模板实例化（全量）
 

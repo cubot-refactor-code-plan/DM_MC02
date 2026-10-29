@@ -18,8 +18,9 @@ Status BspDwt::init()
   DWT->LAR    = 0xC5ACCE55UL;                     // 2. Cortex-M7 的软件锁解锁
   DWT->CYCCNT = 0U;                               // 3. 清零
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;            // 4. 使能计数
-  for (volatile uint32_t i = 0U; i < 16U; i++)    // 5. 使能后约 8 周期计数才稳定
+  for (uint32_t i = 0U; i < 16U; ++i)             // 5. 使能后约 8 周期计数才稳定
   {
+    __NOP(); // 汇编级空操作，不会被优化掉（不能靠 volatile 循环变量实现）
   }
   DWT->CYCCNT = 0U; // 6. 稳定后再清零
 

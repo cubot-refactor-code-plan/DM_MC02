@@ -10,7 +10,7 @@
 #include "device_cfg.hpp"
 
 // 2) 实例：device_cfg.cpp —— 参数顺序 = {通道, 脉宽下限, 脉宽上限, 行程, 限速, 加速度}
-DeviceServo servoX({&bsp_pwmX, pulse_min, pulse_max, range_deg, max_speed, max_accel});
+DeviceServo servoX({ .pwm = &bsp_pwmX, .pulse_min_us = pulse_min, .pulse_max_us = pulse_max, .range_deg = range_deg, .max_speed_dps = max_speed, .max_accel_dps2 = max_accel });
 
 // 3) 声明：device_cfg.hpp
 extern DeviceServo servoX;

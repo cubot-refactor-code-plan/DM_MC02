@@ -32,19 +32,22 @@ public:
   // ---------------- 公有接口 ----------------
 
   /**
-   * @brief GPIO 引脚配置（匿名按序传入：{port, pin}）
+   * @brief GPIO 引脚配置
+   *
+   * @note 聚合体：可用指定初始化器 `{.port = GPIOx, .pin = GPIO_PIN_y}`。
    */
   struct Config
   {
-    /** @brief 按序构造配置（参数顺序 = 字段顺序） */
-    Config(GPIO_TypeDef *port = nullptr, uint16_t pin = 0U) : port(port), pin(pin) {}
-
-    GPIO_TypeDef *port; ///< GPIO 端口 (GPIOA / GPIOB / ...)
-    uint16_t      pin;  ///< 引脚掩码 (GPIO_PIN_x)
+    GPIO_TypeDef *port = nullptr; ///< GPIO 端口 (GPIOA / GPIOB / ...)
+    uint16_t      pin  = 0U;      ///< 引脚掩码 (GPIO_PIN_x)
   };
 
-  /** @brief 构造函数：只做赋值，硬件已由 CubeMX 的 MX_GPIO_Init() 初始化 */
-  BspGpio(const Config &cfg) : _port(cfg.port), _pin(cfg.pin) {}
+  /**
+   * @brief 构造函数：只做赋值，硬件已由 CubeMX 的 MX_GPIO_Init() 初始化
+   *
+   * @note constexpr：bsp_cfg.hpp 的全局实例是 inline 变量，需要常量初始化。
+   */
+  constexpr BspGpio(const Config &cfg) : _port(cfg.port), _pin(cfg.pin) {}
 
   /** @brief 输出高电平 */
   void set() const { HAL_GPIO_WritePin(_port, _pin, GPIO_PIN_SET); }

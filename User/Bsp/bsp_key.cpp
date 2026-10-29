@@ -11,22 +11,17 @@
  *
  * @return Status OK=绑定成功，BAD_ARG=端口/引脚非法或计数值为 0
  */
-Status BspKey::init(const Config &cfg)
+Status BspKey::init()
 {
-  if (cfg.port == nullptr || cfg.pin == 0U)
+  if (_port == nullptr || _pin == 0U)
   {
     return Status::BAD_ARG; // 端口/引脚非法
   }
-  if (cfg.debounce_cnt == 0U || cfg.long_press_cnt == 0U)
+  if (_debounce_cnt == 0U || _long_press_cnt == 0U)
   {
     return Status::BAD_ARG; // 计数为 0 会导致消抖/长按行为未定义
   }
 
-  _port           = cfg.port;
-  _pin            = cfg.pin;
-  _active_low     = cfg.active_low;
-  _debounce_cnt   = cfg.debounce_cnt;
-  _long_press_cnt = cfg.long_press_cnt;
   _cnt            = 0U;
   _hold_cnt       = 0U;
   _long_fired     = false;

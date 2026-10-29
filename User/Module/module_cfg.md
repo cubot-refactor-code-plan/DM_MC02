@@ -16,10 +16,16 @@
 | 到位窗口 | `0.20 mm` | 与轮询周期、减速过程匹配 |
 
 ```cpp
-CorexyT<decltype(emm_group)> corexy({&emm_group, 1U, 2U,
-                                     {0.0f, 0.0f, 190.0f, 200.0f},   // 理论限位
-                                     {1.0f, 1.0f, 188.0f, 198.0f},   // 安全限位
-                                     300U, 230U, 0.20f});            // rpm / acc / 到位窗口
+CorexyT<decltype(emm_group)> corexy({
+  .group      = &emm_group,
+  .addr1      = 1U,
+  .addr2      = 2U,
+  .theory     = {0.0f, 0.0f, 190.0f, 200.0f},   // 理论限位
+  .safe       = {1.0f, 1.0f, 188.0f, 198.0f},   // 安全限位
+  .rpm        = 300U,
+  .acc        = 230U,
+  .arrive_tol = 0.20f,                          // 到位窗口
+});
 ```
 
 ## 2. 几何参数（类内常量）

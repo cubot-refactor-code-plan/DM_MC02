@@ -10,8 +10,16 @@
 // CoreXY：USART2（RS485）地址 1、2；上电清零后世界原点 = 上电位置。
 // 理论限位 (0,0)~(190,200)，安全限位 (1,1)~(188,198)（x1/y1 距理论边有 2 mm 余量）。
 // 几何（40 mm/圈、3200 脉冲/圈、65536 counts/圈）固定写在 CorexyT 的私有常量里。
-CorexyT<decltype(emm_group)>
-  corexy({&emm_group, 1U, 2U, {0.0f, 0.0f, 190.0f, 200.0f}, {2.0f, 2.0f, 188.0f, 198.0f}, 300U, 230U, 0.20f});
+CorexyT<decltype(emm_group)> corexy({
+  .group      = &emm_group,
+  .addr1      = 1U,
+  .addr2      = 2U,
+  .theory     = {0.0f, 0.0f, 190.0f, 200.0f},
+  .safe       = {2.0f, 2.0f, 188.0f, 198.0f},
+  .rpm        = 300U,
+  .acc        = 230U,
+  .arrive_tol = 0.20f,
+});
 
 
 // ----------------

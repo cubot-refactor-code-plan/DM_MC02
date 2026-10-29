@@ -238,8 +238,8 @@ private:
 
   Uart &_uart; ///< 被解析的串口（不拥有）
 
-  Rc       _rc {};                ///< 最近一帧的遥控器语义值
-  uint16_t _raw[CHANNEL_NUM] {};  ///< 最近一帧的原始通道值（协议侧）
+  Rc       _rc {0, 0, 0, 0, Switch::DOWN, 0, 0, 0, Switch::DOWN, Switch::DOWN}; ///< 最近一帧的遥控器语义值（未收到帧 = 通道回中位、开关回下挡）
+  uint16_t _raw[CHANNEL_NUM] {};  ///< 最近一帧的原始通道值（协议侧）；还没收到帧时由构造函数填中位
   uint8_t  _frame[FRAME_SIZE] {}; ///< 正在拼的帧
   uint32_t _fill = 0U;            ///< 已拼到第几个字节，0 = 还没进入帧
   bool     _frame_lost = false;   ///< 最近一帧 flags 的 bit2：本帧丢失

@@ -64,7 +64,7 @@ for (uint32_t i = 0; i < 8 && bsp_can3.receive(&rx, 0) == Status::OK; ++i)
 ```cpp
 void device_init(void)
 {
-  configASSERT(can3_dji_group.init() == Status::OK);
+  // can3_dji_group 的校验与折算已在构造阶段完成，这里不再有 init()
   configASSERT(r9ds.init() == Status::OK);
   configASSERT(emm_motor1.init() == Status::OK);
   configASSERT(emm_group.init() == Status::OK);

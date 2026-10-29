@@ -9,7 +9,7 @@
 #include "bsp_cfg.hpp"
 
 // 2) 实例：bsp_cfg.cpp —— 构造时绑定 {port, pin}，只做赋值
-BspGpio xxx({GPIOx, GPIO_PIN_y});
+inline BspGpio xxx({ .port = GPIOx, .pin = GPIO_PIN_y });   // bsp_cfg.hpp
 
 // 3) 声明：bsp_cfg.hpp
 extern BspGpio xxx;

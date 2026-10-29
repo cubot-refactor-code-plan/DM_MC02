@@ -74,58 +74,56 @@ public:
   /** @brief 三项系数（PID 的 kp / ki / kd） */
   struct Gain
   {
-    /** @brief 按序构造（参数顺序 = 字段顺序，全部可省略） */
-    Gain(float kp = 0.0f, float ki = 0.0f, float kd = 0.0f) : kp(kp), ki(ki), kd(kd)
-    {
-    }
-
-    float kp; ///< 比例系数
-    float ki; ///< 积分系数
-    float kd; ///< 微分系数；为 0 时不计算微分项
+    float kp = 0.0f; ///< 比例系数
+    float ki = 0.0f; ///< 积分系数
+    float kd = 0.0f; ///< 微分系数；为 0 时不计算微分项
   };
 
   /**
    * @brief 限幅与积分分离（限幅类参数一律「填 0 = 不限制」）
    *
-   * @note i_max 填 0 时在构造里被置为 out_max：让积分项也不会超过总输出上限，
+   * @note i_max 填 0 时在 `Pid` 构造函数里被置为 out_max：让积分项也不会超过总输出上限，
    *       避免输出一直被限幅、积分迟迟卸不下来。
    */
   struct Limit
   {
-    /** @brief 按序构造（参数顺序 = 字段顺序，全部可省略） */
-    Limit(float out_max = 0.0f, float p_max = 0.0f, float i_max = 0.0f, float d_max = 0.0f, float f_max = 0.0f, float i_separation = 0.0f) : out_max(out_max), p_max(p_max), i_max(i_max == 0.0f ? out_max : i_max), d_max(d_max), f_max(f_max), i_separation(i_separation)
-    {
-    }
-
-    float out_max;      ///< 总输出限幅（绝对值），0 = 不限制
-    float p_max;        ///< 比例项限幅（绝对值），0 = 不限制
-    float i_max;        ///< 积分项限幅（绝对值），构造时 0 → 跟随 out_max
-    float d_max;        ///< 微分项限幅（绝对值），0 = 不限制
-    float f_max;        ///< 前馈项限幅（绝对值），0 = 不限制
-    float i_separation; ///< 积分分离阈值，0 = 始终积分
+    float out_max      = 0.0f; ///< 总输出限幅（绝对值），0 = 不限制
+    float p_max        = 0.0f; ///< 比例项限幅（绝对值），0 = 不限制
+    float i_max        = 0.0f; ///< 积分项限幅（绝对值），构造 Pid 时 0 → 跟随 out_max
+    float d_max        = 0.0f; ///< 微分项限幅（绝对值），0 = 不限制
+    float f_max        = 0.0f; ///< 前馈项限幅（绝对值），0 = 不限制
+    float i_separation = 0.0f; ///< 积分分离阈值，0 = 始终积分
   };
 
   /** @brief 控制器全部参数 = 系数 + 限幅 + 微分方式（可直接用匿名 {...} 按段传入） */
   struct Config
   {
-    /** @brief 按序构造（参数顺序 = 字段顺序，后两段可省略） */
-    Config(Gain gain = Gain(), Limit limit = Limit(), PidDiffCalcMode diff_mode = PidDiffCalcMode::TARGET) : gain(gain), limit(limit), diff_mode(diff_mode)
-    {
-    }
-
-    Gain            gain;      ///< 三项系数
-    Limit           limit;     ///< 限幅与积分分离
-    PidDiffCalcMode diff_mode; ///< 微分项取值方式；kd 为 0 时被构造改为 DISABLE
+    // Gain / Limit 自身每个字段都有默认值，这里不再写 = Gain()/Limit()：
+    // 聚合体内用「临时对象」做默认成员初始化器会触发 GCC 的
+    // "default member initializer ... required before the end of its enclosing class"。
+    Gain            gain;                                ///< 三项系数
+    Limit           limit;                               ///< 限幅与积分分离
+    PidDiffCalcMode diff_mode = PidDiffCalcMode::TARGET; ///< 微分项取值方式；kd 为 0 时被构造改为 DISABLE
   };
 
   // ----------------
   // ---------------- 公有接口 ----------------
 
   /**
-   * @brief 构造控制器
-   * @param config 全部参数；可省略，省略 = 系数与限幅全为 0（输出恒为 0）
+   * @brief 构造控制器（全部参数取默认值：系数与限幅全为 0，输出恒为 0）
+   *
+   * @note 之所以拆成两个构造函数而不是 `Pid(Config config = Config())`：
+   *       `Config` 是带默认成员初始化器的聚合体，在 `Pid` 自身还没完整时求值会触发 GCC 报
+   *       "default member initializer ... required before the end of its enclosing class"。
+   *       无参版在 .cpp 里委托给带配置的版。
    */
-  Pid(Config config = Config());
+  Pid();
+
+  /**
+   * @brief 构造控制器
+   * @param config 全部参数
+   */
+  Pid(Config config);
 
   /**
    * @brief 计算一次输出（微分量由内部对目标/误差做一阶差分得到）

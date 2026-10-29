@@ -15,7 +15,11 @@ BspKey key_user;
 extern BspKey key_user;
 
 // 4) 配置 + 初始化：bsp_cfg.cpp 的 bsp_init()
-configASSERT(key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U}) == Status::OK);
+// 配置在构造时存入（bsp_cfg.hpp 的 inline 实例）
+inline BspKey key_user({ .port = KEY_GPIO_Port, .pin = KEY_Pin, .active_low = true, .debounce_cnt = 1U, .long_press_cnt = 5U });
+
+// 校验 + 读一次初始电平（bsp_init，此时 MX_GPIO_Init() 已跑过）
+configASSERT(key_user.init() == Status::OK);
 
 // 5) 周期轮询：App/task/key_task.cpp 每 200 ms 一次
 switch (key_user.update()) { /* PRESS / SHORT / LONG */ }
@@ -58,5 +62,5 @@ for (;;)
 - `update()` 必须同一任务严格等周期；非线程安全。
 - 一次「按下→松手」只得 `PRESS + SHORT` 或 `PRESS + LONG`。
 
-配置：`key_user.init({KEY_GPIO_Port, KEY_Pin, true, 1U, 5U})`（`src/bsp_cfg.cpp`）；
+配置：构造时传入 `{ .port = KEY_GPIO_Port, .pin = KEY_Pin, .active_low = true, .debounce_cnt = 1U, .long_press_cnt = 5U }`（`bsp_cfg.hpp` 的 inline 实例）；`init()` 只做校验与读初始电平（`bsp_cfg.cpp`）；
 引脚方向与上下拉由 `MX_GPIO_Init()` 配置。

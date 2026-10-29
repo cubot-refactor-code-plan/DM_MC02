@@ -10,7 +10,7 @@
 #include "device_cfg.hpp"
 
 // 2) 实例：device_cfg.cpp —— 一条总线 + 地址表；只挂一台就写单元素
-DeviceEmmv5GroupT<decltype(bsp_uartX)> group({bsp_uartX, {addr1, addr2}});
+DeviceEmmv5GroupT<decltype(bsp_uartX)> group({ .uart = bsp_uartX, .addr = {addr1, addr2} });
 
 // 3) 声明：device_cfg.hpp
 extern DeviceEmmv5GroupT<decltype(bsp_uartX)> group;

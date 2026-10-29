@@ -152,6 +152,26 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+ /* 用户为dma传输配置的内存地址
+    - 放 RAM_D1（AXI SRAM）：DMA1/DMA2 访问不到 DTCM
+    - **不能标 NOLOAD**：本段内的对象带构造函数，初值由启动时 .init_array 写入 RAM；
+      若标 NOLOAD，段内容不从 flash 装载，一旦将来改成常量初始化（constexpr）
+      或给成员加非零默认值，RAM 里拿到的就是上电残留值（垃圾），且无任何报错。
+      改为可加载段后，无论动态初始化还是常量初始化都正确。
+      代价：flash 镜像多出本段大小（内容全 0），由启动代码拷到 RAM_D1。 */
+  .dma_buffer :
+  {
+    . = ALIGN(32);
+    _sdma_buffer = .;
+    *(.dma_buffer)
+    *(.dma_buffer*)
+    . = ALIGN(32);
+    _edma_buffer = .;
+  } >RAM_D1 AT> FLASH
+  _sidma_buffer = LOADADDR(.dma_buffer);
+
+  /* 用户dma相关配置结束 */
+
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 

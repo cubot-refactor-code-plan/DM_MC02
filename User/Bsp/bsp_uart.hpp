@@ -93,17 +93,17 @@ class BspUartT
 public:
   // ---------------- 公有接口 ----------------
 
-  /** @brief 串口配置（可匿名按序传入：{huart, mode, baudrate}） */
+  /**
+   * @brief 串口配置
+   *
+   * @note 聚合体：可用指定初始化器 `{.huart = &huartX, .mode = ..., .baudrate = ...}`
+   *       （必须按声明顺序），也兼容原来的位置初始化 `{&huartX, UartMode::TxRx, 115200U}`。
+   */
   struct Config
   {
-    /** @brief 按序构造（参数顺序 = 字段顺序） */
-    Config(UART_HandleTypeDef *huart = nullptr, UartMode mode = UartMode::TxRx, uint32_t baudrate = 115200U) : huart(huart), mode(mode), baudrate(baudrate)
-    {
-    }
-
-    UART_HandleTypeDef *huart;  ///< UART 句柄
-    UartMode            mode;   ///< 收发模式
-    uint32_t            baudrate; ///< 波特率 (bit/s)，TX 卡死判定要用它算一包发完要多久
+    UART_HandleTypeDef *huart    = nullptr;        ///< UART 句柄
+    UartMode            mode     = UartMode::TxRx; ///< 收发模式
+    uint32_t            baudrate = 115200U;        ///< 波特率 (bit/s)，TX 卡死判定要用它算一包发完要多久
   };
 
   /**
@@ -139,8 +139,16 @@ public:
     uint32_t error_cnt;         ///< TX 触发错误回调的次数（最终由 tx_recover() 恢复）
   };
 
-  /** @brief 构造函数（只做赋值，FreeRTOS 资源创建推迟到 init()） */
-  BspUartT(const Config &cfg);
+  /**
+   * @brief 构造函数（只做赋值，FreeRTOS 资源创建推迟到 init()）
+   *
+   * @note 必须 `constexpr` 且内联在头文件里：bsp_cfg.hpp 里的全局实例是 inline 变量，
+   *       只有常量初始化才不会让每个包含该头文件的 TU 都生成一份构造代码。
+   */
+  constexpr BspUartT(const Config &cfg) :
+    _huart(cfg.huart), _rx_should_run(cfg.mode != UartMode::TxOnly), _mode(cfg.mode), _baudrate(cfg.baudrate)
+  {
+  }
 
   /**
    * @brief 按 UartMode 创建流缓冲区/锁，并启动接收
@@ -152,8 +160,16 @@ public:
    */
   Status init();
 
-  /** @brief 析构：停掉 RX/TX 通道并释放所有软件资源 */
-  ~BspUartT();
+  /**
+   * @brief 析构：平凡（全局实例永不析构，也不需要在这里清理）
+   *
+   * @note 必须是平凡析构：一旦用户提供析构函数，类型就不是字面类型，inline 全局实例会退回
+   *       动态初始化（每个 TU 一份初始化代码 + atexit 注册）。需要释放资源请显式调 deinit()。
+   */
+  ~BspUartT() = default;
+
+  /** @brief 停掉 RX/TX 通道并释放所有软件资源（非全局实例销毁前手动调用） */
+  void deinit();
 
   /**
    * @brief 把数据写进发送流缓冲区，并启动发送
@@ -282,9 +298,9 @@ private:
   bool     _rx_should_run = true;       ///< 是否希望 RX 在收；某次失败不会把它永久置成 false
   UartMode _mode;                       ///< 收发模式
   uint32_t _baudrate;                   ///< 波特率 (bit/s)，TX 卡死判定要用它算阈值
-  uint8_t  _rx_buffer[RX_SIZE];         ///< 接收暂存区
-  uint8_t  _tx_buffer[TX_SIZE];         ///< 发送暂存区
-  char     _printf_buffer[TX_SIZE];     ///< printf 格式化用的缓冲区
+  uint8_t  _rx_buffer[RX_SIZE]       = {}; ///< 接收暂存区
+  uint8_t  _tx_buffer[TX_SIZE]       = {}; ///< 发送暂存区
+  char     _printf_buffer[TX_SIZE]   = {}; ///< printf 格式化用的缓冲区
 
   // RX 诊断量：中断里累加，任务里读取
   volatile uint32_t _rx_arm_fail_cnt = 0; ///< 启动接收失败的次数

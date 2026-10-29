@@ -14,6 +14,7 @@
  *
  * @note 不碰硬件：PWM 通道由 bsp_init() 启动（上电 0% 占空比 = 无脉冲），
  *       本类要写脉宽得等上层第一次 set_angle() / set_pulse_us()。
+ * @note 运动状态的初值全部写在 device_servo.hpp 的成员声明里（NSDMI），构造不再逐字段赋值。
  */
 DeviceServo::DeviceServo(const Config &cfg) : _cfg(cfg)
 {
@@ -58,13 +59,7 @@ Status DeviceServo::init(void)
       return Status::BAD_ARG;
   }
 
-  // 复位运动状态：输出回到"未开始"，角度归 0（此刻并没有真的发给舵机）
-  _target_deg  = 0.0f;
-  _angle_deg   = 0.0f;
-  _speed_dps   = 0.0f;
-  _pulse_us    = 0.0f;
-  _enabled     = false;
-  _enabled_req = false; // 不置位 → 下次 set_angle() 才会打开输出
+  // 运动状态已在构造时复位；这里只补一个时间基点，避免首次 update() 算出巨大 dt
   _last_tick   = xTaskGetTickCount();
   _inited      = true;
 

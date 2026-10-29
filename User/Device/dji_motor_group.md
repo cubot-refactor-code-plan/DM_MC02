@@ -13,7 +13,7 @@
 static const DjiMotorGroupT<decltype(bsp_can3)>::Member gm6020_1 {DjiMotorModel::GM6020};
 
 // 3) 实例：device_cfg.cpp —— 槽位顺序即位置 1..12，空位写 nullptr
-DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group({&bsp_can3, /* ... 各槽位 ... */});
+DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group({ .can = &bsp_can3, .member = { /* ... 各槽位 ... */ } });
 
 // 4) 声明：device_cfg.hpp
 extern DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group;
@@ -21,8 +21,8 @@ extern DjiMotorGroupT<decltype(bsp_can3)> can3_dji_group;
 // 5) 显式实例化：dji_motor_group.cpp 顶部（总线类型变了才需要改）
 template class DjiMotorGroupT<BspCanT<16, 16>>;
 
-// 6) 初始化：device_cfg.cpp 的 device_init()
-configASSERT(can3_dji_group.init() == Status::OK);
+// 6) 没有 init()：构造时就把成员表校验完、并把限幅/减速比/槽位折算进各位置
+//    （成员表写错 —— 总线为空或型号放错位置 —— 会在全局构造阶段 configASSERT 停机）
 
 // 7) 周期调用：同一任务依次 update() → set_output() → poll()
 

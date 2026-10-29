@@ -56,28 +56,14 @@ public:
    */
   struct Config
   {
-    /** @brief 按序构造配置（参数顺序 = 字段顺序，可匿名传参） */
-    Config(BspPwm *pwm = nullptr, float pulse_min_us = 500.0f, float pulse_max_us = 2500.0f, float range_deg = 180.0f, float max_speed_dps = 0.0f, float max_accel_dps2 = 0.0f, bool reversed = false, float trim_us = 0.0f)
-
-      : pwm(pwm),
-        pulse_min_us(pulse_min_us),
-        pulse_max_us(pulse_max_us),
-        range_deg(range_deg),
-        max_speed_dps(max_speed_dps),
-        max_accel_dps2(max_accel_dps2),
-        reversed(reversed),
-        trim_us(trim_us)
-    {
-    }
-
-    BspPwm *pwm;            ///< 绑定的 PWM 通道（须已配成 50 Hz / 20 ms，见 bsp_cfg.cpp 的 bsp_pwm1）
-    float   pulse_min_us;   ///< 角度 0 端对应的脉宽 (µs)，常见 500 或 1000
-    float   pulse_max_us;   ///< 角度 range_deg 端对应的脉宽 (µs)，常见 2500 或 2000
-    float   range_deg;      ///< 行程 (度)：180° 舵机填 180，270° 舵机填 270
-    float   max_speed_dps;  ///< 限速 (度/秒)，0 = 不限制（set_angle() 直接到位）
-    float   max_accel_dps2; ///< 加速度上限 (度/秒²)，0 = 不限制（速度瞬变到上限）
-    bool    reversed;       ///< true = 行程反向（角度 0 走 pulse_max 端）
-    float   trim_us;        ///< 脉宽微调 (µs)：机械中位 / 齿轮装配偏差的补偿
+    BspPwm *pwm            = nullptr; ///< 绑定的 PWM 通道（须已配成 50 Hz / 20 ms，见 bsp_cfg.cpp 的 bsp_pwm1）
+    float   pulse_min_us   = 500.0f;  ///< 角度 0 端对应的脉宽 (µs)，常见 500 或 1000
+    float   pulse_max_us   = 2500.0f; ///< 角度 range_deg 端对应的脉宽 (µs)，常见 2500 或 2000
+    float   range_deg      = 180.0f;  ///< 行程 (度)：180° 舵机填 180，270° 舵机填 270
+    float   max_speed_dps  = 0.0f;    ///< 限速 (度/秒)，0 = 不限制（set_angle() 直接到位）
+    float   max_accel_dps2 = 0.0f;    ///< 加速度上限 (度/秒²)，0 = 不限制（速度瞬变到上限）
+    bool    reversed       = false;   ///< true = 行程反向（角度 0 走 pulse_max 端）
+    float   trim_us        = 0.0f;    ///< 脉宽微调 (µs)：机械中位 / 齿轮装配偏差的补偿
   };
 
   // ----------------

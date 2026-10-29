@@ -10,9 +10,13 @@
 #include "module_cfg.hpp"
 
 // 2) 实例：module_cfg.cpp —— 只给组、地址、两块限位，几何参数固定在类内
-CorexyT<decltype(emm_group)> corexy({&emm_group, addr1, addr2,
-                                     theory_rect,   // 理论限位：机械真实行程
-                                     safe_rect});   // 安全限位：允许作为目标的范围
+CorexyT<decltype(emm_group)> corexy({
+  .group  = &emm_group,
+  .addr1  = addr1,
+  .addr2  = addr2,
+  .theory = theory_rect,   // 理论限位：机械真实行程
+  .safe   = safe_rect,     // 安全限位：允许作为目标的范围
+});
 
 // 3) 别名 + 声明：module_cfg.hpp
 using CorexyModule = CorexyT<decltype(emm_group)>;

@@ -93,15 +93,9 @@ extern "C"
 // ----------------
 // ---------------- 类函数实现 ----------------
 
-/** @brief 只绑定句柄，RTOS 资源在 init() 里创建（初始化列表顺序 = 成员声明顺序） */
+/** @brief 先停外设并关中断，再释放软件资源（原析构函数内容） */
 template <size_t RX_DEPTH, size_t TX_DEPTH>
-BspCanT<RX_DEPTH, TX_DEPTH>::BspCanT(const Config &cfg) : diagnostics {}, _hfdcan(cfg.hfdcan), _tx_message_buffer(nullptr), _rx_message_buffer(nullptr), _name(cfg.name), _tx_lock(nullptr), _recovery_started(0), _recovery_attempted(0)
-{
-}
-
-/** @brief 先停外设并关中断，再释放软件资源 */
-template <size_t RX_DEPTH, size_t TX_DEPTH>
-BspCanT<RX_DEPTH, TX_DEPTH>::~BspCanT()
+void BspCanT<RX_DEPTH, TX_DEPTH>::deinit()
 {
   _reset_hardware();
   _cleanup_resources();
@@ -127,23 +121,11 @@ Status BspCanT<RX_DEPTH, TX_DEPTH>::init()
   _reset_hardware();
   _cleanup_resources();
 
-  // 诊断计数清零（重复初始化 = 重新计数）
-  diagnostics.bus_off_events     = 0;
-  diagnostics.err_passive        = 0;
-  diagnostics.err_warning        = 0;
-  diagnostics.recovery_attempts  = 0;
-  diagnostics.recovery_successes = 0;
-  diagnostics.recovery_max_ticks = 0;
-  diagnostics.recovering         = false;
-  diagnostics.rx_dropped         = 0;
-  diagnostics.rx_lost            = 0;
-  diagnostics.rx_len_drop        = 0;
-  diagnostics.tx_dropped         = 0;
-  diagnostics.tx_buf_full        = 0;
-  diagnostics.tx_stall_recover   = 0;
-  diagnostics.tx_it_fail         = 0;
-  _recovery_started              = 0;
-  _recovery_attempted            = 0;
+  // 诊断计数清零（重复初始化 = 重新计数）：Diagnostics 每个字段都有默认值 0，
+  // 整份赋一个空对象即可，不再逐字段写 15 行
+  diagnostics         = Diagnostics {};
+  _recovery_started   = 0;
+  _recovery_attempted = 0;
 
   // 创建接收消息缓冲区（深度见 RX_QUEUE_DEPTH；满即丢并计数，不做流控）
   _rx_message_buffer = xMessageBufferCreate((sizeof(CanRxMsg) + 4) * RX_QUEUE_DEPTH);
@@ -222,7 +204,7 @@ Status BspCanT<RX_DEPTH, TX_DEPTH>::send(uint32_t std_id, const uint8_t *data)
 
   if (sent != sizeof(CanTxMsg))
   {
-    diagnostics.tx_buf_full++; // 缓冲满，这一帧被丢掉
+    diagnostics.tx_buf_full = diagnostics.tx_buf_full + 1; // 缓冲满，这一帧被丢掉
     return Status::FULL;
   }
 
@@ -295,7 +277,8 @@ bool BspCanT<RX_DEPTH, TX_DEPTH>::tx_recover()
 
   if (it_was_off)
   {
-    diagnostics.tx_stall_recover++; // 诊断：中断确实处于关闭状态，记 1 次丢唤醒（正常抢占不计数）
+    // 诊断：中断确实处于关闭状态，记 1 次丢唤醒（正常抢占不计数）
+    diagnostics.tx_stall_recover = diagnostics.tx_stall_recover + 1;
   }
   return true;
 }
@@ -326,10 +309,10 @@ Status BspCanT<RX_DEPTH, TX_DEPTH>::service_recovery()
   const bool bus_off = (_hfdcan->Instance->PSR & FDCAN_PSR_BO) != 0U;
   if (bus_off && !diagnostics.recovering)
   {
-    diagnostics.recovering = true;
-    diagnostics.bus_off_events++;
-    _recovery_started   = now;
-    _recovery_attempted = now - pdMS_TO_TICKS(100U);
+    diagnostics.recovering     = true;
+    diagnostics.bus_off_events = diagnostics.bus_off_events + 1;
+    _recovery_started          = now;
+    _recovery_attempted        = now - pdMS_TO_TICKS(100U);
     // 均为非阻塞缓冲
     xMessageBufferReset(_tx_message_buffer);
     xMessageBufferReset(_rx_message_buffer);
@@ -344,15 +327,15 @@ Status BspCanT<RX_DEPTH, TX_DEPTH>::service_recovery()
     {
       _hfdcan->Instance->TXBCR = _hfdcan->Instance->TXBRP;
       CLEAR_BIT(_hfdcan->Instance->CCCR, FDCAN_CCCR_INIT);
-      _recovery_attempted = now;
-      diagnostics.recovery_attempts++;
+      _recovery_attempted           = now;
+      diagnostics.recovery_attempts = diagnostics.recovery_attempts + 1;
     }
     // 先等旧发送请求彻底取消，才允许新的控制帧入队。
     if (!bus_off && (_hfdcan->Instance->CCCR & FDCAN_CCCR_INIT) == 0U && _hfdcan->Instance->TXBRP == 0U)
     {
-      diagnostics.recovering = false;
-      diagnostics.recovery_successes++;
-      const TickType_t elapsed = now - _recovery_started;
+      diagnostics.recovering         = false;
+      diagnostics.recovery_successes = diagnostics.recovery_successes + 1;
+      const TickType_t elapsed       = now - _recovery_started;
       if (elapsed > diagnostics.recovery_max_ticks)
       {
         diagnostics.recovery_max_ticks = elapsed;
@@ -391,7 +374,7 @@ void BspCanT<RX_DEPTH, TX_DEPTH>::process_fifo0_isr(uint32_t its, BaseType_t *px
   // FIFO0 溢出丢帧
   if ((its & FDCAN_IT_RX_FIFO0_MESSAGE_LOST) != 0U)
   {
-    diagnostics.rx_lost++;
+    diagnostics.rx_lost = diagnostics.rx_lost + 1;
   }
 
   // 没有新帧则返回
@@ -429,7 +412,7 @@ void BspCanT<RX_DEPTH, TX_DEPTH>::process_fifo0_isr(uint32_t its, BaseType_t *px
     // 只支持经典 CAN 的 8 字节帧：DLC > 8（FD 帧或非法 DLC）直接丢弃并计数
     if (rxMsg.header.DataLength > FDCAN_DLC_BYTES_8)
     {
-      diagnostics.rx_len_drop++;
+      diagnostics.rx_len_drop = diagnostics.rx_len_drop + 1;
       continue;
     }
     memcpy(rxMsg.data, raw, sizeof(rxMsg.data));
@@ -438,7 +421,7 @@ void BspCanT<RX_DEPTH, TX_DEPTH>::process_fifo0_isr(uint32_t its, BaseType_t *px
     // 否则 FIFO 满后不再产生 RF0N，剩下的帧会一直留在 FIFO 里。
     if (xMessageBufferSendFromISR(_rx_message_buffer, &rxMsg, sizeof(CanRxMsg), pxHigherPriorityTaskWoken) == 0U)
     {
-      diagnostics.rx_dropped++;
+      diagnostics.rx_dropped = diagnostics.rx_dropped + 1;
     }
 
     // 循环内不 yield，搬完统一在回调返回前让出
@@ -476,7 +459,7 @@ void BspCanT<RX_DEPTH, TX_DEPTH>::trigger_tx_from_isr(BaseType_t *pxHigherPriori
         // 写入失败：把刚取出的帧写回软件缓冲，避免丢帧；
         // 恢复动作由巡检任务（sys_task）完成。
         (void)xMessageBufferSendFromISR(_tx_message_buffer, &txMsg, sizeof(CanTxMsg), pxHigherPriorityTaskWoken);
-        diagnostics.tx_dropped++;
+        diagnostics.tx_dropped = diagnostics.tx_dropped + 1;
       }
     }
   }
@@ -496,15 +479,15 @@ void BspCanT<RX_DEPTH, TX_DEPTH>::process_error_isr(uint32_t its)
   // 注意：IR.BO 是「状态变化」事件，进入与退出 Bus-Off 各触发一次
   if ((its & FDCAN_IT_BUS_OFF) != 0U)
   {
-    diagnostics.bus_off_events++;
+    diagnostics.bus_off_events = diagnostics.bus_off_events + 1;
   }
   if ((its & FDCAN_IT_ERROR_PASSIVE) != 0U)
   {
-    diagnostics.err_passive++;
+    diagnostics.err_passive = diagnostics.err_passive + 1;
   }
   if ((its & FDCAN_IT_ERROR_WARNING) != 0U)
   {
-    diagnostics.err_warning++;
+    diagnostics.err_warning = diagnostics.err_warning + 1;
   }
 }
 
@@ -540,7 +523,7 @@ bool BspCanT<RX_DEPTH, TX_DEPTH>::_set_tx_empty_it(bool enable)
 
   if (st != HAL_OK)
   {
-    diagnostics.tx_it_fail++; // 诊断：中断开关未写入（等巡检补开）
+    diagnostics.tx_it_fail = diagnostics.tx_it_fail + 1; // 诊断：中断开关未写入（等巡检补开）
     return false;
   }
   return true;
@@ -604,7 +587,7 @@ bool BspCanT<RX_DEPTH, TX_DEPTH>::_start_transmission(TickType_t wait)
         // 写入失败：帧已从软件缓冲取出，要放回去，否则丢帧。
         // 刚取出 1 帧，缓冲至少有 1 帧空间，放回不会失败。
         (void)xMessageBufferSend(_tx_message_buffer, &txMsg, sizeof(CanTxMsg), 0);
-        diagnostics.tx_dropped++;
+        diagnostics.tx_dropped = diagnostics.tx_dropped + 1;
       }
       else
       {

@@ -43,19 +43,12 @@ public:
    */
   struct Config
   {
-    /**
-     * @brief 按序构造配置（参数顺序 = 字段顺序，可匿名传入）
-     */
-    Config(TIM_HandleTypeDef *htim = nullptr, uint32_t channel = 0U, uint32_t timer_clk_hz = 0U, uint32_t prescaler = 0U, uint32_t period = 0U, float duty_pct = 0.0f) : htim(htim), channel(channel), timer_clk_hz(timer_clk_hz), prescaler(prescaler), period(period), duty_pct(duty_pct)
-    {
-    }
-
-    TIM_HandleTypeDef *htim;         ///< 定时器句柄
-    uint32_t           channel;      ///< PWM 通道（TIM_CHANNEL_x；注意 TIM_CHANNEL_1 的值就是 0，合法）
-    uint32_t           timer_clk_hz; ///< 定时器输入时钟 (Hz)：计数器时钟 = timer_clk_hz / (prescaler + 1)
-    uint32_t           prescaler;    ///< PSC 寄存器值（CubeMX 值，分频 = prescaler + 1）
-    uint32_t           period;       ///< ARR 寄存器值（CubeMX 值，一个周期 = period + 1 个计数）
-    float              duty_pct;     ///< 上电占空比 (%)，0~100，默认 0
+    TIM_HandleTypeDef *htim         = nullptr; ///< 定时器句柄
+    uint32_t           channel      = 0U;      ///< PWM 通道（TIM_CHANNEL_x；注意 TIM_CHANNEL_1 的值就是 0，合法）
+    uint32_t           timer_clk_hz = 0U;      ///< 定时器输入时钟 (Hz)：计数器时钟 = timer_clk_hz / (prescaler + 1)
+    uint32_t           prescaler    = 0U;      ///< PSC 寄存器值（CubeMX 值，分频 = prescaler + 1）
+    uint32_t           period       = 0U;      ///< ARR 寄存器值（CubeMX 值，一个周期 = period + 1 个计数）
+    float              duty_pct     = 0.0f;    ///< 上电占空比 (%)，0~100，默认 0
   };
 
   // ----------------
@@ -64,8 +57,19 @@ public:
   /** @brief 默认构造：未绑定通道，须再调 init() */
   BspPwm() = default;
 
-  /** @brief 只保存配置，硬件操作全部推迟到 init() */
-  explicit BspPwm(const Config &cfg);
+  /**
+   * @brief 只保存配置，硬件操作全部推迟到 init()
+   *
+   * @note constexpr + 内联：bsp_cfg.hpp 的全局实例是 inline 变量，需要常量初始化
+   *       （否则每个包含该头文件的 TU 都会生成一份构造代码）。
+   */
+  constexpr explicit BspPwm(const Config &cfg) :
+    _config(cfg),
+    // 计数器时钟 = 定时器时钟 / (PSC + 1)。PSC 越界时先置 0，真正的拒绝在 init() 里做
+    _counter_clk_hz((cfg.prescaler > 0xFFFFU) ? 0U : (cfg.timer_clk_hz / (cfg.prescaler + 1U))),
+    _period(cfg.period)
+  {
+  }
 
   /** @brief 默认析构 */
   ~BspPwm() = default;

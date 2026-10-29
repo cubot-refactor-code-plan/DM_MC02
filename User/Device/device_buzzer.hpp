@@ -27,19 +27,14 @@ class DeviceBuzzer
 public:
   // ---------------- 配置 ----------------
 
-  /** @brief 蜂鸣器配置：音域与默认值 */
+  /** @brief 蜂鸣器配置：音域与默认值（聚合体，可用指定初始化器） */
   struct Config
   {
-    /** @brief 按序构造配置（参数顺序 = 字段顺序） */
-    Config(uint32_t default_freq = 3000UL, uint32_t freq_min = 50UL, uint32_t freq_max = 20000UL, uint32_t short_ms = 80UL, float volume_pct = 50.0f) : default_freq(default_freq), freq_min(freq_min), freq_max(freq_max), short_ms(short_ms), volume_pct(volume_pct)
-    {
-    }
-
-    uint32_t default_freq; ///< 默认频率 (Hz)：tone()/beep() 传 0 时使用
-    uint32_t freq_min;     ///< 频率下限 (Hz)
-    uint32_t freq_max;     ///< 频率上限 (Hz)
-    uint32_t short_ms;     ///< 默认鸣叫时长 (ms)：beep() 传 0 时使用
-    float    volume_pct;   ///< 默认音量（占空比 %）：tone()/beep() 传 ≤0 时使用
+    uint32_t default_freq = 3000UL;  ///< 默认频率 (Hz)：tone()/beep() 传 0 时使用
+    uint32_t freq_min     = 50UL;    ///< 频率下限 (Hz)
+    uint32_t freq_max     = 20000UL; ///< 频率上限 (Hz)
+    uint32_t short_ms     = 80UL;    ///< 默认鸣叫时长 (ms)：beep() 传 0 时使用
+    float    volume_pct   = 50.0f;   ///< 默认音量（占空比 %）：tone()/beep() 传 ≤0 时使用
   };
 
   // ----------------

@@ -81,6 +81,28 @@ LoopCopyDataInit:
   adds r4, r0, r3
   cmp r4, r1
   bcc CopyDataInit
+
+/* Zero fill the bss segment. */
+// user
+/* Copy the .dma_buffer segment initializers from flash to RAM_D1
+   （链接脚本里 .dma_buffer 是 AT> FLASH 的可加载段，不是 NOLOAD；
+     段内是 bsp_uartX / bsp_canX 等带构造函数的全局对象） */
+  ldr r0, =_sdma_buffer
+  ldr r1, =_edma_buffer
+  ldr r2, =_sidma_buffer
+  movs r3, #0
+  b LoopCopyDmaBufferInit
+
+CopyDmaBufferInit:
+  ldr r4, [r2, r3]
+  str r4, [r0, r3]
+  adds r3, r3, #4
+
+LoopCopyDmaBufferInit:
+  adds r4, r0, r3
+  cmp r4, r1
+  bcc CopyDmaBufferInit
+// user
 /* Zero fill the bss segment. */
   ldr r2, =_sbss
   ldr r4, =_ebss

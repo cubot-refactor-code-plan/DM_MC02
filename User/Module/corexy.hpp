@@ -7,9 +7,7 @@
  *
  * @copyright Copyright (c) 2026
  *
- * @note 原理、时序图、用法示例与实测踩坑清单见 `corexy.md`；本文件只保留接口契约。
- * @note 限位、速度、到位窗口来自 Config；几何参数固定为本工程用的 ZDT 闭环步进
- *       （40 mm/圈、3200 脉冲/圈、65536 counts/圈），以 constexpr 收在私有区。
+ * @note 原理、时序、用法示例与踩坑清单见 `corexy.md`；本文件只写接口契约。
  */
 
 #ifndef __MODULE_COREXY_HPP__
@@ -27,13 +25,7 @@
 /**
  * @brief CoreXY 平面机构（两台电机 + 双矩形限位 + 45°/90° 分段）
  *
- * @tparam Group 设备层“单串口多电机组”类型，构造只保存指针，不拥有设备。
- *
- * @note `Group` 是鸭子类型（模板编译期检查），只需满足 `_send_segment()` 用到的成员：
- *       位置清零 / 使能 / 停止 / 读位置 / 请求位置 / MMCL（清空、入队、发送）/ 快速位置入队。
- *       具体接口清单与两侧约束见 `corexy.md`。
- *
- * @note 换串口只需换 `Group` 类型；换非 ZDT 驱动器要同步改私有区的三个几何常量。
+ * @tparam Group 设备层「单串口多电机组」类型（鸭子类型，接口清单见 corexy.md），只存指针不拥有。
  */
 template <typename Group>
 class CorexyT
@@ -44,16 +36,14 @@ public:
   static constexpr uint8_t ARRIVE_CONFIRM = 2U; ///< 连续多少拍「两台读回的位置都正确且不变」才算到位
 
   /**
-   * @brief 总线节拍（921600 下 13 B 帧 ≈ 0.14 ms，2 ms 留足余量）
-   *
-   * @note 一个常数覆盖五处间隔：帧与帧之间、发无应答命令前的静默、命令族之后
-   *       先不读位置、发完 MMCL 到第一次读、相邻两次「读两台位置」。
-   *       改波特率时只需要改这一个值。
+   * @brief 总线节拍 2 ms（921600 下 13 B 帧约 0.14 ms）
+   * @note 帧与帧之间、无应答命令前、命令族后首读前、MMCL 后首读前、相邻两次读之间的统一静默；
+   *       改波特率只改这一个值。
    */
   static constexpr uint32_t BUS_GAP_MS = 2U;
 
   static constexpr uint32_t REPLY_TIMEOUT_MS = 30U;   ///< 单台位置应答的等待上限
-  static constexpr uint32_t SEG_DONE_MS      = 3000U; ///< 段兜底：这么久还没判到位就按“已到位”处理（不是故障）
+  static constexpr uint32_t SEG_DONE_MS      = 3000U; ///< 长时间没到位就按“已到位”处理（不是故障）
   static constexpr int32_t  STILL_COUNTS     = 10;    ///< 相邻两次读回相差 ≤ 该值（约 0.006 mm）视为已停稳
   static constexpr float    OVERRUN_MM       = 2.0f;  ///< 段内超出预期行程多少 mm 就停机
   static constexpr size_t   SEG_MAX          = 2U;    ///< 最多两段：45° 段 + 轴向段
@@ -61,40 +51,20 @@ public:
   // ----------------
   // ---------------- 类型与配置 ----------------
 
-  /** @brief 轴对齐矩形（mm） */
+  /** @brief 轴对齐矩形（mm），聚合体：可按 `{x0, y0, x1, y1}` 或指定初始化器写 */
   struct Rect
   {
-    /**
-     * @brief 按序构造矩形
-     * @param x0 左边界
-     * @param y0 下边界
-     * @param x1 右边界
-     * @param y1 上边界
-     */
-    Rect(float x0 = 0.0f, float y0 = 0.0f, float x1 = 0.0f, float y1 = 0.0f) : x0(x0), y0(y0), x1(x1), y1(y1)
-    {
-    }
-
-    float x0; ///< 左边界 mm
-    float y0; ///< 下边界 mm
-    float x1; ///< 右边界 mm
-    float y1; ///< 上边界 mm
+    float x0 = 0.0f; ///< 左边界 mm
+    float y0 = 0.0f; ///< 下边界 mm
+    float x1 = 0.0f; ///< 右边界 mm
+    float y1 = 0.0f; ///< 上边界 mm
   };
 
-  /** @brief 世界坐标点（mm） */
+  /** @brief 世界坐标点（mm），聚合体：可按 `{x, y}` 或指定初始化器写 */
   struct Point
   {
-    /**
-     * @brief 按序构造坐标
-     * @param x X 坐标 mm
-     * @param y Y 坐标 mm
-     */
-    Point(float x = 0.0f, float y = 0.0f) : x(x), y(y)
-    {
-    }
-
-    float x; ///< X 坐标 mm
-    float y; ///< Y 坐标 mm
+    float x = 0.0f; ///< X 坐标 mm
+    float y = 0.0f; ///< Y 坐标 mm
   };
 
   /** @brief 模块状态 */
@@ -108,14 +78,10 @@ public:
   /**
    * @brief 分段下发模式
    *
-   * @note 两种模式走的是驱动器不同的命令：
-   *       - `Position`：每段发 `addr FD …`（13 B），方向、速度、加速度、脉冲一帧到底；
-   *       - `Quick`：先用 `addr F1 …`（7 B）设一次速度/加速度/相对模式，
-   *         之后每段只发 `addr FC 脉冲(4B, 带符号)`（7 B）。
-   *       快速模式帧更短（两轴单帧 19 B 对 31 B），驱动器也少解析一套参数，
-   *       代价是：
-   *       1. 速度一变就要重发参数帧；
-   *       2. `0xFC` 没有方向字节，**靠脉冲符号表方向**，换固件后需实机确认符号约定。
+   * @note `Position` 每段发 `addr FD …`（13 B，方向/速度/加速度/脉冲一帧到底）；
+   *       `Quick` 先用 `addr F1 …` 设一次参数，之后每段只发 `addr FC 脉冲(4B)`（7 B）。
+   * @note Quick 帧更短（两轴 19 B 对 31 B），代价是改速度要重发参数帧，且 `0xFC`
+   *       没有方向字节、靠脉冲符号定向（换固件需实机确认符号约定）。
    */
   enum class MoveMode : uint8_t
   {
@@ -124,68 +90,24 @@ public:
   };
 
   /**
-   * @brief 模块配置
+   * @brief 模块配置（电机组 / 地址 / 两块限位必填，其余可省略）
    *
-   * @note 参数顺序 = 字段顺序。电机组、地址与两块限位必须显式给出（由模块层实例配置负责），
-   *       速度 / 加速度 / 到位窗口可省略。几何参数不在 Config 里：本模块只驱动 ZDT 闭环步进，
-   *       两个比例由类内私有常量算出。
-   *
-   * @code{.cpp}
-   *   // 最简：限位全给，速度用默认
-   *   CorexyT<G> cx({&group, addr1, addr2, theory, safe});
-   * @endcode
-   *
-   * @note **两块限位的语义区别**（很关键）：
-   *       - `theory`：机械真实行程。只在**运动过程中**拿实测坐标去比，越界就判碰撞并停机；
-   *       - `safe`：允许作为**运动目标**的范围。所有 `move_to` 都先过这一关。
-   *       典型取法：`theory` = 机械能到的范围，`safe` 在四周各内收一点作为减速余量。
-   *       `safe` 必须完全落在 `theory` 内，否则 `init()` 返回 BAD_ARG。
+   * @note `theory` = 机械真实行程，只在运动中拿实测坐标比，越界判碰撞并停机；
+   *       `safe` = 允许作为**运动目标**的范围，`move_to` 先过这一关，且必须完全落在
+   *       `theory` 内，否则 `init()` 返回 BAD_ARG。
+   * @note 几何参数不在 Config 里：本模块只驱动 ZDT 闭环步进，比例由类内私有常量算出。
    */
   struct Config
   {
-    /**
-     * @brief 按序构造配置
-     * @param group          电机组（不拥有）
-     * @param addr1          电机 1 地址
-     * @param addr2          电机 2 地址
-     * @param theory         理论限位（机械行程，只做碰撞检测 mm）
-     * @param safe           安全限位（允许运动的目标范围 mm）
-     * @param rpm            基准速度 RPM（按每圈行程换算成 mm/s）
-     * @param acc            加速度参数（0~255，越大加速越快，0 = 直接启动）
-     * @param arrive_tol     到位窗口 mm
-     * @param move_mode      分段下发模式（默认 Position）
-     */
-    Config(Group   *group,
-           uint8_t  addr1,
-           uint8_t  addr2,
-           Rect     theory,
-           Rect     safe,
-           uint16_t rpm        = 300U,
-           uint8_t  acc        = 230U,
-           float    arrive_tol = 0.20f,
-           MoveMode move_mode  = MoveMode::Position)
-
-      : group(group),
-        addr1(addr1),
-        addr2(addr2),
-        theory(theory),
-        safe(safe),
-        rpm(rpm),
-        acc(acc),
-        arrive_tol(arrive_tol),
-        move_mode(move_mode)
-    {
-    }
-
-    Group   *group;          ///< 电机组（不拥有）
-    uint8_t  addr1;          ///< 电机 1 地址
-    uint8_t  addr2;          ///< 电机 2 地址
-    Rect     theory;         ///< 理论限位（机械行程）
-    Rect     safe;           ///< 安全限位（允许运动的目标范围）
-    uint16_t rpm;            ///< 基准速度 RPM
-    uint8_t  acc;            ///< 加速度参数
-    float    arrive_tol;     ///< 到位窗口 mm
-    MoveMode move_mode;      ///< 分段下发模式
+    Group    *group;                 ///< 电机组（不拥有）
+    uint8_t   addr1;                 ///< 电机 1 地址
+    uint8_t   addr2;                 ///< 电机 2 地址
+    Rect      theory;                ///< 理论限位（机械行程，只做碰撞检测 mm）
+    Rect      safe;                  ///< 安全限位（允许运动的目标范围 mm）
+    uint16_t  rpm        = 300U;     ///< 基准速度 RPM（按每圈行程换算成 mm/s）
+    uint8_t   acc        = 230U;     ///< 加速度参数（0~255，越大加速越快，0 = 直接启动）
+    float     arrive_tol = 0.20f;    ///< 到位窗口 mm
+    MoveMode  move_mode  = MoveMode::Position; ///< 分段下发模式
   };
 
   // ----------------
@@ -218,50 +140,32 @@ public:
    * @brief 两台电机使能 / 失能
    * @param on true = 使能，false = 失能
    * @return 第一条失败的命令结果（都成功则 OK）
-   *
-   * @note **必须先静默**：上一条 `0x36` 查询的应答可能还在回传，驱动器此刻收不进字节，
-   *       直接 `send()` 会被整帧丢弃——实测就是“只有第一台失能了”。
-   * @note 两帧之间、以及使能之后到开始读位置，都留 `BUS_GAP_MS`。
+   * @note 必须先静默 `BUS_GAP_MS`：上一条 `0x36` 的应答可能还在回传，此时发帧会被整帧丢弃。
    */
   Status enable(bool on);
 
   /**
    * @brief 两台编码器清零，当前位置记为世界原点 (0,0)
    * @return OK=两条命令都已入发送缓冲；其他=发送失败
-   *
-   * @note 会先发一次广播停止，避免清零瞬间还有旧目标在跑。
-   * @note 单向命令（无应答），清零后 `origin_verified()` 仍为 false，必须靠后续 `update()`
-   *       读到的位置接近 (0,0) 才能自动放行运动。
-   * @note 典型用法（上电）：`zero_here()` → 等 `origin_verified()` → 再 `move_to()`。
+   * @note 先发广播停止再清零；单向命令无应答，`origin_verified()` 要等后续 `update()` 读到
+   *       接近 (0,0) 才置位。典型顺序：`zero_here()` → 等复核 → `move_to()`。
    */
   Status zero_here();
 
   /**
    * @brief 绝对移动到世界坐标 p（mm）
    * @param p 目标点
-   * @return OK=已开始移动；BAD_ARG=目标超出安全限位（或处于 Fault）；BUSY=上一段还在走；
+   * @return OK=已开始移动；BAD_ARG=超出安全限位或处于 Fault；BUSY=上一段还在走；
    *         NOT_INIT=未 init / 原点未复核；IO_ERROR=串口发送失败（已停机）
    *
-   * @note 路径拆段规则：`dx`、`dy` 任一为 0 或 `|dx| == |dy|` 走单段；
-   *       否则先走 45° 段（`d = min(|dx|,|dy|)`），再走轴向段到目标。
-   *       例：`0,0 → 100,50` 先到 `50,50`，再到 `100,50`。
-   * @note **每段都必须先确认到位**才发下一段：发完 MMCL 先静默 `BUS_GAP_MS`，
-   *       然后依次读两台（读 1 → `BUS_GAP_MS` → 读 2）的 `0x36` 位置；
-   *       两台读回的位置都落在本段目标的 `arrive_tol` 内、**而且相邻两次读回几乎不变**
-   *       （≤ `STILL_COUNTS`，证明电机真的停住了），连续 `ARRIVE_CONFIRM` 拍成立才算到位；
-   *       下一段同样走「2 ms → 读两台」的流程。
-   *       不依赖驱动器的"到位帧"（该回报默认不开）。
-   * @note **不设故障超时**：本段最晚等 `SEG_DONE_MS`，到点还没判到位就**按已经到位处理**
-   *       （跳下一段 / 结束），不会进 `Fault`。跳下一段前会先停一次，避免命令叠在没跑完的运动上。
-   *       真要中断请用 `stop()`。
-   * @note 分段起点是当前**实测**坐标（位置反馈换算），不是上一次指令值。
+   * @note 拆段：`dx`/`dy` 任一为 0 或 `|dx| == |dy|` 走单段，否则先 45° 段再轴向段
+   *       （`0,0 → 100,50` 先到 `50,50`）。起点是当前**实测**坐标，不是上次指令值。
+   * @note 每段都确认到位才发下一段：读两台 `0x36`，都落在 `arrive_tol` 内且相邻两次读回
+   *       变化 ≤ `STILL_COUNTS`，连续 `ARRIVE_CONFIRM` 拍成立。不依赖驱动器到位帧。
+   * @note 本段最晚等 `SEG_DONE_MS`，到点仍未判到位就按已到位处理（**不进 Fault**）；中断用 `stop()`。
    *
    * @code{.cpp}
-   *   // (0,0) → (50,60)：先 45° 到 (50,50)（只动电机 1），到位后再走 +Y 10 mm
-   *   if (corexy.move_to({50.0f, 60.0f}) != Status::OK)
-   *   {
-   *     // 失败：看 last_error()，常见 BAD_ARG = 超出安全限位
-   *   }
+   *   corexy.move_to({50.0f, 60.0f});
    *   while (!corexy.arrived()) { corexy.update(); vTaskDelay(pdMS_TO_TICKS(10)); }
    * @endcode
    */
@@ -276,18 +180,15 @@ public:
   /**
    * @brief 立即停止并退出 Moving / Fault
    * @return 广播停止的发送结果
-   *
-   * @note 清故障的唯一入口：`Fault` 状态下 `move_to` 返回 BAD_ARG，必须先 `stop()`。
-   * @note 停止是“逐台 + 广播”共三帧，帧间留 `BUS_GAP_MS`，共约 6 ms；
-   *       整段包在总线锁里，不会被其他任务插帧。
+   * @note 清故障的唯一入口（`Fault` 下 `move_to` 返回 BAD_ARG）。
+   * @note「逐台 + 广播」共三帧、帧间 `BUS_GAP_MS`（约 6 ms），整段包在总线锁里。
    */
   Status stop();
 
   /**
    * @brief 设置基准速度与加速度
-   * @param rpm 1~5000（每段实际转速会按脉冲数比例下调，保证同时到达）
-   * @param acc 0~255（越大加速越快，0 = 直接启动，冲击大）
-   *
+   * @param rpm 1~5000（每段实际转速按脉冲比例下调，保证同时到达）
+   * @param acc 0~255（越大加速越快，0 = 直接启动）
    * @note 运行期可改，不影响已下发的段。
    */
   Status set_speed(uint16_t rpm, uint8_t acc);
@@ -303,13 +204,9 @@ public:
 
   /**
    * @brief 周期更新：收串口字节、读两台位置、推进状态机
-   * @param timeout_ms 等待新字节的时间：0 = 非阻塞（当前一拍有多少处理多少），
-   *                   N = 最多阻塞 N ms 等数据到（超时即继续推进状态机）
-   *
-   * @note 必须由**同一个任务**调用，且不能在中断里调：`_send_segment()` 里会先静默
-   *       `BUS_GAP_MS` 再发帧，`_read_position()` 还会等应答（每台最多 `REPLY_TIMEOUT_MS`）。
-   * @note 超时参数只作用于「等字节」这一步；状态机本身的推进不额外等。
-   * @note 读位置是一问一答：先发请求、收到应答再读下一台；实际读周期受调用周期限制（≥ `BUS_GAP_MS`）。
+   * @param timeout_ms 等新字节的时间，0 = 非阻塞；只作用于「等字节」，状态机推进不额外等
+   * @note 必须由**同一任务**调用、不能在中断里调：内部会静默 `BUS_GAP_MS` 发帧并等应答
+   *       （每台最多 `REPLY_TIMEOUT_MS`）。读位置一问一答，实际读周期 ≥ `BUS_GAP_MS`。
    */
   void update(uint32_t timeout_ms = 0U);
 
@@ -414,14 +311,13 @@ private:
   static constexpr float PULSES_PER_MM    = static_cast<float>(PULSES_PER_REV) / MM_PER_REV;      ///< 80 脉冲/mm
   static constexpr float COUNTS_PER_MM    = static_cast<float>(COUNTS_PER_REV) / MM_PER_REV;      ///< 1638.4 counts/mm
   static constexpr float COUNTS_PER_PULSE = static_cast<float>(COUNTS_PER_REV) / PULSES_PER_REV; ///< 20.48 counts/脉冲
-
+  // ----------------
   // ---------------- 私有实现 ----------------
 
   /**
    * @brief 把目标拆成 1~2 段（45° 段 + 轴向段）
    * @param goal 目标点
-   * @note 起点取 `_pos`；调用前 `move_to` 已校验 goal 在安全限位内。
-   *       安全限位是凸矩形，端点在内 ⇒ 中转点必然在内，无需再判。
+   * @note 起点取 `_pos`。安全限位是凸矩形，端点在内 ⇒ 中转点必在内，无需再判。
    */
   void _build_segments(Point goal);
 
@@ -430,10 +326,8 @@ private:
    * @param index 分段下标
    * @return 组帧/发送结果
    *
-   * @note **一律走 MMCL 总帧**：两台都动时带两条子命令（帧长 31 B），只有一台动时带一条（18 B）。
-   *       不拆成两条单机帧——同一帧里的两台才是同时起动。
-   * @note `rpm_i = rpm·|Δp_i|/max|Δp|`，保证同时到达；`|Δp_i| == 0` 的电机不参与本段。
-   * @note 组帧与发送由设备组的半双工总线锁串行化，其他任务插不进半帧。
+   * @note **一律走 MMCL 总帧**（两台 31 B / 一台 18 B）：同一帧里的两台才是同时起动。
+   * @note `rpm_i = rpm·|Δp_i|/max|Δp|` 保证同时到达；`|Δp_i| == 0` 的电机不参与本段。
    */
   Status _send_segment(size_t index);
 
@@ -446,10 +340,7 @@ private:
   ///< 总线静默：置 `_read_hold` 并真实延时（半双工发帧前的统一前置动作）
   void _quiet();
 
-  /**
-   * @brief 逐台 + 广播发送停止，帧间留 BUS_GAP_MS
-   * @note RS485 半双工：连续 send() 只是入队，底层会把它连成一串，必须留真实间隔。
-   */
+  /** @brief 逐台 + 广播发送停止，帧间留 BUS_GAP_MS（半双工下连续 send() 只是入队） */
   void _stop_motors();
 
   ///< 点是否在矩形内（含边界）
@@ -463,9 +354,7 @@ private:
    * @param addr 电机地址
    * @param out  读到的新位置 counts
    * @return true=本次请求拿到了应答（旧应答在发请求前丢弃）
-   *
-   * @note 半双工总线上一次只允许一条查询在途，所以读两台必须**一次一台**、
-   *       读到应答再发下一条；两条查询之间留 `BUS_GAP_MS`。
+   * @note 半双工上一次只允许一条查询在途：读两台必须一次一台，两条之间留 `BUS_GAP_MS`。
    */
   bool _read_position(uint8_t addr, int32_t &out);
 

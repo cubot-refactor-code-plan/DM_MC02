@@ -1,16 +1,6 @@
 #include "bsp_pwm.hpp"
 
 
-// ---------------- 构造 ----------------
-
-
-/** @brief 只保存配置，硬件操作在 init() 里做 */
-BspPwm::BspPwm(const Config &cfg) : _config(cfg)
-{
-}
-
-
-// ----------------
 // ---------------- 公共接口 ----------------
 
 
@@ -30,11 +20,7 @@ Status BspPwm::init()
       IS_TIM_CCX_INSTANCE(_config.htim->Instance, _config.channel) == 0U)
     return Status::BAD_ARG;
 
-  // 计数器时钟 = 定时器时钟 / (PSC + 1)
-  _counter_clk_hz = _config.timer_clk_hz / (_config.prescaler + 1U);
-
-  // 与 CubeMX 配置对齐一次 ARR，之后由 set_freq() 动态改
-  _period = _config.period;
+  // 与 CubeMX 配置对齐一次 ARR，之后由 set_freq() 动态改（_counter_clk_hz / _period 构造时已算好）
   __HAL_TIM_SET_AUTORELOAD(_config.htim, _period);
 
   // 关键：先把 CCR 清 0，保证启动瞬间是 0% 占空比（CubeMX 里 Pulse 可能非 0）

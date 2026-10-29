@@ -30,7 +30,6 @@
 #include "semphr.h"   // IWYU pragma: keep（总线互斥锁）
 #include "task.h"
 
-#include <initializer_list>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -64,36 +63,15 @@ public:
   /**
    * @brief 组配置
    *
-   * @note 地址表用初始化列表传，例如 `{uart_instance, {1, 2}}`。
-   *       超过 MAX_MOTORS 的部分不保存，init() 会返回 BAD_ARG。
+   * @note 聚合体：推荐用指定初始化器写字，例如
+   *       `{.uart = bsp_uart2, .addr = {1, 2, 3}}`；也兼容位置写法 `{bsp_uart2, {1, 2}}`。
+   * @note 地址表以 **0 结尾**（0 不是合法地址，合法范围 1~255）：前导非 0 项就是组内电机，
+   *       遇到第一个 0 即结束，因此**不能把 0 夹在中间**（`{1, 0, 3}` 只会识别出 1 台）。
    */
   struct Config
   {
-    /**
-     * @brief 按序构造配置
-     * @param uart  本组使用的串口
-     * @param addrs 电机地址表（每个地址 1~255，不能重复）
-     */
-    Config(Uart &uart, std::initializer_list<uint8_t> addrs) : uart(uart), count(addrs.size())
-    {
-      for (size_t i = 0; i < MAX_MOTORS; i++)
-      {
-        addr[i] = 0;
-      }
-
-      size_t i = 0;
-      for (uint8_t a : addrs)
-      {
-        if (i < MAX_MOTORS)
-        {
-          addr[i++] = a;
-        }
-      }
-    }
-
-    Uart   &uart;             ///< bsp_uart 实例引用
-    uint8_t addr[MAX_MOTORS]; ///< 地址表（前 count 个有效）
-    size_t  count;            ///< 传入的地址数（可能大于 MAX_MOTORS，由 init() 拒绝）
+    Uart    &uart;                  ///< bsp_uart 实例引用
+    uint8_t  addr[MAX_MOTORS] = {}; ///< 地址表（1~255，0 = 结尾）
   };
 
   // ----------------

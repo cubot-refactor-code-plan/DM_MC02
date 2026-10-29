@@ -14,23 +14,26 @@ template class DeviceR9dsT<BspUartT<uart_detail::DmaTransport, 128, 128>>;
 // ---------------- 构造与析构 ----------------
 
 /**
- * @brief 绑定串口
+ * @brief 绑定串口；原始通道先填中位
  *
- * @note 构造函数只做赋值，不碰硬件、不读串口：真正的复位在 init() 里，
- *       所以可以在 main() 之前的静态初始化阶段构造（见 device_cfg.cpp）。
+ * @note 其余解析状态的初值都在 device_r9ds.hpp 的成员声明里（NSDMI），
+ *       只有 `_raw` 需要整表填 CHANNEL_MID，没法写成默认成员初始化器，所以在这里遍历。
  */
 template <typename Uart>
 DeviceR9dsT<Uart>::DeviceR9dsT(Uart &uart) : _uart(uart)
 {
+  for (uint32_t i = 0U; i < CHANNEL_NUM; ++i)
+  {
+    _raw[i] = CHANNEL_MID; // 还没收到帧，原始通道先按中位显示，避免上层读到 0 这种野值
+  }
 }
 // ----------------
 // ---------------- 生命周期 ----------------
 
 /**
- * @brief 复位解析状态、诊断计数与帧时刻
+ * @brief 校验串口帧格式（SBUS：100000 / 8E2）
  *
- * @note 重复调用安全：丢掉的只是"半截帧"和统计数字，下一次 update() 会重新找帧头。
- *       通道值一并置成安全默认，这样还没收到过任何帧时上层读到的不是野值。
+ * @note 解析状态已在构造时复位，所以本函数只做校验；重复调用是幂等的。
  */
 template <typename Uart>
 Status DeviceR9dsT<Uart>::init(void)
@@ -39,25 +42,6 @@ Status DeviceR9dsT<Uart>::init(void)
   {
     return Status::BAD_ARG;
   }
-
-  // 解析状态：从"找帧头"重新开始
-  _fill            = 0U;
-  _frame_lost      = false;
-  _failsafe        = false;
-  _diag            = Diag {}; // 计数与连续丢帧数（lost_streak）一并清零
-  _last_frame_tick = 0U;      // 配合 frame_cnt <= 0，让 is_online() 立刻回到离线
-
-  for (uint32_t i = 0U; i < CHANNEL_NUM; ++i)
-  {
-    _raw[i] = CHANNEL_MID; // 还没收到帧，原始通道先按中位显示
-  }
-  for (uint32_t i = 0U; i < FRAME_SIZE; ++i)
-  {
-    _frame[i] = 0U;
-  }
-
-  // 安全默认（顺序 = Rc 字段顺序）：连续通道全回中位 0，开关全回下挡
-  _rc = Rc {0, 0, 0, 0, Switch::DOWN, 0, 0, 0, Switch::DOWN, Switch::DOWN};
 
   return Status::OK;
 }

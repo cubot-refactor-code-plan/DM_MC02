@@ -33,43 +33,25 @@ const typename DjiMotorGroupT<CanT>::ModelTraits DjiMotorGroupT<CanT>::MODEL_TRA
 
 
 /**
- * @brief 只保存配置，不碰硬件、不创建 RTOS 对象
+ * @brief 构造：校验成员表并把配置折算进各位置
  *
- * @note 所以可以在 main() 之前的静态初始化阶段构造（device_cfg.cpp 里的 can3_dji_group 就是这样）。
- *       真正会失败的事（校验成员表）都放在 init() 里，构造函数不返回状态。
+ * @note 本函数是「位置推出一切」的唯一落地点：把每个位置的控制帧、帧内槽位、指令限幅、
+ *       减速比、零位一次算好存进 Slot，之后 update() / set_output() 只看 Slot，不再查型号表。
+ * @note 失败只有两种：总线句柄没给，或型号放错位置。两者都是配置错误、无可恢复路径，
+ *       所以直接 `configASSERT` 就地停机，不再留 init() 让调用方查返回值。
+ *       代价：停机点从 `device_init()` 提前到全局构造阶段（`bsp_init()` 之前）。
+ * @note 不碰硬件、不创建 RTOS 对象，可以在 main() 之前的静态初始化阶段构造。
  */
 template <typename CanT>
 DjiMotorGroupT<CanT>::DjiMotorGroupT(const Config &cfg) : _cfg(cfg)
 {
-}
+  // 没有总线，本组没有任何意义
+  configASSERT(_cfg.can != nullptr);
 
 
 // ----------------
 // ---------------- 公有接口 ----------------
 
-
-/**
- * @brief 校验成员表并把配置折算进各位置
- *
- * @note 本函数是「位置推出一切」的唯一落地点：把每个位置的控制帧、帧内槽位、指令限幅、
- *       减速比、零位一次算好存进 Slot，之后 update() / set_output() 只看 Slot，不再查型号表。
- * @note 失败只有两种：总线句柄没给（NOT_INIT），或型号放错位置（BAD_ARG）。任意一种
- *       都直接返回，调用方（device_init）会 configASSERT 停机，不会带着半张成员表继续跑。
- */
-template <typename CanT>
-Status DjiMotorGroupT<CanT>::init(void)
-{
-  // 没有总线，本组没有任何意义
-  if (_cfg.can == nullptr)
-  {
-    return Status::NOT_INIT;
-  }
-
-  // 幂等：已经算过就不再算一遍（也避免重复置位 _frame_active）
-  if (_inited)
-  {
-    return Status::OK;
-  }
 
   // 从左到右扫一遍 11 个位置
   for (uint8_t index = 0U; index < MOTOR_NUM; ++index)
@@ -81,10 +63,7 @@ Status DjiMotorGroupT<CanT>::init(void)
     }
 
     // 型号必须与位置相容：0~3 只收 3508/2006，4~7 三种都行，8~10 只收 6020
-    if (!is_model_allowed(index, member->model))
-    {
-      return Status::BAD_ARG;
-    }
+    configASSERT(is_model_allowed(index, member->model));
 
     // 查常量表：下标就是 DjiMotorModel 的值
     const ModelTraits traits = MODEL_TRAITS[static_cast<uint8_t>(member->model)];
@@ -103,7 +82,6 @@ Status DjiMotorGroupT<CanT>::init(void)
   }
 
   _inited = true;
-  return Status::OK;
 }
 
 /**

@@ -70,34 +70,37 @@ public:
    */
   struct Config
   {
-    /**
-     * @brief 按序构造配置（参数顺序 = 字段顺序）
-     */
-    Config(GPIO_TypeDef *port = nullptr, uint16_t pin = 0U, bool active_low = true, uint8_t debounce_cnt = 3U, uint16_t long_press_cnt = 200U) : port(port), pin(pin), active_low(active_low), debounce_cnt(debounce_cnt), long_press_cnt(long_press_cnt)
-    {
-    }
-
-    GPIO_TypeDef *port;           ///< GPIO 端口 (GPIOA / GPIOB / ...)
-    uint16_t      pin;            ///< 引脚掩码 (GPIO_PIN_x)
-    bool          active_low;     ///< 有效电平: true=低有效(上拉), false=高有效(下拉)
-    uint8_t       debounce_cnt;   ///< 消抖计数 (连续相同电平次数)
-    uint16_t      long_press_cnt; ///< 长按计数阈值 (按住持续次数)
+    GPIO_TypeDef *port           = nullptr; ///< GPIO 端口 (GPIOA / GPIOB / ...)
+    uint16_t      pin            = 0U;      ///< 引脚掩码 (GPIO_PIN_x)
+    bool          active_low     = true;    ///< 有效电平: true=低有效(上拉), false=高有效(下拉)
+    uint8_t       debounce_cnt   = 3U;      ///< 消抖计数 (连续相同电平次数)
+    uint16_t      long_press_cnt = 200U;    ///< 长按计数阈值 (按住持续次数)
   };
 
-  /** @brief 默认构造（未绑定引脚，须再调 init()） */
+  /** @brief 默认构造（未绑定引脚，init() 会返回 BAD_ARG） */
   BspKey() = default;
 
   /**
-   * @brief 绑定引脚并初始化消抖状态机
-   * @param cfg 引脚 + 消抖/长按参数（可匿名按序传入）
+   * @brief 构造：只保存配置（纯赋值，不碰硬件）
    *
-   * @note 硬件引脚方向/上下拉由 CubeMX 的 MX_GPIO_Init() 配置，
-   *       本函数仅保存参数并读取初始电平作为稳定状态。
+   * @note 必须是 constexpr：bsp_cfg.hpp 里的全局实例是 inline 变量，需要常量初始化。
+   * @note 读初始电平要调 `HAL_GPIO_ReadPin`，必须等 CubeMX 的 MX_GPIO_Init() 跑过，
+   *       所以引脚检测与消抖状态机的启动只能放在 init()。
+   */
+  constexpr explicit BspKey(const Config &cfg) :
+    _port(cfg.port), _pin(cfg.pin), _active_low(cfg.active_low), _debounce_cnt(cfg.debounce_cnt), _long_press_cnt(cfg.long_press_cnt)
+  {
+  }
+
+  /**
+   * @brief 校验已保存的配置，并以当前电平作为初始稳定状态
+   *
+   * @note 配置在构造时已经存好，所以本函数不再收参；重复调用只会重读一次电平。
    *
    * @return Status OK=绑定成功；
    *         BAD_ARG=端口/引脚非法，或 debounce_cnt / long_press_cnt 为 0
    */
-  Status init(const Config &cfg);
+  Status init();
 
   /**
    * @brief 轮询消抖（每周期调用一次，须在单任务中调用）

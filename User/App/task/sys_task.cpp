@@ -63,8 +63,10 @@ extern "C" void sys_task(void *argument)
       const double uptime_s = bsp_dwt.get_time_s();
 
       // 本轮耗时（µs）：从循环开头到这里，经 USART1 打印
-      bsp_uart1.printf("[sys] time=%ds cycle=%uus\r\n",
-                       uptime_s,
+      // ⚠ 两个参数都必须先显式转成 unsigned 再交给 %u：vsnprintf 按格式串取变参，
+      //   把 double 直接配 %d/%u 会读错槽位，打出来的是 double 的位模式（全是乱数，还会为负）
+      bsp_uart1.printf("[sys] time=%us cycle=%uus\r\n",
+                       static_cast<unsigned>(uptime_s),
                        static_cast<unsigned>(bsp_dwt.get_delta_s(&mark) * 1000000.0));
       count = 0;
     }

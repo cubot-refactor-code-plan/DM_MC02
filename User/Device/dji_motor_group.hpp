@@ -105,14 +105,9 @@ public:
    */
   struct Member
   {
-    /** @brief 型号必填；减速比 / 零位偏移不填就用型号默认值（3591/187、36、1）和 0 */
-    Member(DjiMotorModel model, float ratio = 0.0f, float offset = 0.0f) : model(model), ratio(ratio), offset(offset)
-    {
-    }
-
-    DjiMotorModel model;  ///< 位置 0~3：M3508/M2006；位置 4~7：三种均可；位置 8~10：必须 GM6020
-    float         ratio;  ///< 转子到输出轴的减速比（转子转 ratio 圈 = 输出轴转 1 圈）；传 0 用型号默认
-    float         offset; ///< 机械零位偏移，单位 rad；只影响输出的角度，不影响转速/加速度
+    DjiMotorModel model;         ///< 型号必填。位置 0~3：M3508/M2006；位置 4~7：三种均可；位置 8~10：必须 GM6020
+    float         ratio  = 0.0f; ///< 转子到输出轴的减速比（转子转 ratio 圈 = 输出轴转 1 圈）；传 0 用型号默认
+    float         offset = 0.0f; ///< 机械零位偏移，单位 rad；只影响输出的角度，不影响转速/加速度
   };
 
   /**
@@ -128,31 +123,19 @@ public:
    */
   struct Config
   {
-    /** @brief 按序构造配置（参数顺序 = 位置顺序） */
-    Config(CanT        *can    = nullptr,
-           const Member *m0x201 = nullptr,
-           const Member *m0x202 = nullptr,
-           const Member *m0x203 = nullptr,
-           const Member *m0x204 = nullptr,
-           const Member *m0x205 = nullptr,
-           const Member *m0x206 = nullptr,
-           const Member *m0x207 = nullptr,
-           const Member *m0x208 = nullptr,
-           const Member *m0x209 = nullptr,
-           const Member *m0x20A = nullptr,
-           const Member *m0x20B = nullptr) :
-      can(can), member {m0x201, m0x202, m0x203, m0x204, m0x205, m0x206, m0x207, m0x208, m0x209, m0x20A, m0x20B}
-    {
-    }
-
-    CanT         *can;               ///< 本组绑定的 CAN 总线（须已由 bsp_init() 初始化）
-    const Member *member[MOTOR_NUM]; ///< 各位置的成员描述，下标 = 位置；nullptr = 该位没有电机
+    CanT         *can             = nullptr; ///< 本组绑定的 CAN 总线（须已由 bsp_init() 初始化）
+    const Member *member[MOTOR_NUM] = {};    ///< 各位置的成员描述，下标 = 位置；nullptr = 该位没有电机
   };
 
   // ----------------
   // ---------------- 构造与析构 ----------------
 
-  /** @brief 只保存配置，不碰硬件、不创建 RTOS 对象（也没有需要释放的资源） */
+  /**
+   * @brief 构造：校验成员表并把配置折算进各位置（不碰硬件、不创建 RTOS 对象）
+   *
+   * @note 成员表写错（总线为空 / 型号放错位置）时 `configASSERT` 就地停机 —— 这两种都是
+   *       配置错误，没有可恢复路径，所以不再留 init() 让调用方查返回值。
+   */
   explicit DjiMotorGroupT(const Config &cfg);
 
   // 禁止复制/移动：内部持有 Online 链表节点，复制会让链表指向原对象
@@ -165,20 +148,9 @@ public:
   // ---------------- 公有接口 ----------------
 
   /**
-   * @brief 校验成员表并把配置折算进各位置（幂等）
-   * @return OK=可用；NOT_INIT=总线句柄为空；BAD_ARG=型号与位置不匹配
-   *
-   * @note 只算不碰硬件：先校验型号是否允许放在该位置，再把限幅 / 减速比 / 零位 / 控制帧与
-   *       槽位这些「每帧都要用」的量提前算进 Slot，热路径就不必反复查型号表。
-   * @note 只要构造时的成员表写错（型号放错位置），这里就会返回 BAD_ARG —— 成员表错误
-   *       在 init() 阶段一次性暴露，运行期就不用再怀疑配置。
-   */
-  Status init(void);
-
-  /**
    * @brief 传入一帧反馈
    * @param rx 待解析的 CAN 标准帧
-   * @return OK=已更新；BAD_ARG=标识符越界、该位没有电机或帧格式不符；NOT_INIT=未 init
+   * @return OK=已更新；BAD_ARG=标识符越界、该位没有电机或帧格式不符；NOT_INIT=对象未构造完成
    *
    * @note 位置由标识符直接推出：位置 = 标识符 - 0x201，不用查表。
    * @note 把本周期从 CanT 取到的帧全部喂进来即可：不属于本类的标识符只会被判
@@ -260,7 +232,7 @@ private:
     Online    online;                  ///< 在线检查节点（默认阈值 30 ms）
     int32_t   last_ecd       = 0;      ///< 上一帧的单圈编码器计数，跨零展开用
     uint16_t  limit          = 0U;     ///< 原始指令绝对值上限（由型号决定）
-    uint8_t   tx_frame       = 0U;     ///< 控制帧下标 0 ~ 3，init() 里算好，热路径不再看型号
+    uint8_t   tx_frame       = 0U;     ///< 控制帧下标 0 ~ 3，构造时算好，热路径不再看型号
     uint8_t   tx_slot        = 0U;     ///< 帧内槽位 0 ~ 3
     bool      feedback_ready = false;  ///< 是否已收到过至少一帧有效反馈
     int64_t   total_ecd      = 0;      ///< 跨零展开后的累计转子编码器计数；必须排最后（8 字节对齐）
@@ -371,7 +343,7 @@ private:
   Slot    _slot[MOTOR_NUM];             ///< 各位置的运行时状态，下标 = 位置
   uint8_t _frame_data[FRAME_NUM][8] {}; ///< 各控制帧的 8 字节发送缓冲，下标 0~3 = 0x200 / 0x1FF / 0x1FE / 0x2FE
   bool    _frame_active[FRAME_NUM] {};  ///< 各控制帧是否挂了成员；没挂就整条不发
-  bool    _inited = false;              ///< init() 是否跑过；未 init 时接口一律安全返回
+  bool    _inited = false;              ///< 构造是否成功完成；未成功时接口一律安全返回
 
   // ----------------
 };

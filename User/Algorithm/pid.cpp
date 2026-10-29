@@ -5,8 +5,17 @@
 
 // ---------------- 构造 ----------------
 
+/** @brief 无参构造：全部参数取默认值（委托给带配置的版本） */
+Pid::Pid() : Pid(Config {})
+{
+}
+
 Pid::Pid(Config config) : _cfg(config), _error(0.0f), _last_error(0.0f), _last_target(0.0f), _delta_target(0.0f), _delta_error(0.0f), _i_term(0.0f), _f_term(0.0f)
 {
+  // 积分限幅填 0 时跟随总输出上限（Config 已改成聚合体，派生逻辑集中到构造函数）
+  if (_cfg.limit.i_max == 0.0f)
+    _cfg.limit.i_max = _cfg.limit.out_max;
+
   // kd 为 0 时微分项恒为 0，算它没有意义：直接关掉。
   // 其余情况沿用配置里的方式（默认 TARGET = 微分先行）
   if (_cfg.gain.kd == 0.0f)

@@ -67,26 +67,8 @@ Status CorexyT<Group>::init()
     return Status::BAD_ARG;
   }
 
-  _state      = State::Idle;
-  _last_error = Status::OK;
-  _pos        = Point(0.0f, 0.0f);
-  _target     = Point(0.0f, 0.0f);
-  _seg_count  = 0U;
-  _seg_index  = 0U;
-  _cur_counts[0] = 0;
-  _cur_counts[1] = 0;
-
-  _cmd_target[0] = 0;
-  _cmd_target[1] = 0;
-  _armed         = false;
-  _zero_ok       = 0U;
-
-  _quick_valid[0] = false;
-  _quick_valid[1] = false;
-  _prev_ok[0]     = false;
-  _prev_ok[1]     = false;
-  _read_hold      = 0;
-  _inited         = true;
+  // 状态机初值全在 corexy.hpp 的成员声明里（NSDMI），这里只置「可运行」标志
+  _inited = true;
 
   return Status::OK;
 }

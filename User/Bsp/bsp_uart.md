@@ -8,14 +8,13 @@
 // 1) 头文件：业务侧一般只需 bsp_cfg.hpp
 #include "bsp_cfg.hpp"
 
-// 2) 实例：bsp_cfg.cpp —— DMA 实例的缓冲区必须放 .dma_buffer
-__attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uartX({&huartX, UartMode::TxRx, 115200U});
+// 2) 实例：bsp_cfg.hpp —— inline 变量，定义只写这一处（DMA 实例必须放 .dma_buffer）
+//    ⚠ 段名要按变量唯一（.dma_buffer.<名字>）：多个 TU 会各自 emit 一份弱定义，
+//    如果都用同一个 .dma_buffer 段名，部分实例会被链接器丢掉。
+inline __attribute__((section(".dma_buffer.bsp_uartX")))
+  BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uartX({ .huart = &huartX, .mode = UartMode::TxRx, .baudrate = 115200U });
 
-// 3) 声明：bsp_cfg.hpp
-extern BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uartX;
-
-// 4) 显式实例化：bsp_uart.cpp 顶部（同类型已有则跳过）
+// 3) 显式实例化：bsp_uart.cpp 顶部（同类型已有则跳过）
 template class BspUartT<uart_detail::DmaTransport, 128, 128>;
 
 // 5) HAL 回调分发：bsp_uart.cpp 三张表各加一条
@@ -53,7 +52,7 @@ if (bsp_uartX.receive(rx, sizeof(rx), 10, &got) == Status::OK)
 设备层把串口当模板参数，不 include `bsp_cfg.hpp`：
 
 ```cpp
-DeviceEmmv5GroupT<decltype(bsp_uartX)> motor_group({bsp_uartX, {1, 2}});
+DeviceEmmv5GroupT<decltype(bsp_uartX)> motor_group({ .uart = bsp_uartX, .addr = {1, 2} });
 motor_group.init();                     // 只建总线锁；之后由调用任务周期调 update()
 motor_group.request_position(1);
 int32_t pos = 0;
@@ -261,7 +260,8 @@ IT 两种都要认：HAL 在 `FIFOMODE_ENABLE` 且长度 ≥ 阈值时走 `UART_
 
 ```cpp
 __attribute__((section(".dma_buffer")))
-BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart6({&huart6, UartMode::TxRx, 921600U});
+inline __attribute__((section(".dma_buffer.bsp_uart6")))
+  BspUartT<uart_detail::DmaTransport, 128, 128> bsp_uart6({ .huart = &huart6, .mode = UartMode::TxRx, .baudrate = 921600U });
 ```
 
 **确认**：测试里调 `check_format(921600U, UART_WORDLENGTH_8B, UART_PARITY_NONE, UART_STOPBITS_1)`，

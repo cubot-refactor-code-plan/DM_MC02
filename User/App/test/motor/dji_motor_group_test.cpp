@@ -41,12 +41,7 @@ extern "C" void dji_motor_group_test_task(void *argument)
   sys_state.wait_running();
   static_assert(configTICK_RATE_HZ == 1000U, "DJI motor group test requires a 1 kHz tick");
 
-  if (can3_dji_group.init() != Status::OK)
-  {
-    bsp_uart1.printf("[DJIGRP] can3_dji_group.init() failed\r\n");
-    vTaskDelete(NULL);
-    return;
-  }
+  // 成员表的校验与折算已经在全局构造阶段完成，这里不再需要 init()
 
   // 开跑前先把成员表打出来：谁挂在哪个位置、给多少指令
   uint32_t used = 0U;

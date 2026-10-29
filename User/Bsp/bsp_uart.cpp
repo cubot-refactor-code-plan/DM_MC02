@@ -10,7 +10,6 @@
 // 显式实例化：按项目实际使用的串口类型生成。
 // 新增串口时要同步改三处：这里、下面的 HAL 回调分发表、bsp_cfg.cpp 的实例定义。
 template class BspUartT<uart_detail::DmaTransport, 128, 128>;
-template class BspUartT<uart_detail::DmaTransport, 256, 256>;
 template class BspUartT<uart_detail::ItTransport, 128, 32>;
 template class BspUartT<uart_detail::ItTransport, 128, 128>;
 
@@ -118,7 +117,7 @@ DmaRxFlags read_dma_rx_flags(const UART_HandleTypeDef *huart)
 {
   DmaRxFlags flags {};
 
-  flags.hal_busy = (huart->RxState == HAL_UART_STATE_BUSY_RX);
+  flags.hal_busy = (huart->RxState == HAL_UART_STATE_BUSY_RX); 
   flags.dmaren   = ((huart->Instance->CR3 & USART_CR3_DMAR) != 0U);
 
   if (huart->hdmarx != nullptr && IS_DMA_STREAM_INSTANCE(huart->hdmarx->Instance) != 0U)
@@ -248,15 +247,8 @@ void uart_detail::ItTransport::abort_tx(UART_HandleTypeDef *huart)
 
 // ---------------- 公有接口 ----------------
 
-/** @brief 只做赋值，RTOS 资源与接收启动放在 init() */
-template <typename Transport, size_t RX_SIZE, size_t TX_SIZE>
-BspUartT<Transport, RX_SIZE, TX_SIZE>::BspUartT(const Config &cfg) : _huart(cfg.huart), _mode(cfg.mode), _baudrate(cfg.baudrate)
-{
-  // 构造函数只做赋值；运行时逻辑（FreeRTOS资源创建）推迟到 init()
-}
-
 /**
- * @brief 创建 FreeRTOS 对象并启动 IDLE 接收（须在STM32初始化之后调用）
+ * @brief 创建 FreeRTOS 对象并启动 IDLE 接收（须在 STM32 初始化之后调用）
  *
  * @return Status OK=成功；BAD_ARG=句柄为空；IO_ERROR=资源创建或接收启动失败
  *
@@ -275,8 +267,6 @@ Status BspUartT<Transport, RX_SIZE, TX_SIZE>::init()
   // 可重复调用：先释放上一次残留的软件资源，避免二次 init() 直接覆盖指针造成泄漏
   // （与 bsp_can::init() 的可重入行为保持一致）
   cleanup_resources();
-
-  _rx_should_run = _rx_enabled();
 
   if (_rx_enabled())
   {
@@ -335,9 +325,9 @@ Status BspUartT<Transport, RX_SIZE, TX_SIZE>::init()
   return Status::OK; // 初始化成功
 }
 
-/** @brief 停掉 RX/TX 通道并释放软件资源 */
+/** @brief 停掉 RX/TX 通道并释放软件资源（见 .hpp 的 deinit 声明） */
 template <typename Transport, size_t RX_SIZE, size_t TX_SIZE>
-BspUartT<Transport, RX_SIZE, TX_SIZE>::~BspUartT()
+void BspUartT<Transport, RX_SIZE, TX_SIZE>::deinit()
 {
   // 句柄非法时无可停的外设，直接释放软件资源
   if (_huart == nullptr)
@@ -549,7 +539,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::tx_recover()
   {
     _tx_inflight_len       = rest;
     _tx_last_activity_tick = xTaskGetTickCount();
-    _tx_stall_rec_cnt++;
+    _tx_stall_rec_cnt = _tx_stall_rec_cnt + 1;
     return true;
   }
 
@@ -559,7 +549,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::tx_recover()
     return false; // 拿不到锁 / 仍无法启动，下轮再试
   }
 
-  _tx_stall_rec_cnt++; // 诊断：恢复成功一次
+  _tx_stall_rec_cnt = _tx_stall_rec_cnt + 1; // 诊断：恢复成功一次
   return true;
 }
 
@@ -597,7 +587,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::rx_recover()
     return false; // 仍失败，下个周期再试（_rx_should_run 保持为 true）
   }
 
-  _rx_error_cnt++; // 诊断：确实重建了一次
+  _rx_error_cnt = _rx_error_cnt + 1; // 诊断：确实重建了一次
   return true;
 }
 // ----------------
@@ -658,7 +648,7 @@ void BspUartT<Transport, RX_SIZE, TX_SIZE>::start_transmission_from_isr(BaseType
   const bool tx_channel_idle = (_huart->gState == HAL_UART_STATE_READY);
   if (!tx_channel_idle)
   {
-    _tx_isr_skip_cnt++;
+    _tx_isr_skip_cnt = _tx_isr_skip_cnt + 1;
     return; // 数据仍在流缓冲区，等巡检重新启动发送（tx_recover函数）
   }
 
@@ -677,7 +667,7 @@ void BspUartT<Transport, RX_SIZE, TX_SIZE>::start_transmission_from_isr(BaseType
     // 恢复动作由巡检任务进行（tx_recover函数）
     (void)xStreamBufferSendFromISR(_tx_stream_buffer, _tx_buffer, bytes_to_send, pxHigherPriorityTaskWoken);
     _tx_inflight_len = 0;
-    _tx_start_fail_cnt++;
+    _tx_start_fail_cnt = _tx_start_fail_cnt + 1;
   }
   else
   {
@@ -703,7 +693,7 @@ void BspUartT<Transport, RX_SIZE, TX_SIZE>::on_error_isr()
   // HAL 在收发出错时会停掉对应通道，gState 离开 READY → 记一次 TX 侧故障
   if (_huart->gState != HAL_UART_STATE_READY)
   {
-    _tx_error_cnt++;
+    _tx_error_cnt = _tx_error_cnt + 1;
   }
 
   // 只统计接收侧的线路错误：ORE 是 921600 中断接收最需要盯的指标，
@@ -711,7 +701,7 @@ void BspUartT<Transport, RX_SIZE, TX_SIZE>::on_error_isr()
   constexpr uint32_t RX_HW_ERROR_MASK = HAL_UART_ERROR_PE | HAL_UART_ERROR_NE | HAL_UART_ERROR_FE | HAL_UART_ERROR_ORE | HAL_UART_ERROR_RTO;
   if ((_huart->ErrorCode & RX_HW_ERROR_MASK) != 0U)
   {
-    _rx_hw_error_cnt++;
+    _rx_hw_error_cnt = _rx_hw_error_cnt + 1;
   }
 }
 // ----------------
@@ -828,7 +818,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::arm_reception()
   // 启动多字节接收（IDLE 模式）；HAL 会自动清 IDLE 标志并使能 IDLE 中断
   if (!Transport::arm_rx(_huart, _rx_buffer, RX_SIZE))
   {
-    _rx_arm_fail_cnt++; // 诊断：启动失败计数（正常应恒为 0）
+    _rx_arm_fail_cnt = _rx_arm_fail_cnt + 1; // 诊断：启动失败计数（正常应恒为 0）
     return false;       // 启动失败：由调用方决定重试或上报
   }
   _rx_should_run = true;
@@ -896,7 +886,7 @@ bool BspUartT<Transport, RX_SIZE, TX_SIZE>::start_transmission(TickType_t wait)
         // 刚取出 n 字节，流缓冲区至少有 n 字节空间，所以这次回滚必定成功。
         (void)xStreamBufferSend(_tx_stream_buffer, _tx_buffer, bytes_to_send, 0);
         _tx_inflight_len = 0; // 未启动 → 无在途数据
-        _tx_start_fail_cnt++;
+        _tx_start_fail_cnt = _tx_start_fail_cnt + 1;
       }
       else
       {
